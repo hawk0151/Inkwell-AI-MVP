@@ -2,21 +2,23 @@
 import PDFDocument from 'pdfkit';
 import axios from 'axios';
 
+// Helper function to convert mm to points
+const mmToPoints = (mm) => mm * (72 / 25.4);
+
 // --- Image Helper ---
 async function getImageBuffer(url) {
     const response = await axios.get(url, { responseType: 'arraybuffer' });
     return Buffer.from(response.data, 'binary');
 }
 
-// --- Picture Book PDF Generator (MODIFIED) ---
-// This function no longer fetches from the DB itself. It now accepts data.
+// --- Picture Book PDF Generator ---
 export const generatePictureBookPdf = async (book, events) => {
     return new Promise(async (resolve, reject) => {
         try {
-            // Assuming A4 Picture Book product (8.27 x 11.69 inches) from PRODUCTS_TO_OFFER
-            // For landscape: [height, width] = [11.69 * 72, 8.27 * 72]
-            const widthInPoints = 11.69 * 72; // ~841.68
-            const heightInPoints = 8.27 * 72; // ~595.44
+            // A4 landscape from PRODUCTS_TO_OFFER: 8.27 x 11.69″ / 210 x 297 mm
+            // For landscape, width is longer side (297mm), height is shorter side (210mm)
+            const widthInPoints = mmToPoints(297); 
+            const heightInPoints = mmToPoints(210);
 
             const doc = new PDFDocument({
                 size: [widthInPoints, heightInPoints], // Landscape A4 equivalent
@@ -58,12 +60,11 @@ export const generatePictureBookPdf = async (book, events) => {
                     }
                 }
                 
-                // Add overlay text at the bottom
                 if (event.overlay_text) {
                     doc.fontSize(24).font('Helvetica-Bold').text(
                         event.overlay_text,
                         doc.page.margins.left,
-                        doc.page.height - doc.page.margins.bottom - 100, // Position towards bottom
+                        doc.page.height - doc.page.margins.bottom - 100, 
                         { align: 'center', width: doc.page.width - doc.page.margins.left * 2 }
                     );
                 }
@@ -77,15 +78,15 @@ export const generatePictureBookPdf = async (book, events) => {
 
 
 // --- Text Book PDF Generator ---
-// MODIFIED to use exact Lulu dimensions for Novella (5.5 x 8.5 inches)
+// MODIFIED to use exact Lulu dimensions for Digest (5.5 x 8.5 inches / 140 x 216 mm)
 export const generateTextBookPdf = (title, chapters) => {
     return new Promise((resolve) => {
-        const widthInPoints = 5.5 * 72; // 396 points
-        const heightInPoints = 8.5 * 72; // 612 points
+        const widthInPoints = mmToPoints(140); // 140 mm
+        const heightInPoints = mmToPoints(216); // 216 mm
 
         const doc = new PDFDocument({
-            size: [widthInPoints, heightInPoints], // Set exact dimensions
-            layout: 'portrait', // Keep portrait
+            size: [widthInPoints, heightInPoints], // Set exact dimensions based on mm
+            layout: 'portrait', 
             margins: { top: 72, bottom: 72, left: 72, right: 72 }
         });
 
@@ -103,7 +104,7 @@ export const generateTextBookPdf = (title, chapters) => {
 
         // --- Chapter Pages ---
         for (const chapter of chapters) {
-            doc.addPage({ margins: { top: 72, bottom: 72, left: 72, right: 72 }}); // Ensure margins for each page
+            doc.addPage({ margins: { top: 72, bottom: 72, left: 72, right: 72 }}); 
             doc.fontSize(18).font('Times-Bold').text(`Chapter ${chapter.chapter_number}`, { align: 'center' });
             doc.moveDown(2);
             doc.fontSize(12).font('Times-Roman').text(chapter.content, { align: 'justify' });
