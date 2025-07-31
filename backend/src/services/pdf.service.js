@@ -6,47 +6,46 @@ import { PRODUCTS_TO_OFFER, getCoverDimensionsFromApi } from './lulu.service.js'
 // Helper function to convert mm to points
 const mmToPoints = (mm) => mm * (72 / 25.4);
 
-// Helper to get dimensions from product ID using PRECISE TEMPLATE SPECS
+// Helper to get dimensions from product ID for INTERIOR PDFs
 const getProductDimensions = (luluProductId) => {
-    // --- FIX START: Corrected typo from PRODUCTS_TOFFER to PRODUCTS_TO_OFFER ---
     const product = PRODUCTS_TO_OFFER.find(p => p.id === luluProductId);
-    // --- FIX END ---
     if (!product) {
         throw new Error(`Product with ID ${luluProductId} not found in PRODUCTS_TO_OFFER.`);
     }
 
     let widthMm, heightMm, layout;
 
+    // These are interior dimensions, which remain fixed based on Lulu's templates
     switch (product.id) {
-        case '0550X0850BWSTDCW060UC444GXX': // Novella (5.5 x 8.5" / 139.7 x 215.9 mm - from template)
-            widthMm = 139.7; // Exact from Lulu template
-            heightMm = 215.9; // Exact from Lulu template
+        case '0550X0850BWSTDCW060UC444GXX': // Novella (5.5 x 8.5" / 139.7 x 215.9 mm)
+            widthMm = 139.7;
+            heightMm = 215.9;
             layout = 'portrait';
             break;
-        case '0827X1169BWPRELW060UC444GNG': // A4 Story Book (8.27 x 11.69" / 209.55 x 296.9 mm - from template)
+        case '0827X1169BWPRELW060UC444GNG': // A4 Story Book (8.27 x 11.69" / 209.55 x 296.9 mm)
             widthMm = 209.55;
             heightMm = 296.9;
             layout = 'portrait';
             break;
-        case '0614X0921BWPRELW060UC444GNG': // Royal Hardcover (6.14 x 9.21" / 156 x 234 mm - common Royal size, verify with Lulu if issues persist)
+        case '0614X0921BWPRELW060UC444GNG': // Royal Hardcover (6.14 x 9.21" / 156 x 234 mm)
             widthMm = 156;
             heightMm = 234;
             layout = 'portrait';
             break;
-        case '0827X1169FCPRELW080CW444MNG': // A4 Premium Picture Book (8.27 x 11.69" / 209.55 x 296.9 mm - from template, landscape)
-            // For landscape, width > height.
-            widthMm = 296.9; // Height of A4 in portrait becomes width in landscape
-            heightMm = 209.55; // Width of A4 in portrait becomes height in landscape
-            layout = 'landscape';
+        case '0827X1169FCPRELW080CW444MNG': // A4 Premium Picture Book (8.27 x 11.69" / 209.55 x 296.9 mm - portrait internal dimensions for a landscape book)
+            // Interior PDF for a landscape book is still generated in portrait
+            widthMm = 209.55;
+            heightMm = 296.9;
+            layout = 'portrait'; // Interior content for landscape book still uses portrait pages
             break;
         default:
-            throw new Error(`Unknown product ID ${luluProductId} for PDF dimensions.`);
+            throw new Error(`Unknown product ID ${luluProductId} for interior PDF dimensions.`);
     }
 
     const widthPoints = mmToPoints(widthMm);
     const heightPoints = mmToPoints(heightMm);
 
-    console.log(`DEBUG: Product ${luluProductId} interior dimensions in MM: ${widthMm}x${heightMm}. In Points: ${widthPoints.toFixed(2)}x${heightPoints.toFixed(2)}.`);
+    console.log(`DEBUG: Product ${luluProductId} interior dimensions in MM: ${widthMm}x${heightMm}. In Points: ${widthPoints.toFixed(2)}x${heightPoints.toFixed(2)}. Layout: ${layout}.`);
 
     return {
         width: widthPoints,
@@ -66,14 +65,21 @@ export const generateCoverPdf = async (bookTitle, authorName, luluProductId, pag
     return new Promise(async (resolve, reject) => {
         try {
             // Get dimensions directly from Lulu API
-            const { width: coverWidthMm, height: coverHeightMm, layout: coverLayout } = 
+            const { width: coverWidthMm, height: coverHeightMm, layout: coverLayout } =
                 await getCoverDimensionsFromApi(luluProductId, pageCount, 'mm');
-            
+
             // Convert MM to points for PDFKit
             const docWidthPoints = mmToPoints(coverWidthMm);
             const docHeightPoints = mmToPoints(coverHeightMm);
 
             console.log(`DEBUG: Cover PDF for ${luluProductId} (Pages: ${pageCount}) will be generated with dimensions from Lulu API in MM: ${coverWidthMm.toFixed(2)}x${coverHeightMm.toFixed(2)}. In Points: ${docWidthPoints.toFixed(2)}x${docHeightPoints.toFixed(2)}. Layout: ${coverLayout}.`);
+
+            // Validate the dimensions before generating
+            if (docWidthPoints <= 0 || docHeightPoints <= 0 || docWidthPoints > 10000 || docHeightPoints > 10000) { // Arbitrary large value to catch extreme errors
+                const errorMessage = `Invalid or extreme cover dimensions retrieved from Lulu API: Width: ${coverWidthMm}mm (${docWidthPoints.toFixed(2)}pt), Height: ${coverHeightMm}mm (${docHeightPoints.toFixed(2)}pt). Aborting PDF generation.`;
+                console.error(`❌ ${errorMessage}`);
+                return reject(new Error(errorMessage));
+            }
 
             const doc = new PDFDocument({
                 size: [docWidthPoints, docHeightPoints],
@@ -88,22 +94,42 @@ export const generateCoverPdf = async (bookTitle, authorName, luluProductId, pag
 
             doc.addPage();
 
+            // Fill background
             doc.rect(0, 0, doc.page.width, doc.page.height).fill('#313131'); // Dark background
 
-            // Basic text layout (Front Cover Title) - centered on the full spread
-            doc.fontSize(48).fillColor('#FFFFFF').font('Helvetica-Bold').text(bookTitle, 0, doc.page.height / 3, {
-                align: 'center',
-                width: doc.page.width
-            });
+            // Ensure cover content (title/author) is centered but does not rely on internal margins that would break Lulu’s bleed expectations.
+            // Text is centered across the entire cover spread (front, spine, back).
+            // For a basic cover, we'll place text roughly in the center of the right half (which represents the front cover).
+            // Assuming the spine is roughly in the middle, the front cover starts at doc.page.width / 2.
+            // This is a simplification; a true cover design would involve more precise layout based on spine width.
+
+            // To center content on the *front cover* (right half of the spread), we need to calculate its bounds.
+            // For now, we'll just center on the whole spread for simplicity,
+            // as the instructions state "centered but does not rely on internal margins" which implies
+            // it needs to be robust for the whole canvas Lulu expects.
+            // If the text needs to be ONLY on the front cover, this logic needs refinement.
+            // For initial validation, centering on the full spread is sufficient.
+
+            doc.fontSize(48)
+                .fillColor('#FFFFFF')
+                .font('Helvetica-Bold')
+                .text(bookTitle, 0, doc.page.height / 3, { // Centered vertically in the upper third
+                    align: 'center',
+                    width: doc.page.width // Center across the full spread
+                });
             doc.moveDown(1);
-            doc.fontSize(24).fillColor('#CCCCCC').font('Helvetica').text(authorName || 'Inkwell AI', {
-                align: 'center',
-                width: doc.page.width
-            });
+            doc.fontSize(24)
+                .fillColor('#CCCCCC')
+                .font('Helvetica')
+                .text(authorName || 'Inkwell AI', {
+                    align: 'center',
+                    width: doc.page.width // Center across the full spread
+                });
 
             doc.end();
         } catch (error) {
             console.error("Error generating cover PDF:", error);
+            // Fallback and Error Visibility: re-reject the error from getCoverDimensionsFromApi
             reject(error);
         }
     });

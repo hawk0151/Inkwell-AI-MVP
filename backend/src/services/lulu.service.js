@@ -73,10 +73,18 @@ export const getHardcoverSpineWidthMm = (pageCount) => {
     return 54;
 };
 
-// --- MODIFIED FUNCTION: Call Lulu Cover Dimensions API ---
-export const getCoverDimensionsFromApi = async (podPackageId, interiorPageCount, unit = 'mm') => {
-    const accessToken = await getLuluAuthToken();
+// Cache for cover dimensions to avoid repeated API calls
+const coverDimensionsCache = new Map();
 
+// --- NEW: getCoverDimensionsFromApi with Caching and Retry Logic ---
+export const getCoverDimensionsFromApi = async (podPackageId, interiorPageCount, unit = 'mm', retries = 2) => {
+    const cacheKey = `${podPackageId}-${interiorPageCount}-${unit}`;
+    if (coverDimensionsCache.has(cacheKey)) {
+        console.log(`DEBUG: Reusing cached cover dimensions for ${cacheKey}`);
+        return coverDimensionsCache.get(cacheKey);
+    }
+
+    const accessToken = await getLuluAuthToken();
     const coverDimensionsUrl = `${LULU_API_URL}/cover-dimensions/`;
     const payload = {
         pod_package_id: podPackageId,
@@ -84,45 +92,70 @@ export const getCoverDimensionsFromApi = async (podPackageId, interiorPageCount,
         unit: unit
     };
 
-    console.log(`DEBUG: Calling Lulu Cover Dimensions API for ${podPackageId}, pages: ${interiorPageCount}, unit: ${unit}`);
+    for (let i = 0; i <= retries; i++) {
+        try {
+            console.log(`DEBUG: Calling Lulu Cover Dimensions API for ${podPackageId}, pages: ${interiorPageCount}, unit: ${unit} (Attempt ${i + 1}/${retries + 1})`);
 
-    const response = await fetch(coverDimensionsUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${accessToken}` },
-        body: JSON.stringify(payload)
-    });
+            const response = await fetch(coverDimensionsUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${accessToken}` },
+                body: JSON.stringify(payload)
+            });
 
-    if (!response.ok) {
-        const errorBody = await response.text();
-        console.error(`[LULU_ERROR] Failed to get cover dimensions from API. Status: ${response.status}. Body: ${errorBody}`);
-        throw new Error(`Failed to get cover dimensions from Lulu API: ${errorBody}`);
+            if (!response.ok) {
+                const errorBody = await response.text();
+                const errorMessage = `[LULU_ERROR] Failed to get cover dimensions from API. Status: ${response.status}. Body: ${errorBody}`;
+                console.error(errorMessage);
+
+                if (i < retries && response.status >= 500) { // Retry on server errors
+                    const delay = Math.pow(2, i) * 1000; // Exponential backoff
+                    console.log(`Retrying in ${delay / 1000} seconds...`);
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                    continue; // Go to next retry attempt
+                }
+                // Fallback and Error Visibility: If API fails permanently
+                throw new Error(`Cover dimensions could not be retrieved from Lulu API for product ID ${podPackageId} and page count ${interiorPageCount}. HTTP Status: ${response.status}. Body: ${errorBody}. Suggestion: “Cover dimensions could not be retrieved; aborting PDF generation to avoid invalid cover upload.”`);
+            }
+
+            const data = await response.json();
+            console.log(`✅ Lulu Cover Dimensions API Response: Width: ${data.width}${data.unit}, Height: ${data.height}${data.unit}`);
+
+            const widthInMm = convertUnitToMm(parseFloat(data.width), data.unit);
+            const heightInMm = convertUnitToMm(parseFloat(data.height), data.unit);
+
+            if (isNaN(widthInMm) || isNaN(heightInMm) || widthInMm <= 0 || heightInMm <= 0) {
+                console.error(`❌ Lulu Cover Dimensions API returned invalid dimensions: Width: ${data.width}, Height: ${data.height}. Aborting.`);
+                throw new Error('Lulu Cover Dimensions API returned invalid or non-positive dimensions. Aborting PDF generation.');
+            }
+
+            // Lulu API returns width > height for landscape, so use it directly
+            const layout = (widthInMm > heightInMm) ? 'landscape' : 'portrait';
+
+            const result = {
+                width: widthInMm,
+                height: heightInMm,
+                unit: 'mm', // Standardize to mm
+                layout: layout
+            };
+            coverDimensionsCache.set(cacheKey, result); // Cache the successful result
+            return result;
+
+        } catch (error) {
+            if (i === retries) { // If this was the last retry
+                console.error(`Final attempt failed for getCoverDimensionsFromApi: ${error.message}`);
+                throw error; // Re-throw the error if all retries fail
+            }
+            // For non-retryable errors (e.g., 4xx), re-throw immediately
+            if (!error.message.includes('HTTP Status: 5') && !error.message.includes('timed out')) {
+                 throw error;
+            }
+        }
     }
-
-    const data = await response.json();
-    console.log(`✅ Lulu Cover Dimensions API Response: Width: ${data.width}${data.unit}, Height: ${data.height}${data.unit}`);
-
-    // --- MODIFICATION START: Robust unit handling and dimension validation ---
-    const widthInMm = convertUnitToMm(parseFloat(data.width), data.unit);
-    const heightInMm = convertUnitToMm(parseFloat(data.height), data.unit);
-
-    if (isNaN(widthInMm) || isNaN(heightInMm) || widthInMm <= 0 || heightInMm <= 0) {
-        console.error(`❌ Lulu Cover Dimensions API returned invalid dimensions: Width: ${data.width}, Height: ${data.height}`);
-        throw new Error('Lulu Cover Dimensions API returned invalid or non-positive dimensions.');
-    }
-
-    // Lulu API returns width > height for landscape, so use it directly
-    const layout = (widthInMm > heightInMm) ? 'landscape' : 'portrait'; 
-    // --- MODIFICATION END ---
-
-    return {
-        width: widthInMm,
-        height: heightInMm,
-        unit: 'mm', // Standardize to mm
-        layout: layout
-    };
 };
 
+
 const getLuluAuthToken = async () => {
+    // This function can be enhanced with token caching as well if needed.
     const clientKey = process.env.LULU_CLIENT_KEY;
     const clientSecret = process.env.LULU_CLIENT_SECRET;
     if (!clientKey || !clientSecret) throw new Error('Lulu API credentials are not configured in .env file.');
