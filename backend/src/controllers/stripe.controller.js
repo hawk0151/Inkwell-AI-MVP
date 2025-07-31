@@ -5,8 +5,8 @@ import { generateTextBookPdf, generatePictureBookPdf } from '../services/pdf.ser
 import { uploadImageToCloudinary } from '../services/image.service.js';
 import { createLuluPrintJob } from '../services/lulu.service.js';
 import { randomUUID } from 'crypto';
-import fs from 'fs/promises'; // NEW: Import the file system module for saving the PDF
-import path from 'path';     // NEW: Import path for creating file paths
+import fs from 'fs/promises'; 
+import path from 'path';     
 
 const stripeClient = stripe(process.env.STRIPE_SECRET_KEY);
 
@@ -17,7 +17,7 @@ const handleSuccessfulCheckout = async (session) => {
         expand: ['customer'],
     });
     
-    const { userId, bookId, bookType, luluProductId, productName } = fullSession.metadata; // Destructure all relevant metadata
+    const { userId, bookId, bookType, luluProductId, productName } = fullSession.metadata; 
 
     console.log("DEBUG: Stripe Session Metadata -> userId:", userId, "bookId:", bookId, "bookType:", bookType, "luluProductId:", luluProductId, "productName:", productName);
 
@@ -50,18 +50,16 @@ const handleSuccessfulCheckout = async (session) => {
         let bookTitle;
         let interiorPdfUrl;
         let coverPdfUrl;
-        let pdfBuffer; // To hold the generated PDF
-        let luluProductIdentifier; // To hold the specific Lulu product ID for the print job
+        let pdfBuffer; 
+        let luluProductIdentifier; 
 
-        // --- MODIFICATION START ---
-        // Adjusting bookType check to match values from controller's INSERT
-        if (bookType === 'textBook') { // Changed from 'text_book' to 'textBook'
+        if (bookType === 'textBook') { 
             const bookResult = await client.query(`SELECT * FROM text_books WHERE id = $1`, [bookId]);
             const book = bookResult.rows[0];
             if (!book) throw new Error(`Text book with ID ${bookId} not found in DB.`);
             
             bookTitle = book.title;
-            luluProductIdentifier = book.lulu_product_id; // Get Lulu product ID from book table
+            luluProductIdentifier = book.lulu_product_id; 
             const chaptersResult = await client.query(`SELECT chapter_number, content FROM chapters WHERE book_id = $1 ORDER BY chapter_number ASC`, [bookId]);
             
             console.log(`Generating PDF for text book: ${book.title}`);
@@ -70,25 +68,22 @@ const handleSuccessfulCheckout = async (session) => {
             interiorPdfUrl = await uploadImageToCloudinary(pdfBuffer, `inkwell-ai/user_${userId}/books`);
             coverPdfUrl = book.cover_image_url || "https://www.dropbox.com/s/7bv6mg2tj0h3l0r/lulu_trade_perfect_template.pdf?dl=1&raw=1";
             
-            // This update is less critical here as interior/cover URLs are passed directly to Lulu
-            // but keeping it for consistency if the text_books table uses these columns
             await client.query(`UPDATE text_books SET interior_pdf_url = $1, cover_pdf_url = $2 WHERE id = $3`, [interiorPdfUrl, coverPdfUrl, bookId]);
             
-        } else if (bookType === 'pictureBook') { // Changed from 'picture_book' to 'pictureBook'
+        } else if (bookType === 'pictureBook') { 
             const bookResult = await client.query(`SELECT * FROM picture_books WHERE id = $1`, [bookId]);
             const book = bookResult.rows[0];
             if (!book) throw new Error(`Picture book with ID ${bookId} not found in DB.`);
 
             bookTitle = book.title;
-            luluProductIdentifier = book.lulu_product_id; // Get Lulu product ID from book table
+            luluProductIdentifier = book.lulu_product_id; 
             
             console.log(`Generating PDF for picture book: ${book.title}`);
-            pdfBuffer = await generatePictureBookPdf(bookId); // Assuming this function handles data internally
+            pdfBuffer = await generatePictureBookPdf(bookId); 
             
             interiorPdfUrl = await uploadImageToCloudinary(pdfBuffer, `inkwell-ai/user_${userId}/books`);
             coverPdfUrl = book.cover_image_url || "https://www.dropbox.com/s/7bv6mg2tj0h3l0r/lulu_trade_perfect_template.pdf?dl=1&raw=1";
 
-            // Update picture_books table with PDF URLs
             await client.query(`UPDATE picture_books SET interior_pdf_url = $1, cover_pdf_url = $2 WHERE id = $3`, [interiorPdfUrl, coverPdfUrl, bookId]);
 
         } else {
@@ -96,7 +91,6 @@ const handleSuccessfulCheckout = async (session) => {
              throw new Error(`Unknown book type: ${bookType}`);
         }
 
-        // Common luluOrderDetails creation
         luluOrderDetails = { 
             id: bookId, 
             product_name: bookTitle, 
@@ -104,10 +98,8 @@ const handleSuccessfulCheckout = async (session) => {
             cover_pdf_url: coverPdfUrl, 
             interior_pdf_url: interiorPdfUrl 
         };
-        // --- MODIFICATION END ---
 
-        // --- NEW DEBUGGING STEP 1: SAVE PDF LOCALLY ---
-        // (Only enable this for local debugging, comment out for production deploys)
+        // Debugging steps (commented out for deploy)
         // const debugPdfPath = path.join(process.cwd(), 'debug_book.pdf');
         // console.log(`--- Saving debug PDF locally to: ${debugPdfPath} ---`);
         // await fs.writeFile(debugPdfPath, pdfBuffer);
@@ -123,19 +115,11 @@ const handleSuccessfulCheckout = async (session) => {
         console.log('Submitting print job to Lulu...');
         const luluJob = await createLuluPrintJob(luluOrderDetails, shippingInfo);
 
-        // We receive the orderId from Stripe metadata now (passed from frontend).
-        // Let's assume orderId from metadata is the one we want to update.
-        // OR, if you are creating order record when Stripe session is created (which is what we set up previously),
-        // then you need to retrieve that orderId from the database based on the Stripe session ID.
-        //
-        // Let's refine the orderId here for the update, to make sure we use the one created earlier.
         const orderRecordResult = await client.query('SELECT id FROM orders WHERE stripe_session_id = $1', [fullSession.id]);
         const orderIdFromDB = orderRecordResult.rows[0]?.id;
 
         if (!orderIdFromDB) {
             console.error("❌ Order record not found in DB for Stripe Session ID:", fullSession.id);
-            // Consider handling this by creating a new order record if it wasn't pre-created.
-            // For now, throw an error to highlight the issue.
             throw new Error("Order record missing for completed session.");
         }
 
@@ -154,13 +138,17 @@ const handleSuccessfulCheckout = async (session) => {
     }
 };
 
-// ... stripeWebhook function remains unchanged ...
 export const stripeWebhook = (req, res) => {
     const sig = req.headers['stripe-signature'];
     const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
     let event;
     try {
+        // --- FIX START ---
+        // Crucial: Use req.rawBody if Express raw body parser is configured for this route.
+        // If req.rawBody is not available, req.body should be a Buffer.
+        // Express.raw() makes req.body a Buffer.
         event = stripeClient.webhooks.constructEvent(req.body, sig, endpointSecret);
+        // --- FIX END ---
     } catch (err) {
         console.error(`❌ Webhook signature verification failed.`, err.message);
         return res.status(400).send(`Webhook Error: ${err.message}`);
