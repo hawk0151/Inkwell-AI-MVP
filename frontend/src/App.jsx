@@ -9,8 +9,8 @@ import ProductSelectionPage from './pages/ProductSelectionPage.jsx';
 import PictureBookPage from './pages/PictureBookPage.jsx';
 import MyProjectsPage from './pages/MyProjectsPage.jsx';
 import MyOrdersPage from './pages/MyOrdersPage.jsx';
-import SuccessPage from './pages/SuccessPage.jsx';
-import CancelPage from './pages/CancelPage.jsx';
+import SuccessPage from './pages/SuccessPage.jsx'; // Ensure this is imported
+import CancelPage from './pages/CancelPage.jsx'; // Ensure this is imported
 import NovelPage from './pages/NovelPage.jsx';
 import NovelSelectionPage from './pages/NovelSelectionPage.jsx';
 import FeedPage from './pages/FeedPage.jsx';
@@ -65,7 +65,7 @@ const ProfileDropdown = ({ user, onLogout }) => {
         navigate(path);
         setIsOpen(false);
     };
-    
+
     const handleLogout = () => {
         onLogout();
         setIsOpen(false);
@@ -74,13 +74,13 @@ const ProfileDropdown = ({ user, onLogout }) => {
     return (
         <div className="relative" ref={dropdownRef}>
             <button onClick={() => setIsOpen(!isOpen)} className="flex items-center space-x-2 p-1 rounded-full hover:bg-white/10 transition-colors">
-                <img 
-                  src={user.avatar_url || `https://api.dicebear.com/8.x/initials/svg?seed=${encodeURIComponent(user.username || user.email)}`} 
-                  alt="Profile" 
-                  className="w-8 h-8 rounded-full bg-slate-700 object-cover" 
+                <img
+                    src={user.avatar_url || `https://api.dicebear.com/8.x/initials/svg?seed=${encodeURIComponent(user.username || user.email)}`}
+                    alt="Profile"
+                    className="w-8 h-8 rounded-full bg-slate-700 object-cover"
                 />
                 <span className="text-white font-medium text-sm hidden lg:block">{user.username}</span>
-                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className={`w-5 h-5 text-slate-400 transition-transform ${isOpen ? 'rotate-180' : ''}`}>
+                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className={`w-5 h-5 text-slate-400 transition-transform ${isOpen ? 'rotate-180' : ''}`}>
                     <path fillRule="evenodd" d="M5.22 8.22a.75.75 0 0 1 1.06 0L10 11.94l3.72-3.72a.75.75 0 1 1 1.06 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L5.22 9.28a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" />
                 </svg>
             </button>
@@ -167,12 +167,12 @@ function App() {
                             <NavLink to="/about-how-it-works">About & How It Works</NavLink>
                             {/* MODIFIED: Replaced individual links with the ProfileDropdown */}
                             {currentUser ? (
-                                <ProfileDropdown 
-                                    user={currentUser} 
+                                <ProfileDropdown
+                                    user={currentUser}
                                     onLogout={() => {
                                         logout();
                                         navigate('/');
-                                    }} 
+                                    }}
                                 />
                             ) : (
                                 <button
