@@ -69,7 +69,11 @@ export const getProfileByUsername = async (req, res) => {
             SELECT id, title, cover_image_url, like_count, comment_count, 'picture_book' as book_type, user_id FROM picture_books WHERE user_id = $1 AND is_public = TRUE
             UNION ALL
             SELECT id, title, cover_image_url, like_count, comment_count, 'text_book' as book_type, user_id FROM text_books WHERE user_id = $2 AND is_public = TRUE
-        `; // MODIFIED: is_public = 1 changed back to is_public = TRUE
+        `;
+        
+        // NEW LINE: Log the query before execution
+        console.log("[DEBUG] Executing booksQuery:", booksQuery); 
+
         let books = await db.all(booksQuery, [profileUserId, profileUserId]);
 
         books = books.map(book => ({
