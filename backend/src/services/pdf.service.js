@@ -1,7 +1,6 @@
 // backend/src/services/pdf.service.js
 import PDFDocument from 'pdfkit';
 import axios from 'axios';
-import { getDb } from '../db/database.js'; // Use the pg-pool getDb
 
 // --- Image Helper ---
 async function getImageBuffer(url) {
@@ -74,7 +73,7 @@ export const generatePictureBookPdf = async (book, events) => {
 };
 
 
-// --- Text Book PDF Generator (Unchanged) ---
+// --- Text Book PDF Generator ---
 export const generateTextBookPdf = (title, chapters) => {
     return new Promise((resolve) => {
         const doc = new PDFDocument({

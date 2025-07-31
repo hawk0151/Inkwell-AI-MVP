@@ -9,7 +9,8 @@ import admin from 'firebase-admin';
 import morgan from 'morgan';
 import { setupDatabase } from './src/db/setupDatabase.js';
 import { stripeWebhook } from './src/controllers/stripe.controller.js';
-
+// NEW: Import the test controller
+import { createTestCheckout } from './src/controllers/test.controller.js';
 
 const startServer = async () => {
     await setupDatabase();
@@ -21,10 +22,8 @@ const startServer = async () => {
     if (process.env.FIREBASE_SERVICE_ACCOUNT_CONFIG) {
         try {
             serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_CONFIG);
-
-            // NEW: This line fixes the private key format by replacing '\\n' with actual newlines.
+            // This line fixes the private key format by replacing '\\n' with actual newlines.
             serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n');
-
         } catch (e) {
             console.error('Error: FIREBASE_SERVICE_ACCOUNT_CONFIG environment variable is not valid JSON.', e);
             process.exit(1);
@@ -76,6 +75,9 @@ const startServer = async () => {
     app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
 
     // --- Route Definitions ---
+    // NEW: Add the test route
+    app.get('/api/test/create-checkout', createTestCheckout);
+
     app.use('/api/story', storyRoutes);
     app.use('/api/products', productRoutes);
     app.use('/api/orders', orderRoutes);
