@@ -15,22 +15,22 @@ const getProductDimensions = (luluProductId) => {
     let widthMm, heightMm, layout;
 
     switch (product.id) {
-        case '0550X0850BWSTDCW060UC444GXX': // Novella (5.5 x 8.5" / 139.7 x 215.9 mm - from template) [cite: 17]
+        case '0550X0850BWSTDCW060UC444GXX': // Novella (5.5 x 8.5" / 139.7 x 215.9 mm - from template)
             widthMm = 139.7; // Exact from Lulu template
             heightMm = 215.9; // Exact from Lulu template
             layout = 'portrait';
             break;
-        case '0827X1169BWPRELW060UC444GNG': // A4 Story Book (8.27 x 11.69" / 209.55 x 296.9 mm - from template) [cite: 30]
+        case '0827X1169BWPRELW060UC444GNG': // A4 Story Book (8.27 x 11.69" / 209.55 x 296.9 mm - from template)
             widthMm = 209.55;
             heightMm = 296.9;
             layout = 'portrait';
             break;
-        case '0614X0921BWPRELW060UC444GNG': // Royal Hardcover (6.14 x 9.21" / 156 x 234 mm - common Royal size, verify with Lulu if issues persist) [cite: 42]
+        case '0614X0921BWPRELW060UC444GNG': // Royal Hardcover (6.14 x 9.21" / 156 x 234 mm - common Royal size, verify with Lulu if issues persist)
             widthMm = 156;
             heightMm = 234;
             layout = 'portrait';
             break;
-        case '0827X1169FCPRELW080CW444MNG': // A4 Premium Picture Book (8.27 x 11.69" / 209.55 x 296.9 mm - from template, landscape) [cite: 30]
+        case '0827X1169FCPRELW080CW444MNG': // A4 Premium Picture Book (8.27 x 11.69" / 209.55 x 296.9 mm - from template, landscape)
             // For landscape, width > height.
             widthMm = 296.9; // Height of A4 in portrait becomes width in landscape
             heightMm = 209.55; // Width of A4 in portrait becomes height in landscape
@@ -63,7 +63,7 @@ export const generateCoverPdf = async (bookTitle, authorName, luluProductId, pag
     return new Promise(async (resolve, reject) => {
         try {
             const { width, height, layout } = getCoverDimensionsMm(luluProductId, pageCount);
-            
+
             // Convert MM to points for PDFKit
             const docWidthPoints = mmToPoints(width);
             const docHeightPoints = mmToPoints(height);
@@ -83,14 +83,8 @@ export const generateCoverPdf = async (bookTitle, authorName, luluProductId, pag
 
             doc.addPage();
 
-            // Simple placeholder cover for now: Solid background with text
-            // You can enhance this significantly later with image backgrounds, etc.
             doc.rect(0, 0, doc.page.width, doc.page.height).fill('#313131'); // Dark background
 
-            // Basic text layout (Front Cover Title)
-            // This is a simplified layout. Real cover design is complex.
-            // You'd need to calculate front cover area, spine area, back cover area.
-            // For now, let's just put the title centered on the full spread.
             doc.fontSize(48).fillColor('#FFFFFF').font('Helvetica-Bold').text(bookTitle, 0, doc.page.height / 3, {
                 align: 'center',
                 width: doc.page.width
@@ -100,10 +94,6 @@ export const generateCoverPdf = async (bookTitle, authorName, luluProductId, pag
                 align: 'center',
                 width: doc.page.width
             });
-
-            // Consider spine text if spine is wide enough (Lulu recommends > 80 pages) [cite: 282]
-            // This requires knowing the exact spine width and rendering text vertically if needed.
-            // For simplicity, we'll omit complex spine text rendering for this initial pass.
 
             doc.end();
         } catch (error) {
