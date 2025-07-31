@@ -68,20 +68,17 @@ export const getCoverDimensionsMm = (luluProductId, pageCount) => {
         throw new Error(`Product with ID ${luluProductId} not found for cover dimensions.`);
     }
 
-    // --- FIX START: Declare variables here ---
     let coverWidthMm, coverHeightMm, targetPdfkitLayout;
-    // --- FIX END ---
-
-    let targetLuluWidthMm, targetLuluHeightMm; // These are intermediate values for clarity
+    let targetLuluWidthMm, targetLuluHeightMm;
 
     switch (luluProductId) {
         case '0550X0850BWSTDCW060UC444GXX': // Novella (5.5 x 8.5" book size)
-            targetLuluWidthMm = (328.61 + 331.79) / 2; // ~330.20mm
-            targetLuluHeightMm = (258.76 + 261.94) / 2; // ~260.35mm
+            targetLuluWidthMm = (328.61 + 331.79) / 2;
+            targetLuluHeightMm = (258.76 + 261.94) / 2;
 
-            coverWidthMm = targetLuluHeightMm; // This becomes PDFKit's width (smaller)
-            coverHeightMm = targetLuluWidthMm; // This becomes PDFKit's height (larger)
-            targetPdfkitLayout = 'portrait'; // Because PDFKit's height is now > width
+            coverWidthMm = targetLuluHeightMm;
+            coverHeightMm = targetLuluWidthMm;
+            targetPdfkitLayout = 'portrait';
             break;
         case '0827X1169BWPRELW060UC444GNG': // A4 Story Book
         case '0614X0921BWPRELW060UC444GNG': // Royal Hardcover
@@ -90,27 +87,27 @@ export const getCoverDimensionsMm = (luluProductId, pageCount) => {
             if (luluProductId === '0827X1169BWPRELW060UC444GNG') { trimWidth = 210; trimHeight = 297; }
             else { trimWidth = 156; trimHeight = 234; }
 
-            const outerBleedMm = 3.175; // 0.125 inches
-            const hardcoverHingeMm = 19.05; // 0.75 inches
-            const hardcoverTurnInMm = 15.875; // 0.625 inches
+            const outerBleedMm = 3.175;
+            const hardcoverHingeMm = 19.05;
+            const hardcoverTurnInMm = 15.875;
 
             targetLuluWidthMm = (2 * trimWidth) + spineWidth + (2 * outerBleedMm) + (2 * hardcoverHingeMm) + (2 * hardcoverTurnInMm);
             targetLuluHeightMm = trimHeight + (2 * outerBleedMm) + (2 * hardcoverTurnInMm);
 
-            coverWidthMm = targetLuluHeightMm; // PDFKit width
-            coverHeightMm = targetLuluWidthMm; // PDFKit height
+            coverWidthMm = targetLuluHeightMm;
+            coverHeightMm = targetLuluWidthMm;
             targetPdfkitLayout = 'portrait';
             break;
         case '0827X1169FCPRELW080CW444MNG': // A4 Premium Picture Book (landscape)
-            const spineWidthPicture = getHardcoverSpineWidthMm(pageCount);
-            const trimWidthPicture = 297; // Landscape trim width
-            const trimHeightPicture = 210; // Landscape trim height
+            const spineWidthPicture = getHardcoverSpineMm(pageCount); // Should be getHardcoverSpineWidthMm
+            const trimWidthPicture = 297;
+            const trimHeightPicture = 210;
 
             targetLuluWidthMm = (2 * trimWidthPicture) + spineWidthPicture + (2 * outerBleedMm) + (2 * hardcoverHingeMm) + (2 * hardcoverTurnInMm);
             targetLuluHeightMm = trimHeightPicture + (2 * outerBleedMm) + (2 * hardcoverTurnInMm);
 
-            coverWidthMm = targetLuluHeightMm; // PDFKit width
-            coverHeightMm = targetLuluWidthMm; // PDFKit height
+            coverWidthMm = targetLuluHeightMm;
+            coverHeightMm = targetLuluWidthMm;
             targetPdfkitLayout = 'portrait';
             break;
         default:
@@ -151,6 +148,7 @@ const getLuluAuthToken = async () => {
 };
 
 
+// --- MODIFIED: Add a timeout to the fetch request ---
 export const createLuluPrintJob = async (orderDetails, shippingInfo) => {
     const accessToken = await getLuluAuthToken();
     const printJobUrl = `${LULU_API_URL}/print-jobs/`;
@@ -180,19 +178,37 @@ export const createLuluPrintJob = async (orderDetails, shippingInfo) => {
         }],
     };
 
-    const response = await fetch(printJobUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${accessToken}` },
-        body: JSON.stringify(payload)
-    });
+    // Use AbortController for fetch timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 seconds timeout for Lulu API call
 
-    if (!response.ok) {
-        const errorText = await response.text();
-        console.error("Lulu Print Job Raw Error Text:", errorText);
-        throw new Error('Failed to create Lulu print job.');
+    try {
+        console.log(`DEBUG: Making Lulu API call to ${printJobUrl} with payload...`);
+        const response = await fetch(printJobUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${accessToken}` },
+            body: JSON.stringify(payload),
+            signal: controller.signal // Apply the abort signal
+        });
+        clearTimeout(timeoutId); // Clear timeout if fetch completes
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error("Lulu Print Job Raw Error Text:", errorText);
+            throw new Error(`Failed to create Lulu print job. Status: ${response.status}. Message: ${errorText}`);
+        }
+
+        const data = await response.json();
+        console.log("✅ Successfully created Lulu print job:", data.id);
+        return data;
+    } catch (error) {
+        clearTimeout(timeoutId); // Ensure timeout is cleared even on error
+        if (error.name === 'AbortError') {
+            console.error("❌ Lulu API call timed out after 60 seconds.");
+            throw new Error('Lulu API call timed out.');
+        } else {
+            console.error("❌ Error during Lulu API call:", error);
+            throw error;
+        }
     }
-
-    const data = await response.json();
-    console.log("✅ Successfully created Lulu print job:", data.id);
-    return data;
 };
