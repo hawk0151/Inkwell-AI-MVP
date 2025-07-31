@@ -8,8 +8,6 @@ import { dirname } from 'path';
 import admin from 'firebase-admin';
 import morgan from 'morgan';
 import { setupDatabase } from './src/db/setupDatabase.js';
-
-// NEW: Import the Stripe controller
 import { stripeWebhook } from './src/controllers/stripe.controller.js';
 
 
@@ -19,37 +17,21 @@ const startServer = async () => {
     const __filename = fileURLToPath(import.meta.url);
     const __dirname = dirname(__filename);
 
-    // NEW: Load Firebase service account config from environment variable
     let serviceAccount;
     if (process.env.FIREBASE_SERVICE_ACCOUNT_CONFIG) {
         try {
             serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_CONFIG);
+
+            // NEW: This line fixes the private key format by replacing '\\n' with actual newlines.
+            serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n');
+
         } catch (e) {
             console.error('Error: FIREBASE_SERVICE_ACCOUNT_CONFIG environment variable is not valid JSON.', e);
             process.exit(1);
         }
     } else {
-        // Fallback for local development using the file, or error in production
-        const serviceAccountPath = path.join(__dirname, 'serviceAccountKey.json');
-        if (process.env.NODE_ENV === 'production') {
-            console.error('Error: FIREBASE_SERVICE_ACCOUNT_CONFIG environment variable is not set in production!');
-            process.exit(1); // Critical error if not set in production
-        }
-        // For local development, still try to read from file if env var isn't set
-        try {
-            // Re-adding fs for local dev fallback to read file
-            const fs = await import('fs');
-            if (!fs.existsSync(serviceAccountPath)) {
-                console.error('Error: serviceAccountKey.json not found for local Firebase Admin SDK initialization.');
-                console.error('In local development, ensure "serviceAccountKey.json" is in the root of your backend directory or FIREBASE_SERVICE_ACCOUNT_CONFIG is set.');
-                process.exit(1);
-            }
-            serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, 'utf8'));
-            console.warn('Warning: Using serviceAccountKey.json file for Firebase Admin SDK. For production, use FIREBASE_SERVICE_ACCOUNT_CONFIG env var.');
-        } catch (e) {
-            console.error('Error reading serviceAccountKey.json for local Firebase Admin SDK:', e);
-            process.exit(1);
-        }
+        console.error('Error: FIREBASE_SERVICE_ACCOUNT_CONFIG environment variable is not set!');
+        process.exit(1);
     }
 
     admin.initializeApp({
@@ -81,13 +63,11 @@ const startServer = async () => {
 
     app.use(morgan('dev'));
     
-    // --- Webhook routes that need the raw body must come BEFORE express.json() ---
+    // Webhook routes that need the raw body must come BEFORE express.json()
     app.post('/api/orders/webhook', express.raw({ type: 'application/json' }), handleWebhook);
-    // NEW: Add the Stripe webhook route
     app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), stripeWebhook);
 
-
-    // --- Parsers for all other routes ---
+    // Parsers for all other routes
     app.use(express.json());
     app.use(express.urlencoded({ extended: true }));
     app.use(cookieParser());
@@ -102,13 +82,10 @@ const startServer = async () => {
     app.use('/api/paypal', paypalRoutes);
     app.use('/api/picture-books', pictureBookRoutes);
     app.use('/api/text-books', textBookRoutes);
-
     app.use('/api/v1/user', userRoutes);
     app.use('/api/profile', profileRoutes);
-
     app.use('/api/social', socialBookRoutes);
     app.use('/api/feed', feedRoutes);
-
     app.use('/api/v1/analytics', analyticsRoutes);
 
     // Root route
