@@ -1,13 +1,12 @@
 // backend/src/services/pdf.service.js
 import PDFDocument from 'pdfkit';
 import axios from 'axios';
-// Import PRODUCTS_TO_OFFER to get product dimensions
-import { PRODUCTS_TO_OFFER } from './lulu.service.js'; 
+import { PRODUCTS_TO_OFFER } from './lulu.service.js'; // Ensure this import is correct
 
 // Helper function to convert mm to points
 const mmToPoints = (mm) => mm * (72 / 25.4);
 
-// Helper to get dimensions from product ID
+// Helper to get dimensions from product ID using PRECISE TEMPLATE SPECS
 const getProductDimensions = (luluProductId) => {
     const product = PRODUCTS_TO_OFFER.find(p => p.id === luluProductId);
     if (!product) {
@@ -16,27 +15,26 @@ const getProductDimensions = (luluProductId) => {
 
     let widthMm, heightMm, layout;
 
-    // You might want to store these specific dimensions with your PRODUCTS_TO_OFFER objects
-    // or use a more comprehensive lookup here if Lulu has many variations.
     switch (product.id) {
-        case '0550X0850BWSTDCW060UC444GXX': // Novella (5.5 x 8.5" / 140 x 216 mm)
-            widthMm = 140;
-            heightMm = 216;
+        case '0550X0850BWSTDCW060UC444GXX': // Novella (5.5 x 8.5" / 139.7 x 215.9 mm - from template)
+            widthMm = 139.7; // Exact from Lulu template
+            heightMm = 215.9; // Exact from Lulu template
             layout = 'portrait';
             break;
-        case '0827X1169BWPRELW060UC444GNG': // A4 Story Book (8.27 x 11.69" / 210 x 297 mm)
-            widthMm = 210;
-            heightMm = 297;
+        case '0827X1169BWPRELW060UC444GNG': // A4 Story Book (8.27 x 11.69" / 209.55 x 296.9 mm - from template)
+            widthMm = 209.55; 
+            heightMm = 296.9;
             layout = 'portrait';
             break;
-        case '0614X0921BWPRELW060UC444GNG': // Royal Hardcover (6.14 x 9.21" / 156 x 234 mm)
+        case '0614X0921BWPRELW060UC444GNG': // Royal Hardcover (6.14 x 9.21" / 156 x 234 mm - common Royal size, verify with Lulu if issues persist)
             widthMm = 156;
             heightMm = 234;
             layout = 'portrait';
             break;
-        case '0827X1169FCPRELW080CW444MNG': // A4 Premium Picture Book (8.27 x 11.69" / 210 x 297 mm, usually landscape)
-            widthMm = 297; // For landscape, width > height
-            heightMm = 210;
+        case '0827X1169FCPRELW080CW444MNG': // A4 Premium Picture Book (8.27 x 11.69" / 209.55 x 296.9 mm - from template, landscape)
+            // For landscape, width > height.
+            widthMm = 296.9; // Height of A4 in portrait becomes width in landscape
+            heightMm = 209.55; // Width of A4 in portrait becomes height in landscape
             layout = 'landscape';
             break;
         default:
@@ -57,7 +55,7 @@ async function getImageBuffer(url) {
 }
 
 // --- Picture Book PDF Generator (MODIFIED to accept luluProductId) ---
-export const generatePictureBookPdf = async (book, events, luluProductId) => {
+export const generatePictureBookPdf = async (book, events, luluProductId) => { 
     return new Promise(async (resolve, reject) => {
         try {
             const { width, height, layout } = getProductDimensions(luluProductId);
@@ -120,7 +118,7 @@ export const generatePictureBookPdf = async (book, events, luluProductId) => {
 
 
 // --- Text Book PDF Generator (MODIFIED to accept luluProductId) ---
-export const generateTextBookPdf = (title, chapters, luluProductId) => {
+export const generateTextBookPdf = (title, chapters, luluProductId) => { 
     return new Promise((resolve) => {
         const { width, height, layout } = getProductDimensions(luluProductId);
 
