@@ -1,5 +1,6 @@
+// backend/src/middleware/auth.middleware.js
 import admin from 'firebase-admin';
-import { getDb } from '../db/database.js'; // MODIFIED: Import getDb function instead of default db
+import { getDb } from '../db/database.js';
 
 /**
  * Middleware to protect routes that require a logged-in user.
@@ -22,8 +23,9 @@ export const protect = async (req, res, next) => {
             req.userId = decodedToken.uid;
             console.log(`[PROTECT DEBUG] Token decoded. UID: ${req.userId}`);
 
-            const db = await getDb(); // NEW: Get the db instance within the function
-            const userQuery = 'SELECT id, role FROM users WHERE id = ?';
+            const db = await getDb(); // Get the db instance within the function
+            // MODIFIED: Changed ? to $1 for PostgreSQL parameter
+            const userQuery = 'SELECT id, role FROM users WHERE id = $1';
             const user = await db.get(userQuery, [req.userId]);
 
             if (user) {
@@ -43,7 +45,8 @@ export const protect = async (req, res, next) => {
 
                 console.log(`[AUTH DEBUG] Determined initialUsername for SQLite/Firestore: "${initialUsername}"`);
 
-                const insertQuery = 'INSERT INTO users (id, email, username, role, avatar_url) VALUES (?, ?, ?, ?, ?)';
+                // MODIFIED: Changed ? to $1, $2, $3, $4, $5 for PostgreSQL parameters
+                const insertQuery = 'INSERT INTO users (id, email, username, role, avatar_url) VALUES ($1, $2, $3, $4, $5)';
                 const defaultRole = 'user';
 
                 await db.run(insertQuery, [req.userId, initialEmail, initialUsername, defaultRole, initialAvatarUrl]);
@@ -66,20 +69,26 @@ export const protect = async (req, res, next) => {
             }
         } catch (error) {
             console.error('[PROTECT ERROR] Error in authentication middleware:', error);
-            if (error.code === 'SQLITE_CONSTRAINT') {
+            // The SQLITE_CONSTRAINT error code is specific to SQLite.
+            // For PostgreSQL, check for error.code === '23505' for unique_violation.
+            if (error.code === '23505' /* PostgreSQL unique_violation */ || error.code === 'SQLITE_CONSTRAINT') {
                 try {
-                    const db = await getDb(); // NEW: Get db for retry
-                    const userQuery = 'SELECT id, role FROM users WHERE id = ?';
+                    const db = await getDb(); // Get db for retry
+                    const userQuery = 'SELECT id, role FROM users WHERE id = $1'; // MODIFIED: Changed ? to $1
                     const user = await db.get(userQuery, [req.userId]);
                     if (user) {
                         req.userRole = user.role;
-                        console.log(`[PROTECT DEBUG] SQLITE_CONSTRAINT: User ${req.userId} found on retry. Calling next().`);
+                        console.log(`[PROTECT DEBUG] User ${req.userId} found on retry after constraint error. Calling next().`);
                         return next();
                     }
                 } catch (retryError) {
-                    console.error('[PROTECT ERROR] Retry failed after SQLITE_CONSTRAINT:', retryError);
+                    console.error('[PROTECT ERROR] Retry failed after constraint error:', retryError);
                 }
                 return res.status(500).json({ message: 'A database constraint error occurred during user creation. Please try again.' });
+            }
+            // For general Firebase token verification errors
+            if (error.code === 'auth/id-token-expired' || error.code === 'auth/argument-error') {
+                 return res.status(401).json({ message: 'Authentication failed: Invalid or expired token.' });
             }
             return res.status(401).json({ message: 'Not authorized, token failed' });
         }
