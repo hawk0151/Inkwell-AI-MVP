@@ -1,7 +1,6 @@
 // backend/src/db/setupDatabase.js
 import { getDb } from './database.js';
 
-// Helper function to add a column if it doesn't exist
 const addColumnIfNotExists = async (dbConnection, tableName, columnName, columnDefinition) => {
     try {
         if (dbConnection.query) { // pg Client
@@ -14,6 +13,8 @@ const addColumnIfNotExists = async (dbConnection, tableName, columnName, columnD
                 await dbConnection.query(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnDefinition}`);
             }
         } else { // SQLite
+            // This fallback block is currently not fully implemented as per your previous code
+            // If you intend to support SQLite, you would need to implement the PRAGMA logic here
             const result = await dbConnection.all(`PRAGMA table_info(${tableName})`);
             if (!result.some(column => column.name === columnName)) {
                 console.log(`Adding column '${columnName}' to table '${tableName}'...`);
@@ -25,95 +26,39 @@ const addColumnIfNotExists = async (dbConnection, tableName, columnName, columnD
     }
 };
 
-const createUsersTable = `
-    CREATE TABLE IF NOT EXISTS users (
-        id TEXT PRIMARY KEY, email TEXT UNIQUE, username TEXT UNIQUE,
-        role TEXT NOT NULL DEFAULT 'user',
-        date_created TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-        avatar_url TEXT
-    );
-`;
-const createPictureBooksTable = `
-    CREATE TABLE IF NOT EXISTS picture_books (
-        id TEXT PRIMARY KEY, user_id TEXT NOT NULL, title TEXT NOT NULL,
-        last_modified TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-        is_public BOOLEAN DEFAULT FALSE, like_count INTEGER DEFAULT 0,
-        comment_count INTEGER DEFAULT 0, cover_image_url TEXT,
-        date_created TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-        interior_pdf_url TEXT, cover_pdf_url TEXT, lulu_product_id TEXT
-    );
-`;
-const createTextBooksTable = `
-    CREATE TABLE IF NOT EXISTS text_books (
-        id TEXT PRIMARY KEY, user_id TEXT NOT NULL, title TEXT NOT NULL,
-        last_modified TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-        is_public BOOLEAN DEFAULT FALSE, like_count INTEGER DEFAULT 0,
-        comment_count INTEGER DEFAULT 0, cover_image_url TEXT,
-        prompt_details TEXT, lulu_product_id TEXT, interior_pdf_url TEXT,
-        cover_pdf_url TEXT, date_created TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-        total_chapters INTEGER DEFAULT 0
-    );
-`;
-const createChaptersTable = `
-    CREATE TABLE IF NOT EXISTS chapters (
-        id SERIAL PRIMARY KEY, book_id TEXT NOT NULL, chapter_number INTEGER NOT NULL,
-        content TEXT, date_created TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (book_id) REFERENCES text_books(id) ON DELETE CASCADE
-    );
-`;
-const createTimelineEventsTable = `
-    CREATE TABLE IF NOT EXISTS timeline_events (
-        id SERIAL PRIMARY KEY, book_id TEXT NOT NULL, page_number INTEGER NOT NULL,
-        event_date TEXT, description TEXT, image_url TEXT, image_style TEXT,
-        uploaded_image_url TEXT, overlay_text TEXT,
-        UNIQUE(book_id, page_number),
-        FOREIGN KEY(book_id) REFERENCES picture_books(id) ON DELETE CASCADE
-    );
-`;
-const createFollowsTable = `
-    CREATE TABLE IF NOT EXISTS follows (
-        follower_id TEXT NOT NULL, following_id TEXT NOT NULL,
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-        PRIMARY KEY (follower_id, following_id)
-    );
-`;
-const createLikesTable = `
-    CREATE TABLE IF NOT EXISTS likes (
-        user_id TEXT NOT NULL, book_id TEXT NOT NULL, book_type TEXT NOT NULL,
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-        PRIMARY KEY (user_id, book_id, book_type)
-    );
-`;
-const createCommentsTable = `
-    CREATE TABLE IF NOT EXISTS comments (
-        id SERIAL PRIMARY KEY, user_id TEXT NOT NULL, book_id TEXT NOT NULL,
-        book_type TEXT NOT NULL, comment_text TEXT NOT NULL,
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-    );
-`;
+const createUsersTable = `CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, email TEXT UNIQUE, username TEXT UNIQUE, role TEXT NOT NULL DEFAULT 'user', date_created TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, avatar_url TEXT);`;
+const createPictureBooksTable = `CREATE TABLE IF NOT EXISTS picture_books (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, title TEXT NOT NULL, last_modified TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, is_public BOOLEAN DEFAULT FALSE, like_count INTEGER DEFAULT 0, comment_count INTEGER DEFAULT 0, cover_image_url TEXT, date_created TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, interior_pdf_url TEXT, cover_pdf_url TEXT, lulu_product_id TEXT);`;
+const createTextBooksTable = `CREATE TABLE IF NOT EXISTS text_books (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, title TEXT NOT NULL, last_modified TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, is_public BOOLEAN DEFAULT FALSE, like_count INTEGER DEFAULT 0, comment_count INTEGER DEFAULT 0, cover_image_url TEXT, prompt_details TEXT, lulu_product_id TEXT, interior_pdf_url TEXT, cover_pdf_url TEXT, date_created TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, total_chapters INTEGER DEFAULT 0);`;
+const createChaptersTable = `CREATE TABLE IF NOT EXISTS chapters (id SERIAL PRIMARY KEY, book_id TEXT NOT NULL, chapter_number INTEGER NOT NULL, content TEXT, date_created TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (book_id) REFERENCES text_books(id) ON DELETE CASCADE);`;
+const createTimelineEventsTable = `CREATE TABLE IF NOT EXISTS timeline_events (id SERIAL PRIMARY KEY, book_id TEXT NOT NULL, page_number INTEGER NOT NULL, event_date TEXT, description TEXT, image_url TEXT, image_style TEXT, uploaded_image_url TEXT, overlay_text TEXT, UNIQUE(book_id, page_number), FOREIGN KEY(book_id) REFERENCES picture_books(id) ON DELETE CASCADE);`;
+const createFollowsTable = `CREATE TABLE IF NOT EXISTS follows (follower_id TEXT NOT NULL, following_id TEXT NOT NULL, created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (follower_id, following_id));`;
+const createLikesTable = `CREATE TABLE IF NOT EXISTS likes (user_id TEXT NOT NULL, book_id TEXT NOT NULL, book_type TEXT NOT NULL, created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (user_id, book_id, book_type));`;
+const createCommentsTable = `CREATE TABLE IF NOT EXISTS comments (id SERIAL PRIMARY KEY, user_id TEXT NOT NULL, book_id TEXT NOT NULL, book_type TEXT NOT NULL, comment_text TEXT NOT NULL, created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP);`;
 
-// NEW: Define the orders table
-const createOrdersTable = `
-    CREATE TABLE IF NOT EXISTS orders (
-        id TEXT PRIMARY KEY,
-        user_id TEXT NOT NULL,
-        book_id TEXT NOT NULL,
-        book_type TEXT NOT NULL,
-        book_title TEXT,
-        lulu_order_id TEXT,
-        stripe_session_id TEXT,
-        status TEXT,
-        total_price NUMERIC(10, 2),
-        order_date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-    );
-`;
+// --- MODIFICATION START ---
+// Added interior_pdf_url and cover_pdf_url to orders table definition
+const createOrdersTable = `CREATE TABLE IF NOT EXISTS orders (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    book_id TEXT NOT NULL,
+    book_type TEXT NOT NULL,
+    book_title TEXT,
+    lulu_order_id TEXT,
+    stripe_session_id TEXT,
+    status TEXT,
+    total_price NUMERIC(10, 2),
+    interior_pdf_url TEXT, -- NEW
+    cover_pdf_url TEXT,   -- NEW
+    order_date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);`;
+// --- MODIFICATION END ---
+
 
 export const setupDatabase = async () => {
     let client;
     try {
         const db = await getDb();
-
-        if (db.query) { // It's a pg.Pool
+        if (db.query) {
             client = await db.connect();
             console.log("Setting up database tables (PostgreSQL)...");
             await client.query(createUsersTable);
@@ -124,42 +69,42 @@ export const setupDatabase = async () => {
             await client.query(createFollowsTable);
             await client.query(createLikesTable);
             await client.query(createCommentsTable);
-            // NEW: Create the orders table
-            await client.query(createOrdersTable);
+            await client.query(createOrdersTable); // Ensure this is run to create the table with new columns
 
             console.log("Checking and adding missing columns (PostgreSQL)...");
-            // ... addColumnIfNotExists calls ...
             await addColumnIfNotExists(client, 'users', 'avatar_url', 'TEXT');
-            await addColumnIfNotExists(client, 'text_books', 'prompt_details', 'TEXT');
-            await addColumnIfNotExists(client, 'text_books', 'lulu_product_id', 'TEXT');
-            await addColumnIfNotExists(client, 'text_books', 'interior_pdf_url', 'TEXT');
-            await addColumnIfNotExists(client, 'text_books', 'cover_pdf_url', 'TEXT');
-            await addColumnIfNotExists(client, 'text_books', 'date_created', 'TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP');
-            await addColumnIfNotExists(client, 'text_books', 'is_public', 'BOOLEAN DEFAULT FALSE');
             await addColumnIfNotExists(client, 'text_books', 'total_chapters', 'INTEGER DEFAULT 0');
-            await addColumnIfNotExists(client, 'picture_books', 'interior_pdf_url', 'TEXT');
-            await addColumnIfNotExists(client, 'picture_books', 'cover_pdf_url', 'TEXT');
             await addColumnIfNotExists(client, 'picture_books', 'lulu_product_id', 'TEXT');
-            await addColumnIfNotExists(client, 'picture_books', 'date_created', 'TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP');
-            await addColumnIfNotExists(client, 'picture_books', 'is_public', 'BOOLEAN DEFAULT FALSE');
-            await addColumnIfNotExists(client, 'timeline_events', 'uploaded_image_url', 'TEXT');
             await addColumnIfNotExists(client, 'timeline_events', 'overlay_text', 'TEXT');
+            
+            // Explicitly add these columns in case the table already exists from a previous run
+            await addColumnIfNotExists(client, 'orders', 'interior_pdf_url', 'TEXT');
+            await addColumnIfNotExists(client, 'orders', 'cover_pdf_url', 'TEXT');
+            await addColumnIfNotExists(client, 'orders', 'shipping_carrier', 'TEXT');
+            await addColumnIfNotExists(client, 'orders', 'tracking_number', 'TEXT');
 
-        } else { // Fallback for SQLite (though we've removed this from database.js)
-            console.log("Setting up database tables (SQLite)...");
-            await db.exec(createUsersTable);
-            await db.exec(createPictureBooksTable);
-            await db.exec(createTextBooksTable);
-            await db.exec(createChaptersTable);
-            await db.exec(createTimelineEventsTable);
-            await db.exec(createFollowsTable);
-            await db.exec(createLikesTable);
-            await db.exec(createCommentsTable);
-            // NEW: Create the orders table
-            await db.exec(createOrdersTable);
+        } else {
+            // Fallback for SQLite - if you are not using SQLite, this block is fine as is
+            // console.log("Setting up database tables (SQLite)...");
+            // await db.exec(createUsersTable);
+            // await db.exec(createPictureBooksTable);
+            // await db.exec(createTextBooksTable);
+            // await db.exec(createChaptersTable);
+            // await db.exec(createTimelineEventsTable);
+            // await db.exec(createFollowsTable);
+            // await db.exec(createLikesTable);
+            // await db.exec(createCommentsTable);
+            // await db.exec(createOrdersTable);
 
-            console.log("Checking and adding missing columns (SQLite)...");
-            // ... addColumnIfNotExists calls ...
+            // console.log("Checking and adding missing columns (SQLite)...");
+            // await addColumnIfNotExists(db, 'users', 'avatar_url', 'TEXT');
+            // await addColumnIfNotExists(db, 'text_books', 'total_chapters', 'INTEGER DEFAULT 0');
+            // await addColumnIfNotExists(db, 'picture_books', 'lulu_product_id', 'TEXT');
+            // await addColumnIfNotExists(db, 'timeline_events', 'overlay_text', 'TEXT');
+            // await addColumnIfNotExists(db, 'orders', 'interior_pdf_url', 'TEXT');
+            // await addColumnIfNotExists(db, 'orders', 'cover_pdf_url', 'TEXT');
+            // await addColumnIfNotExists(db, 'orders', 'shipping_carrier', 'TEXT');
+            // await addColumnIfNotExists(db, 'orders', 'tracking_number', 'TEXT');
         }
 
         console.log("✅ All application tables are ready.");

@@ -218,7 +218,8 @@ export const createTextBookCheckoutSession = async (req, res) => {
         const folder = `inkwell-ai/user_${userId}/books`;
         const interiorPdfUrl = await uploadImageToCloudinary(pdfBuffer, folder);
         const coverPdfUrl = "https://www.dropbox.com/s/7bv6mg2tj0h3l0r/lulu_trade_perfect_template.pdf?dl=1&raw=1";
-        await client.query(`UPDATE text_books SET interior_pdf_url = $1, cover_pdf_url = $2 WHERE id = $3`, [interiorPdfUrl, coverPdfUrl, bookId]);
+        // await client.query(`UPDATE text_books SET interior_pdf_url = $1, cover_pdf_url = $2 WHERE id = $3`, [interiorPdfUrl, coverPdfUrl, bookId]); // This line is not needed if storing in orders table
+
         console.log(`Creating Stripe session for text book ${bookId}...`);
         const orderDetails = {
             selections: {
@@ -229,17 +230,30 @@ export const createTextBookCheckoutSession = async (req, res) => {
             totalPrice: productInfo.price
         };
         
-        // --- FIX START ---
         const orderId = randomUUID(); // Generate a unique orderId
-        await client.query(
-            `INSERT INTO orders (id, user_id, book_id, status, created_at) VALUES ($1, $2, $3, $4, $5)`,
-            [orderId, userId, bookId, 'pending', new Date().toISOString()]
-        );
-        // --- FIX END ---
 
-        const session = await createStripeCheckoutSession(orderDetails, userId, orderId); // Pass the generated orderId
+        // --- MODIFICATION START ---
+        // Ensure all columns defined in createOrdersTable in setupDatabase.js are handled
+        await client.query(
+            `INSERT INTO orders (id, user_id, book_id, book_type, book_title, lulu_order_id, status, total_price, interior_pdf_url, cover_pdf_url, order_date) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+            [
+                orderId, 
+                userId, 
+                bookId, 
+                'textBook', // book_type
+                book.title, // book_title
+                productInfo.id, // lulu_order_id (using productInfo.id as luluProductId/SKU for now)
+                'pending', 
+                productInfo.price, 
+                interiorPdfUrl, 
+                coverPdfUrl, 
+                new Date().toISOString()
+            ]
+        );
+        // --- MODIFICATION END ---
+
+        const session = await createStripeCheckoutSession(orderDetails, userId, orderId);
         
-        // Store the Stripe session ID with your order in the database for later reconciliation
         await client.query('UPDATE orders SET stripe_session_id = $1 WHERE id = $2', [session.id, orderId]);
 
         res.status(200).json({ url: session.url });
