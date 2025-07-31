@@ -213,7 +213,13 @@ export const createTextBookCheckoutSession = async (req, res) => {
         if (!productInfo) return res.status(500).json({ message: "Book product definition not found." });
 
         console.log(`Generating text PDF for book ${bookId}...`);
-        const pdfBuffer = await generateTextBookPdf(book.title, chapters);
+        const pdfBuffer = await generateTextBookPdf(book.title, chapters); // OLD Call - Missing luluProductId
+        
+        // --- MODIFICATION START ---
+        // Pass book.lulu_product_id to the PDF generator function
+        pdfBuffer = await generateTextBookPdf(book.title, chapters, book.lulu_product_id); 
+        // --- MODIFICATION END ---
+
         console.log(`Uploading text PDF to Cloudinary for book ${bookId}...`);
         const folder = `inkwell-ai/user_${userId}/books`;
         const interiorPdfUrl = await uploadImageToCloudinary(pdfBuffer, folder);
@@ -241,7 +247,6 @@ export const createTextBookCheckoutSession = async (req, res) => {
             ]
         );
 
-        // --- MODIFICATION START (passed productDetails, userId, orderId, bookId) ---
         const session = await createStripeCheckoutSession(
             { // productDetails object
                 id: productInfo.id,
@@ -254,7 +259,6 @@ export const createTextBookCheckoutSession = async (req, res) => {
             orderId, // This is the orderId
             bookId // This is the actual book project ID
         );
-        // --- MODIFICATION END ---
         
         await client.query('UPDATE orders SET stripe_session_id = $1 WHERE id = $2', [session.id, orderId]);
 

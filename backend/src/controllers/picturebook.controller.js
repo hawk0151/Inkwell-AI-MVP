@@ -195,8 +195,13 @@ export const createBookCheckoutSession = async (req, res) => {
         if (!productInfo) return res.status(500).json({ message: "Picture book product definition not found." });
 
         console.log(`Generating PDF for book ${bookId}...`);
-        const pdfBuffer = await generatePictureBookPdf(bookId); // This might need db access too
+        const pdfBuffer = await generatePictureBookPdf(book, timeline); // OLD Call - Missing luluProductId
 
+        // --- MODIFICATION START ---
+        // Pass book.lulu_product_id to the PDF generator function
+        pdfBuffer = await generatePictureBookPdf(book, timeline, book.lulu_product_id); 
+        // --- MODIFICATION END ---
+        
         console.log(`Uploading PDF to Cloudinary for book ${bookId}...`);
         const folder = `inkwell-ai/user_${userId}/books`;
         const interiorPdfUrl = await uploadImageToCloudinary(pdfBuffer, folder);
@@ -205,6 +210,15 @@ export const createBookCheckoutSession = async (req, res) => {
         // await client.query(`UPDATE picture_books SET lulu_product_id = $1, interior_pdf_url = $2, cover_pdf_url = $3 WHERE id = $4`, [productInfo.id, interiorPdfUrl, coverPdfUrl, bookId]); // This line is not needed if storing in orders table
         
         console.log(`Creating Stripe session for book ${bookId}...`);
+
+        const orderDetails = {
+            selections: {
+                id: productInfo.id,
+                name: productInfo.name,
+                description: book.title,
+            },
+            totalPrice: productInfo.price
+        };
 
         const orderId = randomUUID(); // Generate a unique orderId
 
@@ -225,7 +239,6 @@ export const createBookCheckoutSession = async (req, res) => {
             ]
         );
 
-        // --- MODIFICATION START (passed productDetails, userId, orderId, bookId) ---
         const session = await createStripeCheckoutSession(
             { // productDetails object
                 id: productInfo.id,
@@ -238,7 +251,6 @@ export const createBookCheckoutSession = async (req, res) => {
             orderId, // This is the orderId
             bookId // This is the actual book project ID
         );
-        // --- MODIFICATION END ---
         
         await client.query('UPDATE orders SET stripe_session_id = $1 WHERE id = $2', [session.id, orderId]); // orderId is now defined
 
@@ -314,7 +326,7 @@ export const togglePictureBookPrivacy = async (req, res) => {
         const pool = await getDb();
         client = await pool.connect();
         
-        const bookResult = await client.query(`SELECT id, user_id FROM picture_books WHERE id = $1`, [bookId]);
+        const bookResult = await client.query(`SELECT id FROM picture_books WHERE id = $1`, [bookId]);
         const book = bookResult.rows[0];
         if (!book) {
             return res.status(404).json({ message: 'Project not found.' });
