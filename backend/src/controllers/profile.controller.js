@@ -65,16 +65,13 @@ export const getProfileByUsername = async (req, res) => {
             db.get(followingCountQuery, [profileUserId])
         ]);
 
-        // MODIFIED: TEMPORARILY SIMPLIFIED booksQuery for debugging
-        const booksQuery = `
-            SELECT id, title, cover_image_url, like_count, comment_count, 'picture_book' as book_type, user_id 
-            FROM picture_books 
-            WHERE user_id = $1 AND is_public = TRUE
-        `;
+        // MODIFIED: TEMPORARILY SIMPLIFIED & SINGLE-LINE booksQuery for debugging
+        const booksQuery = `SELECT id, title, cover_image_url, like_count, comment_count, 'picture_book' as book_type, user_id FROM picture_books WHERE user_id = $1 AND is_public = TRUE`;
         
-        console.log("[DEBUG] Executing booksQuery:", booksQuery); 
+        // NEW LINE: Log parameters as well
+        console.log("[DEBUG] Executing booksQuery:", booksQuery, "with params:", [profileUserId]); 
 
-        let books = await db.all(booksQuery, [profileUserId]); // Pass only $1 parameter now
+        let books = await db.all(booksQuery, [profileUserId]);
 
         books = books.map(book => ({
             ...book,

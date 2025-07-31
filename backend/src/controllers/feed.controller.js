@@ -13,14 +13,12 @@ export const getForYouFeed = async (req, res) => {
     try {
         const db = await getDb();
 
-        // MODIFIED: TEMPORARILY SIMPLIFIED allPublicBooksQuery for debugging
-        const allPublicBooksQuery = `
-            SELECT id, user_id, title, cover_image_url, like_count, comment_count, date_created, 'picture_book' AS book_type
-            FROM picture_books
-            WHERE is_public = TRUE
-            ORDER BY date_created DESC
-            LIMIT $1 OFFSET $2
-        `;
+        // MODIFIED: TEMPORARILY SIMPLIFIED & SINGLE-LINE allPublicBooksQuery for debugging
+        const allPublicBooksQuery = `SELECT id, user_id, title, cover_image_url, like_count, comment_count, date_created, 'picture_book' AS book_type FROM picture_books WHERE is_public = TRUE ORDER BY date_created DESC LIMIT $1 OFFSET $2`;
+
+        // NEW LINE: Log parameters as well
+        console.log("[DEBUG] Executing allPublicBooksQuery:", allPublicBooksQuery, "with params:", [limit, offset]); 
+
 
         let feedBooks = await db.all(allPublicBooksQuery, [limit, offset]);
         console.log(`[FEED DEBUG 2] Found ${feedBooks.length} public books from both tables.`);
