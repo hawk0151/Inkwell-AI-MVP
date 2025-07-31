@@ -62,6 +62,7 @@ export const getHardcoverSpineWidthMm = (pageCount) => {
     return 54;
 };
 
+// --- MODIFIED: getCoverDimensionsMm to correctly pass landscape dimensions to PDFKit ---
 export const getCoverDimensionsMm = (luluProductId, pageCount) => {
     const productInfo = PRODUCTS_TO_OFFER.find(p => p.id === luluProductId);
     if (!productInfo) {
@@ -73,12 +74,14 @@ export const getCoverDimensionsMm = (luluProductId, pageCount) => {
 
     switch (luluProductId) {
         case '0550X0850BWSTDCW060UC444GXX': // Novella (5.5 x 8.5" book size)
-            targetLuluWidthMm = (328.61 + 331.79) / 2;
-            targetLuluHeightMm = (258.76 + 261.94) / 2;
+            // Lulu's required range for this specific product's hardcover cover (landscape spread):
+            // Width: 12.938"-13.062" (328.61mm-331.79mm)
+            // Height: 10.188"-10.312" (258.76mm-261.94mm)
 
-            coverWidthMm = targetLuluHeightMm;
-            coverHeightMm = targetLuluWidthMm;
-            targetPdfkitLayout = 'portrait';
+            // We need to generate the PDF with these dimensions directly.
+            coverWidthMm = (328.61 + 331.79) / 2; // Midpoint for width
+            coverHeightMm = (258.76 + 261.94) / 2; // Midpoint for height
+            targetPdfkitLayout = 'landscape'; // Explicitly tell PDFKit it's landscape (width > height)
             break;
         case '0827X1169BWPRELW060UC444GNG': // A4 Story Book
         case '0614X0921BWPRELW060UC444GNG': // Royal Hardcover
@@ -91,30 +94,32 @@ export const getCoverDimensionsMm = (luluProductId, pageCount) => {
             const hardcoverHingeMm = 19.05;
             const hardcoverTurnInMm = 15.875;
 
+            // Calculate the total landscape cover dimensions Lulu expects
             targetLuluWidthMm = (2 * trimWidth) + spineWidth + (2 * outerBleedMm) + (2 * hardcoverHingeMm) + (2 * hardcoverTurnInMm);
             targetLuluHeightMm = trimHeight + (2 * outerBleedMm) + (2 * hardcoverTurnInMm);
 
-            coverWidthMm = targetLuluHeightMm;
-            coverHeightMm = targetLuluWidthMm;
-            targetPdfkitLayout = 'portrait';
+            // PDFKit should be given these directly as width and height for a landscape document
+            coverWidthMm = targetLuluWidthMm;
+            coverHeightMm = targetLuluHeightMm;
+            targetPdfkitLayout = 'landscape'; // Width should be > Height
             break;
         case '0827X1169FCPRELW080CW444MNG': // A4 Premium Picture Book (landscape)
-            const spineWidthPicture = getHardcoverSpineMm(pageCount); // Should be getHardcoverSpineWidthMm
-            const trimWidthPicture = 297;
-            const trimHeightPicture = 210;
+            const spineWidthPicture = getHardcoverSpineWidthMm(pageCount);
+            const trimWidthPicture = 297; // Landscape trim width
+            const trimHeightPicture = 210; // Landscape trim height
 
             targetLuluWidthMm = (2 * trimWidthPicture) + spineWidthPicture + (2 * outerBleedMm) + (2 * hardcoverHingeMm) + (2 * hardcoverTurnInMm);
             targetLuluHeightMm = trimHeightPicture + (2 * outerBleedMm) + (2 * hardcoverTurnInMm);
 
-            coverWidthMm = targetLuluHeightMm;
-            coverHeightMm = targetLuluWidthMm;
-            targetPdfkitLayout = 'portrait';
+            coverWidthMm = targetLuluWidthMm;
+            coverHeightMm = targetLuluHeightMm;
+            targetPdfkitLayout = 'landscape';
             break;
         default:
             throw new Error(`Unknown product ID ${luluProductId} for cover dimensions calculation.`);
     }
 
-    console.log(`DEBUG: For ${luluProductId} (Pages: ${pageCount}) -> Lulu EXPECTS ${targetLuluWidthMm.toFixed(2)}x${targetLuluHeightMm.toFixed(2)}mm (Landscape). Generating PDFKit as ${coverWidthMm.toFixed(2)}x${coverHeightMm.toFixed(2)}mm (Portrait).`);
+    console.log(`DEBUG: For ${luluProductId} (Pages: ${pageCount}) -> Lulu EXPECTS ${coverWidthMm.toFixed(2)}x${coverHeightMm.toFixed(2)}mm (Landscape). Generating PDFKit as ${coverWidthMm.toFixed(2)}x${coverHeightMm.toFixed(2)}mm (Landscape).`);
 
     return {
         width: coverWidthMm,
@@ -148,7 +153,6 @@ const getLuluAuthToken = async () => {
 };
 
 
-// --- MODIFIED: Add a timeout to the fetch request ---
 export const createLuluPrintJob = async (orderDetails, shippingInfo) => {
     const accessToken = await getLuluAuthToken();
     const printJobUrl = `${LULU_API_URL}/print-jobs/`;
@@ -178,9 +182,8 @@ export const createLuluPrintJob = async (orderDetails, shippingInfo) => {
         }],
     };
 
-    // Use AbortController for fetch timeout
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 seconds timeout for Lulu API call
+    const timeoutId = setTimeout(() => controller.abort(), 60000);
 
     try {
         console.log(`DEBUG: Making Lulu API call to ${printJobUrl} with payload...`);
@@ -188,9 +191,9 @@ export const createLuluPrintJob = async (orderDetails, shippingInfo) => {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${accessToken}` },
             body: JSON.stringify(payload),
-            signal: controller.signal // Apply the abort signal
+            signal: controller.signal
         });
-        clearTimeout(timeoutId); // Clear timeout if fetch completes
+        clearTimeout(timeoutId);
 
         if (!response.ok) {
             const errorText = await response.text();
@@ -202,7 +205,7 @@ export const createLuluPrintJob = async (orderDetails, shippingInfo) => {
         console.log("✅ Successfully created Lulu print job:", data.id);
         return data;
     } catch (error) {
-        clearTimeout(timeoutId); // Ensure timeout is cleared even on error
+        clearTimeout(timeoutId);
         if (error.name === 'AbortError') {
             console.error("❌ Lulu API call timed out after 60 seconds.");
             throw new Error('Lulu API call timed out.');
