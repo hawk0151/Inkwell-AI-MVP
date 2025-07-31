@@ -213,7 +213,16 @@ export const createBookCheckoutSession = async (req, res) => {
             },
             totalPrice: productInfo.price
         };
-        const session = await createStripeCheckoutSession(orderDetails, userId, bookId);
+
+        // --- FIX START ---
+        const orderId = randomUUID(); // Generate a unique orderId
+        await client.query(
+            `INSERT INTO orders (id, user_id, book_id, status, created_at) VALUES ($1, $2, $3, $4, $5)`,
+            [orderId, userId, bookId, 'pending', new Date().toISOString()]
+        );
+        // --- FIX END ---
+
+        const session = await createStripeCheckoutSession(orderDetails, userId, orderId); // Pass the generated orderId
         
         // Store the Stripe session ID with your order in the database for later reconciliation
         await client.query('UPDATE orders SET stripe_session_id = $1 WHERE id = $2', [session.id, orderId]); // orderId comes from frontend req.body
