@@ -1,6 +1,6 @@
 import PDFDocument from 'pdfkit';
 import axios from 'axios';
-import { PRODUCTS_TO_OFFER } from './lulu.service.js';
+import { PRODUCTS_TO_OFFER, getCoverDimensionsMm } from './lulu.service.js'; // Import getCoverDimensionsMm
 
 // Helper function to convert mm to points
 const mmToPoints = (mm) => mm * (72 / 25.4);
@@ -15,22 +15,22 @@ const getProductDimensions = (luluProductId) => {
     let widthMm, heightMm, layout;
 
     switch (product.id) {
-        case '0550X0850BWSTDCW060UC444GXX': // Novella (5.5 x 8.5" / 139.7 x 215.9 mm - from template)
+        case '0550X0850BWSTDCW060UC444GXX': // Novella (5.5 x 8.5" / 139.7 x 215.9 mm - from template) [cite: 17]
             widthMm = 139.7; // Exact from Lulu template
             heightMm = 215.9; // Exact from Lulu template
             layout = 'portrait';
             break;
-        case '0827X1169BWPRELW060UC444GNG': // A4 Story Book (8.27 x 11.69" / 209.55 x 296.9 mm - from template)
+        case '0827X1169BWPRELW060UC444GNG': // A4 Story Book (8.27 x 11.69" / 209.55 x 296.9 mm - from template) [cite: 30]
             widthMm = 209.55;
             heightMm = 296.9;
             layout = 'portrait';
             break;
-        case '0614X0921BWPRELW060UC444GNG': // Royal Hardcover (6.14 x 9.21" / 156 x 234 mm - common Royal size, verify with Lulu if issues persist)
+        case '0614X0921BWPRELW060UC444GNG': // Royal Hardcover (6.14 x 9.21" / 156 x 234 mm - common Royal size, verify with Lulu if issues persist) [cite: 42]
             widthMm = 156;
             heightMm = 234;
             layout = 'portrait';
             break;
-        case '0827X1169FCPRELW080CW444MNG': // A4 Premium Picture Book (8.27 x 11.69" / 209.55 x 296.9 mm - from template, landscape)
+        case '0827X1169FCPRELW080CW444MNG': // A4 Premium Picture Book (8.27 x 11.69" / 209.55 x 296.9 mm - from template, landscape) [cite: 30]
             // For landscape, width > height.
             widthMm = 296.9; // Height of A4 in portrait becomes width in landscape
             heightMm = 209.55; // Width of A4 in portrait becomes height in landscape
@@ -43,9 +43,7 @@ const getProductDimensions = (luluProductId) => {
     const widthPoints = mmToPoints(widthMm);
     const heightPoints = mmToPoints(heightMm);
 
-    // --- NEW DEBUG LOG ---
-    console.log(`DEBUG: Product ${luluProductId} dimensions in MM: ${widthMm}x${heightMm}. In Points: ${widthPoints.toFixed(2)}x${heightPoints.toFixed(2)}.`);
-    // --- END NEW DEBUG LOG ---
+    console.log(`DEBUG: Product ${luluProductId} interior dimensions in MM: ${widthMm}x${heightMm}. In Points: ${widthPoints.toFixed(2)}x${heightPoints.toFixed(2)}.`);
 
     return {
         width: widthPoints,
@@ -60,6 +58,62 @@ async function getImageBuffer(url) {
     return Buffer.from(response.data, 'binary');
 }
 
+// --- NEW: Cover PDF Generator ---
+export const generateCoverPdf = async (bookTitle, authorName, luluProductId, pageCount) => {
+    return new Promise(async (resolve, reject) => {
+        try {
+            const { width, height, layout } = getCoverDimensionsMm(luluProductId, pageCount);
+            
+            // Convert MM to points for PDFKit
+            const docWidthPoints = mmToPoints(width);
+            const docHeightPoints = mmToPoints(height);
+
+            console.log(`DEBUG: Cover PDF for ${luluProductId} (Pages: ${pageCount}) will be generated with dimensions in MM: ${width.toFixed(2)}x${height.toFixed(2)}. In Points: ${docWidthPoints.toFixed(2)}x${docHeightPoints.toFixed(2)}.`);
+
+            const doc = new PDFDocument({
+                size: [docWidthPoints, docHeightPoints],
+                layout: layout,
+                autoFirstPage: false,
+                margins: { top: 0, bottom: 0, left: 0, right: 0 } // Covers usually have full bleed, no internal margins needed
+            });
+
+            const buffers = [];
+            doc.on('data', buffers.push.bind(buffers));
+            doc.on('end', () => resolve(Buffer.concat(buffers)));
+
+            doc.addPage();
+
+            // Simple placeholder cover for now: Solid background with text
+            // You can enhance this significantly later with image backgrounds, etc.
+            doc.rect(0, 0, doc.page.width, doc.page.height).fill('#313131'); // Dark background
+
+            // Basic text layout (Front Cover Title)
+            // This is a simplified layout. Real cover design is complex.
+            // You'd need to calculate front cover area, spine area, back cover area.
+            // For now, let's just put the title centered on the full spread.
+            doc.fontSize(48).fillColor('#FFFFFF').font('Helvetica-Bold').text(bookTitle, 0, doc.page.height / 3, {
+                align: 'center',
+                width: doc.page.width
+            });
+            doc.moveDown(1);
+            doc.fontSize(24).fillColor('#CCCCCC').font('Helvetica').text(authorName || 'Inkwell AI', {
+                align: 'center',
+                width: doc.page.width
+            });
+
+            // Consider spine text if spine is wide enough (Lulu recommends > 80 pages) [cite: 282]
+            // This requires knowing the exact spine width and rendering text vertically if needed.
+            // For simplicity, we'll omit complex spine text rendering for this initial pass.
+
+            doc.end();
+        } catch (error) {
+            console.error("Error generating cover PDF:", error);
+            reject(error);
+        }
+    });
+};
+
+
 // --- Picture Book PDF Generator (MODIFIED to accept luluProductId) ---
 export const generatePictureBookPdf = async (book, events, luluProductId) => {
     return new Promise(async (resolve, reject) => {
@@ -70,23 +124,21 @@ export const generatePictureBookPdf = async (book, events, luluProductId) => {
                 size: [width, height],
                 layout: layout,
                 autoFirstPage: false,
-                // --- MODIFICATION START: Set margins once here ---
                 margins: { top: 36, bottom: 36, left: 36, right: 36 }
-                // --- MODIFICATION END ---
             });
 
             const buffers = [];
             doc.on('data', buffers.push.bind(buffers));
             doc.on('end', () => resolve(Buffer.concat(buffers)));
 
-            // --- Cover Page ---
+            // --- Cover Page (Interior file might have an auto-generated cover page, this is just the first page of content) ---
             doc.addPage();
-            if (book.cover_image_url) {
+            if (book.cover_image_url) { // Assuming book.cover_image_url is for the *first interior page* in picture books if not the actual cover
                 try {
                     const coverImageBuffer = await getImageBuffer(book.cover_image_url);
                     doc.image(coverImageBuffer, 0, 0, { width: doc.page.width, height: doc.page.height });
                 } catch (imgErr) {
-                    console.error(`Failed to load cover image from ${book.cover_image_url}`, imgErr);
+                    console.error(`Failed to load cover image for interior from ${book.cover_image_url}`, imgErr);
                     doc.fontSize(40).font('Helvetica-Bold').text(book.title, { align: 'center' });
                 }
             } else {
@@ -97,9 +149,7 @@ export const generatePictureBookPdf = async (book, events, luluProductId) => {
 
             // --- Timeline Pages ---
             for (const event of events) {
-                // --- MODIFICATION START: Remove redundant margins from addPage ---
-                doc.addPage(); // Use global margins set in constructor
-                // --- MODIFICATION END ---
+                doc.addPage();
                 const imageUrl = event.uploaded_image_url || event.image_url;
                 if (imageUrl) {
                     try {
@@ -135,9 +185,7 @@ export const generateTextBookPdf = (title, chapters, luluProductId) => {
         const doc = new PDFDocument({
             size: [width, height],
             layout: layout,
-            // --- MODIFICATION START: Set margins once here ---
             margins: { top: 72, bottom: 72, left: 72, right: 72 }
-            // --- MODIFICATION END ---
         });
 
         const buffers = [];
@@ -154,9 +202,7 @@ export const generateTextBookPdf = (title, chapters, luluProductId) => {
 
         // --- Chapter Pages ---
         for (const chapter of chapters) {
-            // --- MODIFICATION START: Remove redundant margins from addPage ---
-            doc.addPage(); // Use global margins set in constructor
-            // --- MODIFICATION END ---
+            doc.addPage();
             doc.fontSize(18).font('Times-Bold').text(`Chapter ${chapter.chapter_number}`, { align: 'center' });
             doc.moveDown(2);
             doc.fontSize(12).font('Times-Roman').text(chapter.content, { align: 'justify' });

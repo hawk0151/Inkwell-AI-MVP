@@ -1,11 +1,12 @@
 import stripe from 'stripe';
 import { getDb } from '../db/database.js';
-import { generateTextBookPdf, generatePictureBookPdf } from '../services/pdf.service.js'; // Ensure these imports are correct
+// MODIFIED: Import generateCoverPdf
+import { generateTextBookPdf, generatePictureBookPdf, generateCoverPdf } from '../services/pdf.service.js';
 import { uploadImageToCloudinary } from '../services/image.service.js';
 import { createLuluPrintJob } from '../services/lulu.service.js';
 import { randomUUID } from 'crypto';
 import fs from 'fs/promises';
-import path from 'path';    
+import path from 'path';
 
 const stripeClient = stripe(process.env.STRIPE_SECRET_KEY);
 
@@ -16,11 +17,11 @@ const handleSuccessfulCheckout = async (session) => {
         expand: ['customer'],
     });
 
-    const { userId, bookId, bookType, luluProductId, productName } = fullSession.metadata; // luluProductId is now available here
+    const { userId, bookId, bookType, luluProductId, productName } = fullSession.metadata;
 
     console.log("DEBUG: Stripe Session Metadata -> userId:", userId, "bookId:", bookId, "bookType:", bookType, "luluProductId:", luluProductId, "productName:", productName);
 
-    if (!bookId || !bookType || !userId || !luluProductId) { // Add luluProductId to validation
+    if (!bookId || !bookType || !userId || !luluProductId) {
         console.error("❌ Missing required metadata in Stripe session.");
         return;
     }
@@ -48,10 +49,10 @@ const handleSuccessfulCheckout = async (session) => {
 
         let bookTitle;
         let interiorPdfUrl;
-        let coverPdfUrl;
+        let coverPdfUrl; // This will now be dynamically generated
         let pdfBuffer;
-        // luluProductIdentifier is now taken directly from metadata: luluProductId
         let luluOrderDetails = null;
+        let pageCountForCover = 0; // To fetch page count for spine calculation
 
         if (bookType === 'textBook') {
             const bookResult = await client.query(`SELECT * FROM text_books WHERE id = $1`, [bookId]);
@@ -59,28 +60,39 @@ const handleSuccessfulCheckout = async (session) => {
             if (!book) throw new Error(`Text book with ID ${bookId} not found in DB.`);
 
             bookTitle = book.title;
-            // luluProductIdentifier = book.lulu_product_id; // Now comes from metadata
+            pageCountForCover = book.total_chapters * (book.pagesPerChapter || 1); // Assuming avg pages per chapter to get total pages
+            // If total_chapters already means total pages, use that directly.
+            // Otherwise, we need to know how many pages each chapter translates to.
+            // Let's assume total_chapters * selectedProduct.pagesPerChapter from lulu.service.js gives us the actual page count.
+            // Or, more robustly, fetch actual chapter content and count pages using PDFKit's methods if you need extremely accurate total pages.
+            // For now, let's try getting it from the product info itself
+            
+            // Re-fetch product info to get pageCount accurately
+            const product = (await import('../services/lulu.service.js')).PRODUCTS_TO_OFFER.find(p => p.id === luluProductId);
+            if (!product) throw new Error(`Lulu product ${luluProductId} not found for cover page count.`);
+            pageCountForCover = product.pageCount;
 
-            // --- FIX START: Move chaptersResult query BEFORE its usage ---
+
             const chaptersResult = await client.query(`SELECT chapter_number, content FROM chapters WHERE book_id = $1 ORDER BY chapter_number ASC`, [bookId]);
             console.log(`DEBUG: Generating PDF for text book: ${book.title}. Chapters count: ${chaptersResult.rows.length}`);
-            // --- FIX END ---
 
-            // --- MODIFICATION START (Pass luluProductId to PDF generator) ---
             pdfBuffer = await generateTextBookPdf(book.title, chaptersResult.rows, luluProductId);
-            // --- MODIFICATION END ---
 
-            console.log(`DEBUG: Uploading PDF to Cloudinary for book: ${bookId}. PDF Buffer length: ${pdfBuffer ? pdfBuffer.length : 'null'}`);
-
+            console.log(`DEBUG: Uploading Interior PDF to Cloudinary for book: ${bookId}. PDF Buffer length: ${pdfBuffer ? pdfBuffer.length : 'null'}`);
             interiorPdfUrl = await uploadImageToCloudinary(pdfBuffer, `inkwell-ai/user_${userId}/books`);
-            coverPdfUrl = book.cover_image_url || "https://www.dropbox.com/s/7bv6mg2tj0h3l0r/lulu_trade_perfect_template.pdf?dl=1&raw=1";
+
+            // --- MODIFICATION START: Generate dynamic cover PDF ---
+            console.log(`DEBUG: Generating Cover PDF for text book: ${book.title} with product ID ${luluProductId} and page count ${pageCountForCover}.`);
+            const coverPdfBuffer = await generateCoverPdf(book.title, book.author_name || 'Inkwell AI', luluProductId, pageCountForCover); // Assuming book has author_name or default
+            coverPdfUrl = await uploadImageToCloudinary(coverPdfBuffer, `inkwell-ai/user_${userId}/covers`);
+            // --- MODIFICATION END ---
 
             await client.query(`UPDATE text_books SET interior_pdf_url = $1, cover_pdf_url = $2 WHERE id = $3`, [interiorPdfUrl, coverPdfUrl, bookId]);
 
             luluOrderDetails = {
                 id: bookId,
                 product_name: bookTitle,
-                lulu_product_id: luluProductId, // Use luluProductId from metadata
+                lulu_product_id: luluProductId,
                 cover_pdf_url: coverPdfUrl,
                 interior_pdf_url: interiorPdfUrl
             };
@@ -91,27 +103,32 @@ const handleSuccessfulCheckout = async (session) => {
             if (!book) throw new Error(`Picture book with ID ${bookId} not found in DB.`);
 
             bookTitle = book.title;
-            // luluProductIdentifier = book.lulu_product_id; // Now comes from metadata
+            // Re-fetch product info to get pageCount accurately
+            const product = (await import('../services/lulu.service.js')).PRODUCTS_TO_OFFER.find(p => p.id === luluProductId);
+            if (!product) throw new Error(`Lulu product ${luluProductId} not found for cover page count.`);
+            pageCountForCover = product.pageCount;
 
-            // --- FIX START: Fetch timeline here BEFORE it's used ---
-            const timelineResult = await client.query(`SELECT * FROM timeline_events WHERE book_id = $1 ORDER BY page_number ASC`, [bookId]); // FETCH timeline here
-            // --- FIX END ---
 
-            console.log(`DEBUG: Generating PDF for picture book: ${book.title}`);
-            // --- MODIFICATION START (Pass luluProductId to PDF generator) ---
-            pdfBuffer = await generatePictureBookPdf(book, timelineResult.rows, luluProductId); // Assuming generatePictureBookPdf uses book and timeline
-            // --- MODIFICATION END ---
+            const timelineResult = await client.query(`SELECT * FROM timeline_events WHERE book_id = $1 ORDER BY page_number ASC`, [bookId]);
 
-            console.log(`DEBUG: Uploading PDF to Cloudinary for book: ${bookId}. PDF Buffer length: ${pdfBuffer ? pdfBuffer.length : 'null'}`);
+            console.log(`DEBUG: Generating Interior PDF for picture book: ${book.title}`);
+            pdfBuffer = await generatePictureBookPdf(book, timelineResult.rows, luluProductId);
+
+            console.log(`DEBUG: Uploading Interior PDF to Cloudinary for book: ${bookId}. PDF Buffer length: ${pdfBuffer ? pdfBuffer.length : 'null'}`);
             interiorPdfUrl = await uploadImageToCloudinary(pdfBuffer, `inkwell-ai/user_${userId}/books`);
-            coverPdfUrl = book.cover_image_url || "https://www.dropbox.com/s/7bv6mg2tj0h3l0r/lulu_trade_perfect_template.pdf?dl=1&raw=1";
+
+            // --- MODIFICATION START: Generate dynamic cover PDF ---
+            console.log(`DEBUG: Generating Cover PDF for picture book: ${book.title} with product ID ${luluProductId} and page count ${pageCountForCover}.`);
+            const coverPdfBuffer = await generateCoverPdf(book.title, book.author_name || 'Inkwell AI', luluProductId, pageCountForCover); // Assuming book has author_name or default
+            coverPdfUrl = await uploadImageToCloudinary(coverPdfBuffer, `inkwell-ai/user_${userId}/covers`);
+            // --- MODIFICATION END ---
 
             await client.query(`UPDATE picture_books SET interior_pdf_url = $1, cover_pdf_url = $2 WHERE id = $3`, [interiorPdfUrl, coverPdfUrl, bookId]);
 
             luluOrderDetails = {
                 id: bookId,
                 product_name: bookTitle,
-                lulu_product_id: luluProductId, // Use luluProductId from metadata
+                lulu_product_id: luluProductId,
                 cover_pdf_url: coverPdfUrl,
                 interior_pdf_url: interiorPdfUrl
             };
