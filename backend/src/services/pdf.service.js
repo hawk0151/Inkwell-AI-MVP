@@ -13,9 +13,14 @@ async function getImageBuffer(url) {
 export const generatePictureBookPdf = async (book, events) => {
     return new Promise(async (resolve, reject) => {
         try {
+            // Assuming A4 Picture Book product (8.27 x 11.69 inches) from PRODUCTS_TO_OFFER
+            // For landscape: [height, width] = [11.69 * 72, 8.27 * 72]
+            const widthInPoints = 11.69 * 72; // ~841.68
+            const heightInPoints = 8.27 * 72; // ~595.44
+
             const doc = new PDFDocument({
-                size: 'A4',
-                layout: 'landscape', // Picture books are often landscape
+                size: [widthInPoints, heightInPoints], // Landscape A4 equivalent
+                layout: 'landscape', 
                 autoFirstPage: false,
                 margins: { top: 36, bottom: 36, left: 36, right: 36 }
             });
@@ -32,13 +37,12 @@ export const generatePictureBookPdf = async (book, events) => {
                     doc.image(coverImageBuffer, 0, 0, { width: doc.page.width, height: doc.page.height });
                 } catch (imgErr) {
                     console.error(`Failed to load cover image from ${book.cover_image_url}`, imgErr);
-                    // Fallback to text cover if image fails
                     doc.fontSize(40).font('Helvetica-Bold').text(book.title, { align: 'center' });
                 }
             } else {
-                 doc.fontSize(40).font('Helvetica-Bold').text(book.title, { align: 'center' });
-                 doc.moveDown(2);
-                 doc.fontSize(18).font('Helvetica').text('A Personalized Story from Inkwell AI', { align: 'center' });
+                doc.fontSize(40).font('Helvetica-Bold').text(book.title, { align: 'center' });
+                doc.moveDown(2);
+                doc.fontSize(18).font('Helvetica').text('A Personalized Story from Inkwell AI', { align: 'center' });
             }
 
             // --- Timeline Pages ---
@@ -48,7 +52,6 @@ export const generatePictureBookPdf = async (book, events) => {
                 if (imageUrl) {
                     try {
                         const imageBuffer = await getImageBuffer(imageUrl);
-                        // Fit image to page, leaving room for text
                         doc.image(imageBuffer, { fit: [doc.page.width - 72, doc.page.height - 150], align: 'center', valign: 'top' });
                     } catch (imgErr) {
                         console.error(`Failed to load image from ${imageUrl}`, imgErr);
@@ -74,11 +77,15 @@ export const generatePictureBookPdf = async (book, events) => {
 
 
 // --- Text Book PDF Generator ---
+// MODIFIED to use exact Lulu dimensions for Novella (5.5 x 8.5 inches)
 export const generateTextBookPdf = (title, chapters) => {
     return new Promise((resolve) => {
+        const widthInPoints = 5.5 * 72; // 396 points
+        const heightInPoints = 8.5 * 72; // 612 points
+
         const doc = new PDFDocument({
-            size: 'A5', // A standard novel size
-            layout: 'portrait',
+            size: [widthInPoints, heightInPoints], // Set exact dimensions
+            layout: 'portrait', // Keep portrait
             margins: { top: 72, bottom: 72, left: 72, right: 72 }
         });
 
