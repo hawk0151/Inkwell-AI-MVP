@@ -2,9 +2,6 @@
 import { getDb } from '../db/database.js';
 import admin from 'firebase-admin';
 
-// REMOVED: dbAllPromise and dbGetPromise are no longer needed
-// Use db.all and db.get directly from the db instance obtained from getDb()
-
 export const getForYouFeed = async (req, res) => {
     const userId = req.userId;
     const page = parseInt(req.query.page, 10) || 1;
@@ -14,7 +11,7 @@ export const getForYouFeed = async (req, res) => {
     console.log(`[FEED DEBUG 1] Fetching feed for user: ${userId}, page: ${page}, limit: ${limit}`);
 
     try {
-        const db = await getDb(); // Get the database instance directly
+        const db = await getDb();
 
         const allPublicBooksQuery = `
             SELECT
@@ -27,7 +24,7 @@ export const getForYouFeed = async (req, res) => {
                 date_created,
                 'picture_book' AS book_type
             FROM picture_books
-            WHERE is_public = TRUE -- PostgreSQL uses TRUE/FALSE for BOOLEAN
+            WHERE is_public = 1 -- MODIFIED: is_public = TRUE changed to is_public = 1
 
             UNION ALL
 
@@ -41,13 +38,11 @@ export const getForYouFeed = async (req, res) => {
                 date_created,
                 'text_book' AS book_type
             FROM text_books
-            WHERE is_public = TRUE -- PostgreSQL uses TRUE/FALSE for BOOLEAN
+            WHERE is_public = 1 -- MODIFIED: is_public = TRUE changed to is_public = 1
             ORDER BY date_created DESC
-            LIMIT $1 OFFSET $2 -- PostgreSQL uses $1, $2 for parameters, not ?
+            LIMIT $1 OFFSET $2
         `;
 
-        // MODIFIED: Use db.all directly instead of dbAllPromise
-        // Also: Parameter placeholders changed from ? to $1, $2 for PostgreSQL
         let feedBooks = await db.all(allPublicBooksQuery, [limit, offset]);
         console.log(`[FEED DEBUG 2] Found ${feedBooks.length} public books from both tables.`);
 
@@ -82,16 +77,15 @@ export const getForYouFeed = async (req, res) => {
         });
 
         if (userId && feedBooks.length > 0) {
-            const bookIds = feedBooks.map(book => book.id);
-            const bookTypePlaceholders = feedBooks.map((_, i) => `($${2*i+2},$${2*i+3})`).join(','); // Generates ($2,$3), ($4,$5) etc.
+            // Re-evaluating this dynamic IN clause to be safer for PostgreSQL
+            // It's generally safer to build the IN clause with specific parameters
+            const bookTypePlaceholders = feedBooks.map((_, i) => `($${i * 2 + 2}, $${i * 2 + 3})`).join(','); // Generates ($2,$3), ($4,$5) etc.
             const likeCheckParams = [userId];
             feedBooks.forEach(book => {
                 likeCheckParams.push(book.id, book.book_type);
             });
 
-            // MODIFIED: Parameter placeholders changed from ? to $n for PostgreSQL
             const likesSql = `SELECT book_id, book_type FROM likes WHERE user_id = $1 AND (book_id, book_type) IN (${bookTypePlaceholders})`;
-            // MODIFIED: Use db.all directly
             const likedResults = await db.all(likesSql, likeCheckParams);
 
             const likedSet = new Set(likedResults.map(like => `${like.book_type}:${like.book_id}`));
