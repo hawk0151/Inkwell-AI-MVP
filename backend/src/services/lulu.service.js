@@ -62,79 +62,72 @@ export const getHardcoverSpineWidthMm = (pageCount) => {
     return 54;
 };
 
-// --- MODIFIED: getCoverDimensionsMm to use explicit target ranges ---
+// --- MODIFIED: getCoverDimensionsMm to perform explicit swap for PDFKit ---
 export const getCoverDimensionsMm = (luluProductId, pageCount) => {
     const productInfo = PRODUCTS_TO_OFFER.find(p => p.id === luluProductId);
     if (!productInfo) {
         throw new Error(`Product with ID ${luluProductId} not found for cover dimensions.`);
     }
 
-    let coverWidthMm, coverHeightMm, layout;
+    let targetLuluWidthMm, targetLuluHeightMm, targetPdfkitLayout;
 
-    // Use Lulu's *required* range to derive the precise dimensions for each product ID
     switch (luluProductId) {
         case '0550X0850BWSTDCW060UC444GXX': // Novella (5.5 x 8.5" book size)
-            // Lulu's required range for this specific product's hardcover cover:
-            // 12.938"-13.062" x 10.188"-10.312" (imperial)
-            // 328.61mm-331.79mm x 258.76mm-261.94mm (metric)
-            coverWidthMm = (328.61 + 331.79) / 2; // Midpoint
-            coverHeightMm = (258.76 + 261.94) / 2; // Midpoint
-            layout = 'landscape'; // The total cover spread is always landscape
+            // Lulu expects: W: ~330.20mm, H: ~260.35mm (Landscape)
+            // But if Lulu swaps, it receives H: ~260.35mm, W: ~330.20mm
+            // So we need to generate for PDFKit: W: ~260.35mm, H: ~330.20mm (Portrait)
+            targetLuluWidthMm = (328.61 + 331.79) / 2; // ~330.20mm
+            targetLuluHeightMm = (258.76 + 261.94) / 2; // ~260.35mm
+
+            // For PDFKit, we swap so Lulu receives the correct orientation after its internal logic
+            coverWidthMm = targetLuluHeightMm; // This becomes PDFKit's width
+            coverHeightMm = targetLuluWidthMm; // This becomes PDFKit's height
+            targetPdfkitLayout = 'portrait'; // Because PDFKit's height is now > width
             break;
-        case '0827X1169BWPRELW060UC444GNG': // A4 Story Book (8.27 x 11.69" book size)
-            // Need to find Lulu's exact cover template dimensions for A4 Hardcover (not just interior)
-            // Or apply the general formula. Let's start with general, but be ready to hardcode if needed.
-            // Trim: 210mm x 297mm
-            // Assuming 24 pages for now, need spine. For 48 pages, spine is still 6mm.
-            
-            // General calculation for hardcovers: (2 * Trim Width) + Spine + (2 * Bleed) + (2 * Hinge) + (2 * Turn-in)
-            // Height: Trim Height + (2 * Bleed) + (2 * Turn-in)
-            const spineWidthA4 = getHardcoverSpineWidthMm(pageCount);
-            const trimWidthA4 = 210; // A4 portrait width
-            const trimHeightA4 = 297; // A4 portrait height
+        case '0827X1169BWPRELW060UC444GNG': // A4 Story Book
+        case '0614X0921BWPRELW060UC444GNG': // Royal Hardcover
+            // For these, we currently calculate. Let's apply the same swapping logic.
+            // Assuming these covers are also meant to be landscape in Lulu's view.
+            const spineWidth = getHardcoverSpineWidthMm(pageCount);
+            let trimWidth, trimHeight;
+            if (luluProductId === '0827X1169BWPRELW060UC444GNG') { trimWidth = 210; trimHeight = 297; }
+            else { trimWidth = 156; trimHeight = 234; } // Royal Hardcover
+
             const outerBleedMm = 3.175; // 0.125 inches
             const hardcoverHingeMm = 19.05; // 0.75 inches
             const hardcoverTurnInMm = 15.875; // 0.625 inches
 
-            coverWidthMm = (2 * trimWidthA4) + spineWidthA4 + (2 * outerBleedMm) + (2 * hardcoverHingeMm) + (2 * hardcoverTurnInMm);
-            coverHeightMm = trimHeightA4 + (2 * outerBleedMm) + (2 * hardcoverTurnInMm);
-            layout = 'landscape';
-            break;
-        case '0614X0921BWPRELW060UC444GNG': // Royal Hardcover (6.14 x 9.21" book size)
-            // Need to find Lulu's exact cover template dimensions for Royal Hardcover
-            // Trim: 156mm x 234mm
-            const spineWidthRoyal = getHardcoverSpineWidthMm(pageCount);
-            const trimWidthRoyal = 156;
-            const trimHeightRoyal = 234;
-            // Common values for Royal Hardcover (adjust if Lulu template specifies otherwise)
-            // Will use same general calculation as A4 if no explicit template data
-            coverWidthMm = (2 * trimWidthRoyal) + spineWidthRoyal + (2 * outerBleedMm) + (2 * hardcoverHingeMm) + (2 * hardcoverTurnInMm);
-            coverHeightMm = trimHeightRoyal + (2 * outerBleedMm) + (2 * hardcoverTurnInMm);
-            layout = 'landscape';
+            targetLuluWidthMm = (2 * trimWidth) + spineWidth + (2 * outerBleedMm) + (2 * hardcoverHingeMm) + (2 * hardcoverTurnInMm);
+            targetLuluHeightMm = trimHeight + (2 * outerBleedMm) + (2 * hardcoverTurnInMm);
+
+            coverWidthMm = targetLuluHeightMm; // PDFKit width
+            coverHeightMm = targetLuluWidthMm; // PDFKit height
+            targetPdfkitLayout = 'portrait';
             break;
         case '0827X1169FCPRELW080CW444MNG': // A4 Premium Picture Book (landscape)
-            // This is a picture book, often with different cover type.
-            // Trim: 297mm (width) x 210mm (height) (landscape trim)
-            // Need to confirm if 'FCPRELW080CW444MNG' is also hardcover and uses same cover calculation.
-            // Assuming it is hardcover for now.
-            const spineWidthPicture = getHardcoverSpineWidthMm(pageCount); // Page count for picture book is 24, so spine is 6mm
-            const trimWidthPicture = 297; // Landscape width is 297
-            const trimHeightPicture = 210; // Landscape height is 210
-            
-            coverWidthMm = (2 * trimWidthPicture) + spineWidthPicture + (2 * outerBleedMm) + (2 * hardcoverHingeMm) + (2 * hardcoverTurnInMm);
-            coverHeightMm = trimHeightPicture + (2 * outerBleedMm) + (2 * hardcoverTurnInMm);
-            layout = 'landscape';
+            // This is trickier as it's already a "landscape" product, but the cover spread is still landscape.
+            // Assuming the same swapping logic applies.
+            const spineWidthPicture = getHardcoverSpineWidthMm(pageCount);
+            const trimWidthPicture = 297; // Landscape trim width
+            const trimHeightPicture = 210; // Landscape trim height
+
+            targetLuluWidthMm = (2 * trimWidthPicture) + spineWidthPicture + (2 * outerBleedMm) + (2 * hardcoverHingeMm) + (2 * hardcoverTurnInMm);
+            targetLuluHeightMm = trimHeightPicture + (2 * outerBleedMm) + (2 * hardcoverTurnInMm);
+
+            coverWidthMm = targetLuluHeightMm; // PDFKit width
+            coverHeightMm = targetLuluWidthMm; // PDFKit height
+            targetPdfkitLayout = 'portrait';
             break;
         default:
             throw new Error(`Unknown product ID ${luluProductId} for cover dimensions calculation.`);
     }
 
-    console.log(`DEBUG: Final Cover Dimensions for ${luluProductId} (Pages: ${pageCount}) -> Spine: ${getHardcoverSpineWidthMm(pageCount).toFixed(2)}mm. Resulting Cover Dimensions in MM: ${coverWidthMm.toFixed(2)}x${coverHeightMm.toFixed(2)}. Layout: ${layout}`);
+    console.log(`DEBUG: For ${luluProductId} (Pages: ${pageCount}) -> Lulu EXPECTS ${targetLuluWidthMm.toFixed(2)}x${targetLuluHeightMm.toFixed(2)}mm (Landscape). Generating PDFKit as ${coverWidthMm.toFixed(2)}x${coverHeightMm.toFixed(2)}mm (Portrait).`);
 
     return {
         width: coverWidthMm,
         height: coverHeightMm,
-        layout: layout
+        layout: targetPdfkitLayout
     };
 };
 
