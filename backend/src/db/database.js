@@ -3,7 +3,7 @@ import sqlite3 from 'sqlite3';
 import { open } from 'sqlite'; // Used for SQLite connection
 import pg from 'pg'; // NEW: Import PostgreSQL client
 import path from 'path';
-import { fileURLToPath } from 'url';
+import { fileURLToPath } from 'url'; // CORRECTED: Removed '='
 import { dirname } from 'path';
 
 // Determine if we are in a production environment
@@ -14,12 +14,12 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const DB_PATH = path.join(__dirname, '..', 'inkwell.db');
 
-let db = null; // Initialize db to null
+let dbPool = null; // Changed from 'db' to 'dbPool' to better represent a pg.Pool
 
 export async function getDb() {
-    if (db) {
-        // If db is already connected, return the existing instance
-        return db;
+    if (dbPool) {
+        // If dbPool is already connected, return the existing instance
+        return dbPool; // Return the pool directly
     }
 
     try {
@@ -30,55 +30,57 @@ export async function getDb() {
             }
             console.log("Attempting to connect to PostgreSQL...");
             const { Pool } = pg;
-            const pool = new Pool({
+            dbPool = new Pool({ // Initialize Pool here
                 connectionString: process.env.DATABASE_URL,
-                // NEW: Add SSL options for Render's PostgreSQL
                 ssl: {
-                    rejectUnauthorized: false // Required for Render connections
+                    rejectUnauthorized: false
                 }
             });
-            // Test the connection
-            db = await pool.connect();
-            console.log("✅ Successfully connected to the PostgreSQL database.");
-            // Override exec and all methods to work with pg.Pool client
-            db.exec = async (sql) => {
-                try {
-                    await db.query(sql);
-                } finally {
-                    // Release the client back to the pool if it was a direct client, not for pool.connect()
-                }
-            };
-            db.all = async (sql, params = []) => {
-                const res = await db.query(sql, params);
-                return res.rows;
-            };
-            db.get = async (sql, params = []) => {
-                const res = await db.query(sql, params);
-                return res.rows[0];
-            };
-            db.run = async (sql, params = []) => {
-                const res = await db.query(sql, params);
-                // Simulate lastID and changes for compatibility if needed.
-                return { lastID: null, changes: res.rowCount };
-            };
-            db._isPg = true;
-            return db;
+
+            // Test the connection by performing a simple query
+            await dbPool.query('SELECT 1 + 1 AS solution');
+            console.log("✅ Successfully connected to the PostgreSQL database pool.");
+            
+            // In production, we return the Pool instance directly.
+            // Controllers will use pool.query(), pool.connect() etc.
+            return dbPool;
 
         } else {
             // Connect to SQLite in development
             console.log("Attempting to connect to SQLite...");
-            db = await open({
+            const sqliteDb = await open({
                 filename: DB_PATH,
                 driver: sqlite3.Database
             });
 
-            await db.exec('PRAGMA journal_mode = WAL;');
+            await sqliteDb.exec('PRAGMA journal_mode = WAL;');
             console.log("✅ Successfully connected to the SQLite database.");
-            db._isPg = false; // Set a flag for SQLite connection
-            return db;
+            
+            // For development, we return the SQLite client.
+            // We'll still need to provide db.all/db.get/db.run adapters for SQLite
+            // if existing code expects them, or convert the code to use db.query with callbacks.
+            // Let's re-add simplified adapters for SQLite here for local compatibility.
+            sqliteDb.all = (sql, params = []) => new Promise((resolve, reject) => {
+                sqliteDb.all(sql, params, (err, rows) => err ? reject(err) : resolve(rows));
+            });
+            sqliteDb.get = (sql, params = []) => new Promise((resolve, reject) => {
+                sqliteDb.get(sql, params, (err, row) => err ? reject(err) : resolve(row));
+            });
+            sqliteDb.run = (sql, params = []) => new Promise((resolve, reject) => {
+                sqliteDb.run(sql, params, function(err) { // Use function for 'this' context
+                    if (err) return reject(err);
+                    resolve({ lastID: this.lastID, changes: this.changes });
+                });
+            });
+            sqliteDb.exec = (sql) => new Promise((resolve, reject) => {
+                sqliteDb.exec(sql, (err) => err ? reject(err) : resolve());
+            });
+
+            dbPool = sqliteDb; // Assign SQLite instance to dbPool for consistency
+            return dbPool;
         }
     } catch (err) {
         console.error("❌ Error connecting to database:", err.message);
-        throw err; // Re-throw the error so calling code knows it failed
+        throw err;
     }
 }
