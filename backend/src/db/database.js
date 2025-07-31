@@ -3,7 +3,7 @@ import sqlite3 from 'sqlite3';
 import { open } from 'sqlite'; // Used for SQLite connection
 import pg from 'pg'; // NEW: Import PostgreSQL client
 import path from 'path';
-import { fileURLToPath } from 'url'; // CORRECTED: Removed '='
+import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 
 // Determine if we are in a production environment

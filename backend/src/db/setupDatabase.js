@@ -1,15 +1,14 @@
 // backend/src/db/setupDatabase.js
-// No need for sqlite3 import anymore since we're using pg directly
+// No need for sqlite3 import anymore since we're using pg directly or the adapter
 // import sqlite3 from 'sqlite3';
 import { getDb } from './database.js'; // Import getDb function
 
 // Helper function to add a column if it doesn't exist
-const addColumnIfNotExists = async (dbInstance, tableName, columnName, columnDefinition) => {
-    let client; // Declare client to ensure it's released
+// MODIFIED: Takes 'client' as argument if it's PostgreSQL, uses dbInstance for SQLite
+const addColumnIfNotExists = async (dbConnection, tableName, columnName, columnDefinition) => {
     try {
-        if (dbInstance.query) { // Check if it's a pg Pool or Client (has .query method)
-            client = await dbInstance.connect(); // Get a client from the pool
-            const result = await client.query(`
+        if (dbConnection.query) { // Check if it's a pg Client (has .query method)
+            const result = await dbConnection.query(`
                 SELECT column_name
                 FROM information_schema.columns
                 WHERE table_name = $1 AND column_name = $2
@@ -17,32 +16,24 @@ const addColumnIfNotExists = async (dbInstance, tableName, columnName, columnDef
             const columnExists = result.rows.length > 0;
             if (!columnExists) {
                 console.log(`Adding column '${columnName}' to table '${tableName}' (PostgreSQL)...`);
-                await client.query(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnDefinition}`);
+                await dbConnection.query(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnDefinition}`);
             }
         } else { // Assume it's the SQLite instance (for local dev)
-            const result = await dbInstance.all(`PRAGMA table_info(${tableName})`);
+            const result = await dbConnection.all(`PRAGMA table_info(${tableName})`);
             const columnExists = result.some(column => column.name === columnName);
             if (!columnExists) {
                 console.log(`Adding column '${columnName}' to table '${tableName}' (SQLite)...`);
-                await dbInstance.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnDefinition}`);
+                await dbConnection.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnDefinition}`);
             }
         }
     } catch (error) {
-        // More specific check for "relation does not exist" in PostgreSQL
         if (error.code === '42P01') { // PostgreSQL error code for undefined_table
              console.warn(`Table ${tableName} does not exist when trying to add column ${columnName}. Will be created later.`);
         } else {
             console.error(`Failed to add column ${columnName} to ${tableName}:`, error);
         }
-    } finally {
-        if (client) client.release(); // Release the client back to the pool
     }
 };
-
-// SQL for PostgreSQL - Changes:
-// - INTEGER PRIMARY KEY AUTOINCREMENT -> SERIAL PRIMARY KEY (or GENERATED ALWAYS AS IDENTITY)
-// - BOOLEAN DEFAULT 0 -> BOOLEAN DEFAULT FALSE (for clarity, though 0/1 often works)
-// - TEXT PRIMARY KEY -> TEXT PRIMARY KEY (UUIDs should be TEXT in PG)
 
 const createUsersTable = `
     CREATE TABLE IF NOT EXISTS users (
@@ -149,12 +140,12 @@ const createCommentsTable = `
 `;
 
 export const setupDatabase = async () => {
-    let client; // Declare client for transaction management
+    let client; // Declare client for transaction management for PostgreSQL
     try {
-        const pool = await getDb(); // Get the pool (either pg.Pool or SQLite instance)
+        const poolOrSqliteDb = await getDb(); // Get the pool (either pg.Pool or SQLite instance)
 
-        if (pool.query) { // Check if it's a pg.Pool instance (production)
-            client = await pool.connect(); // Get a client from the pool
+        if (poolOrSqliteDb.query && poolOrSqliteDb.connect) { // Check if it's a pg.Pool instance (production)
+            client = await poolOrSqliteDb.connect(); // Get a client from the pool
             console.log("Setting up database tables (PostgreSQL)...");
             await client.query(createUsersTable); // Use client.query
             await client.query(createPictureBooksTable);
@@ -165,7 +156,7 @@ export const setupDatabase = async () => {
             await client.query(createLikesTable);
             await client.query(createCommentsTable);
 
-            // For addColumnIfNotExists, pass the client so it uses client.query()
+            // For addColumnIfNotExists, pass the acquired client
             console.log("Checking and adding missing columns (PostgreSQL)...");
             await addColumnIfNotExists(client, 'users', 'avatar_url', 'TEXT');
             await addColumnIfNotExists(client, 'text_books', 'prompt_details', 'TEXT');
@@ -187,34 +178,34 @@ export const setupDatabase = async () => {
 
         } else { // It's the SQLite instance (development)
             console.log("Setting up database tables (SQLite)...");
-            await pool.exec(createUsersTable); // Use pool.exec for SQLite
-            await pool.exec(createPictureBooksTable);
-            await pool.exec(createTextBooksTable);
-            await pool.exec(createChaptersTable);
-            await pool.exec(createTimelineEventsTable);
-            await pool.exec(createFollowsTable);
-            await pool.exec(createLikesTable);
-            await pool.exec(createCommentsTable);
+            await poolOrSqliteDb.exec(createUsersTable); // Use exec for SQLite
+            await poolOrSqliteDb.exec(createPictureBooksTable);
+            await poolOrSqliteDb.exec(createTextBooksTable);
+            await poolOrSqliteDb.exec(createChaptersTable);
+            await poolOrSqliteDb.exec(createTimelineEventsTable);
+            await poolOrSqliteDb.exec(createFollowsTable);
+            await poolOrSqliteDb.exec(createLikesTable);
+            await poolOrSqliteDb.exec(createCommentsTable);
 
-            // For addColumnIfNotExists, pass the SQLite instance
+            // For addColumnIfNotExists, pass the SQLite instance (which has .exec)
             console.log("Checking and adding missing columns (SQLite)...");
-            await addColumnIfNotExists(pool, 'users', 'avatar_url', 'TEXT');
-            await addColumnIfNotExists(pool, 'text_books', 'prompt_details', 'TEXT');
-            await addColumnIfNotExists(pool, 'text_books', 'lulu_product_id', 'TEXT');
-            await addColumnIfNotExists(pool, 'text_books', 'interior_pdf_url', 'TEXT');
-            await addColumnIfNotExists(pool, 'text_books', 'cover_pdf_url', 'TEXT');
-            await addColumnIfNotExists(pool, 'text_books', 'date_created', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP');
-            await addColumnIfNotExists(pool, 'text_books', 'is_public', 'BOOLEAN DEFAULT 0');
-            await addColumnIfNotExists(pool, 'text_books', 'total_chapters', 'INTEGER DEFAULT 0');
+            await addColumnIfNotExists(poolOrSqliteDb, 'users', 'avatar_url', 'TEXT');
+            await addColumnIfNotExists(poolOrSqliteDb, 'text_books', 'prompt_details', 'TEXT');
+            await addColumnIfNotExists(poolOrSqliteDb, 'text_books', 'lulu_product_id', 'TEXT');
+            await addColumnIfNotExists(poolOrSqliteDb, 'text_books', 'interior_pdf_url', 'TEXT');
+            await addColumnIfNotExists(poolOrSqliteDb, 'text_books', 'cover_pdf_url', 'TEXT');
+            await addColumnIfNotExists(poolOrSqliteDb, 'text_books', 'date_created', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP');
+            await addColumnIfNotExists(poolOrSqliteDb, 'text_books', 'is_public', 'BOOLEAN DEFAULT 0');
+            await addColumnIfNotExists(poolOrSqliteDb, 'text_books', 'total_chapters', 'INTEGER DEFAULT 0');
 
-            await addColumnIfNotExists(pool, 'picture_books', 'interior_pdf_url', 'TEXT');
-            await addColumnIfNotExists(pool, 'picture_books', 'cover_pdf_url', 'TEXT');
-            await addColumnIfNotExists(pool, 'picture_books', 'lulu_product_id', 'TEXT');
-            await addColumnIfNotExists(pool, 'picture_books', 'date_created', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP');
-            await addColumnIfNotExists(pool, 'picture_books', 'is_public', 'BOOLEAN DEFAULT 0');
+            await addColumnIfNotExists(poolOrSqliteDb, 'picture_books', 'interior_pdf_url', 'TEXT');
+            await addColumnIfNotExists(poolOrSqliteDb, 'picture_books', 'cover_pdf_url', 'TEXT');
+            await addColumnIfNotExists(poolOrSqliteDb, 'picture_books', 'lulu_product_id', 'TEXT');
+            await addColumnIfNotExists(poolOrSqliteDb, 'picture_books', 'date_created', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP');
+            await addColumnIfNotExists(poolOrSqliteDb, 'picture_books', 'is_public', 'BOOLEAN DEFAULT 0');
 
-            await addColumnIfNotExists(pool, 'timeline_events', 'uploaded_image_url', 'TEXT');
-            await addColumnIfNotExists(pool, 'timeline_events', 'overlay_text', 'TEXT');
+            await addColumnIfNotExists(poolOrSqliteDb, 'timeline_events', 'uploaded_image_url', 'TEXT');
+            await addColumnIfNotExists(poolOrSqliteDb, 'timeline_events', 'overlay_text', 'TEXT');
         }
 
         console.log("✅ All application tables are ready.");

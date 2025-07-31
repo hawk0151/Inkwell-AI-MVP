@@ -10,17 +10,17 @@ export const getForYouFeed = async (req, res) => {
 
     console.log(`[FEED DEBUG 1] Fetching feed for user: ${userId}, page: ${page}, limit: ${limit}`);
 
+    let client; // Declare client for transaction management
     try {
-        const db = await getDb();
+        const pool = await getDb(); // Get the pool directly
+        client = await pool.connect(); // Get a client from the pool
 
         // MODIFIED: TEMPORARILY SIMPLIFIED & SINGLE-LINE allPublicBooksQuery for debugging
         const allPublicBooksQuery = `SELECT id, user_id, title, cover_image_url, like_count, comment_count, date_created, 'picture_book' AS book_type FROM picture_books WHERE is_public = TRUE ORDER BY date_created DESC LIMIT $1 OFFSET $2`;
 
-        // NEW LINE: Log parameters as well
         console.log("[DEBUG] Executing allPublicBooksQuery:", allPublicBooksQuery, "with params:", [limit, offset]); 
 
-
-        let feedBooks = await db.all(allPublicBooksQuery, [limit, offset]);
+        let feedBooks = (await client.query(allPublicBooksQuery, [limit, offset])).rows; // Use client.query and get .rows
         console.log(`[FEED DEBUG 2] Found ${feedBooks.length} public books from both tables.`);
 
         // Map Firebase UIDs to usernames and avatar URLs
@@ -61,7 +61,7 @@ export const getForYouFeed = async (req, res) => {
             });
 
             const likesSql = `SELECT book_id, book_type FROM likes WHERE user_id = $1 AND (book_id, book_type) IN (${bookTypePlaceholders})`;
-            const likedResults = await db.all(likesSql, likeCheckParams);
+            const likedResults = (await client.query(likesSql, likeCheckParams)).rows; // Use client.query
 
             const likedSet = new Set(likedResults.map(like => `${like.book_type}:${like.book_id}`));
 
@@ -80,5 +80,7 @@ export const getForYouFeed = async (req, res) => {
     } catch (error) {
         console.error('[FEED ERROR] Failed to generate feed:', error);
         res.status(500).json({ message: 'Could not generate feed.' });
+    } finally {
+        if (client) client.release(); // Release client back to pool
     }
 };
