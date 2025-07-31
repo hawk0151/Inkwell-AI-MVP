@@ -62,7 +62,7 @@ export const getHardcoverSpineWidthMm = (pageCount) => {
     return 54;
 };
 
-// --- MODIFIED: getCoverDimensionsMm to correctly pass landscape dimensions to PDFKit ---
+// --- MODIFIED: getCoverDimensionsMm to pass correct landscape dimensions directly ---
 export const getCoverDimensionsMm = (luluProductId, pageCount) => {
     const productInfo = PRODUCTS_TO_OFFER.find(p => p.id === luluProductId);
     if (!productInfo) {
@@ -70,7 +70,10 @@ export const getCoverDimensionsMm = (luluProductId, pageCount) => {
     }
 
     let coverWidthMm, coverHeightMm, targetPdfkitLayout;
-    let targetLuluWidthMm, targetLuluHeightMm;
+    
+    // We explicitly define targetLuluWidthMm and targetLuluHeightMm 
+    // as what Lulu expects the final LANDSCAPE PDF to be.
+    let targetLuluWidthMm, targetLuluHeightMm; 
 
     switch (luluProductId) {
         case '0550X0850BWSTDCW060UC444GXX': // Novella (5.5 x 8.5" book size)
@@ -78,9 +81,9 @@ export const getCoverDimensionsMm = (luluProductId, pageCount) => {
             // Width: 12.938"-13.062" (328.61mm-331.79mm)
             // Height: 10.188"-10.312" (258.76mm-261.94mm)
 
-            // We need to generate the PDF with these dimensions directly.
-            coverWidthMm = (328.61 + 331.79) / 2; // Midpoint for width
-            coverHeightMm = (258.76 + 261.94) / 2; // Midpoint for height
+            // PDFKit will be given these dimensions directly.
+            coverWidthMm = (328.61 + 331.79) / 2; // Midpoint for required Width
+            coverHeightMm = (258.76 + 261.94) / 2; // Midpoint for required Height
             targetPdfkitLayout = 'landscape'; // Explicitly tell PDFKit it's landscape (width > height)
             break;
         case '0827X1169BWPRELW060UC444GNG': // A4 Story Book
@@ -95,12 +98,8 @@ export const getCoverDimensionsMm = (luluProductId, pageCount) => {
             const hardcoverTurnInMm = 15.875;
 
             // Calculate the total landscape cover dimensions Lulu expects
-            targetLuluWidthMm = (2 * trimWidth) + spineWidth + (2 * outerBleedMm) + (2 * hardcoverHingeMm) + (2 * hardcoverTurnInMm);
-            targetLuluHeightMm = trimHeight + (2 * outerBleedMm) + (2 * hardcoverTurnInMm);
-
-            // PDFKit should be given these directly as width and height for a landscape document
-            coverWidthMm = targetLuluWidthMm;
-            coverHeightMm = targetLuluHeightMm;
+            coverWidthMm = (2 * trimWidth) + spineWidth + (2 * outerBleedMm) + (2 * hardcoverHingeMm) + (2 * hardcoverTurnInMm);
+            coverHeightMm = trimHeight + (2 * outerBleedMm) + (2 * hardcoverTurnInMm);
             targetPdfkitLayout = 'landscape'; // Width should be > Height
             break;
         case '0827X1169FCPRELW080CW444MNG': // A4 Premium Picture Book (landscape)
@@ -108,18 +107,15 @@ export const getCoverDimensionsMm = (luluProductId, pageCount) => {
             const trimWidthPicture = 297; // Landscape trim width
             const trimHeightPicture = 210; // Landscape trim height
 
-            targetLuluWidthMm = (2 * trimWidthPicture) + spineWidthPicture + (2 * outerBleedMm) + (2 * hardcoverHingeMm) + (2 * hardcoverTurnInMm);
-            targetLuluHeightMm = trimHeightPicture + (2 * outerBleedMm) + (2 * hardcoverTurnInMm);
-
-            coverWidthMm = targetLuluWidthMm;
-            coverHeightMm = targetLuluHeightMm;
+            coverWidthMm = (2 * trimWidthPicture) + spineWidthPicture + (2 * outerBleedMm) + (2 * hardcoverHingeMm) + (2 * hardcoverTurnInMm);
+            coverHeightMm = trimHeightPicture + (2 * outerBleedMm) + (2 * hardcoverTurnInMm);
             targetPdfkitLayout = 'landscape';
             break;
         default:
             throw new Error(`Unknown product ID ${luluProductId} for cover dimensions calculation.`);
     }
 
-    console.log(`DEBUG: For ${luluProductId} (Pages: ${pageCount}) -> Lulu EXPECTS ${coverWidthMm.toFixed(2)}x${coverHeightMm.toFixed(2)}mm (Landscape). Generating PDFKit as ${coverWidthMm.toFixed(2)}x${coverHeightMm.toFixed(2)}mm (Landscape).`);
+    console.log(`DEBUG: For ${luluProductId} (Pages: ${pageCount}) -> Lulu EXPECTS and PDFKit GENERATES: ${coverWidthMm.toFixed(2)}x${coverHeightMm.toFixed(2)}mm (${targetPdfkitLayout}).`);
 
     return {
         width: coverWidthMm,
