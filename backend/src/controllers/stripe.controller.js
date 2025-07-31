@@ -1,12 +1,11 @@
-// backend/src/controllers/stripe.controller.js
 import stripe from 'stripe';
 import { getDb } from '../db/database.js';
 import { generateTextBookPdf, generatePictureBookPdf } from '../services/pdf.service.js'; // Ensure these imports are correct
 import { uploadImageToCloudinary } from '../services/image.service.js';
 import { createLuluPrintJob } from '../services/lulu.service.js';
 import { randomUUID } from 'crypto';
-import fs from 'fs/promises'; 
-import path from 'path';     
+import fs from 'fs/promises';
+import path from 'path';    
 
 const stripeClient = stripe(process.env.STRIPE_SECRET_KEY);
 
@@ -16,7 +15,7 @@ const handleSuccessfulCheckout = async (session) => {
     const fullSession = await stripeClient.checkout.sessions.retrieve(session.id, {
         expand: ['customer'],
     });
-    
+
     const { userId, bookId, bookType, luluProductId, productName } = fullSession.metadata; // luluProductId is now available here
 
     console.log("DEBUG: Stripe Session Metadata -> userId:", userId, "bookId:", bookId, "bookType:", bookType, "luluProductId:", luluProductId, "productName:", productName);
@@ -46,76 +45,80 @@ const handleSuccessfulCheckout = async (session) => {
             email: fullSession.customer_details.email,
             phone_number: fullSession.customer_details.phone || '000-000-0000',
         };
-        
+
         let bookTitle;
         let interiorPdfUrl;
         let coverPdfUrl;
-        let pdfBuffer; 
+        let pdfBuffer;
         // luluProductIdentifier is now taken directly from metadata: luluProductId
-        let luluOrderDetails = null; 
+        let luluOrderDetails = null;
 
-        if (bookType === 'textBook') { 
+        if (bookType === 'textBook') {
             const bookResult = await client.query(`SELECT * FROM text_books WHERE id = $1`, [bookId]);
             const book = bookResult.rows[0];
             if (!book) throw new Error(`Text book with ID ${bookId} not found in DB.`);
-            
+
             bookTitle = book.title;
             // luluProductIdentifier = book.lulu_product_id; // Now comes from metadata
-            
-            console.log(`DEBUG: Generating PDF for text book: ${book.title}. Chapters count: ${chaptersResult.rows.length}`);
+
+            // --- FIX START: Move chaptersResult query BEFORE its usage ---
             const chaptersResult = await client.query(`SELECT chapter_number, content FROM chapters WHERE book_id = $1 ORDER BY chapter_number ASC`, [bookId]);
+            console.log(`DEBUG: Generating PDF for text book: ${book.title}. Chapters count: ${chaptersResult.rows.length}`);
+            // --- FIX END ---
 
             // --- MODIFICATION START (Pass luluProductId to PDF generator) ---
-            pdfBuffer = await generateTextBookPdf(book.title, chaptersResult.rows, luluProductId); 
+            pdfBuffer = await generateTextBookPdf(book.title, chaptersResult.rows, luluProductId);
             // --- MODIFICATION END ---
-            
+
             console.log(`DEBUG: Uploading PDF to Cloudinary for book: ${bookId}. PDF Buffer length: ${pdfBuffer ? pdfBuffer.length : 'null'}`);
 
             interiorPdfUrl = await uploadImageToCloudinary(pdfBuffer, `inkwell-ai/user_${userId}/books`);
             coverPdfUrl = book.cover_image_url || "https://www.dropbox.com/s/7bv6mg2tj0h3l0r/lulu_trade_perfect_template.pdf?dl=1&raw=1";
-            
+
             await client.query(`UPDATE text_books SET interior_pdf_url = $1, cover_pdf_url = $2 WHERE id = $3`, [interiorPdfUrl, coverPdfUrl, bookId]);
-            
-            luluOrderDetails = { 
-                id: bookId, 
-                product_name: bookTitle, 
+
+            luluOrderDetails = {
+                id: bookId,
+                product_name: bookTitle,
                 lulu_product_id: luluProductId, // Use luluProductId from metadata
-                cover_pdf_url: coverPdfUrl, 
-                interior_pdf_url: interiorPdfUrl 
+                cover_pdf_url: coverPdfUrl,
+                interior_pdf_url: interiorPdfUrl
             };
 
-        } else if (bookType === 'pictureBook') { 
+        } else if (bookType === 'pictureBook') {
             const bookResult = await client.query(`SELECT * FROM picture_books WHERE id = $1`, [bookId]);
             const book = bookResult.rows[0];
             if (!book) throw new Error(`Picture book with ID ${bookId} not found in DB.`);
 
             bookTitle = book.title;
             // luluProductIdentifier = book.lulu_product_id; // Now comes from metadata
-            
+
+            // --- FIX START: Fetch timeline here BEFORE it's used ---
+            const timelineResult = await client.query(`SELECT * FROM timeline_events WHERE book_id = $1 ORDER BY page_number ASC`, [bookId]); // FETCH timeline here
+            // --- FIX END ---
+
             console.log(`DEBUG: Generating PDF for picture book: ${book.title}`);
             // --- MODIFICATION START (Pass luluProductId to PDF generator) ---
             pdfBuffer = await generatePictureBookPdf(book, timelineResult.rows, luluProductId); // Assuming generatePictureBookPdf uses book and timeline
-            // (Note: you'd need to fetch timeline here if it's not passed, similar to chapters for text books)
-            const timelineResult = await client.query(`SELECT * FROM timeline_events WHERE book_id = $1 ORDER BY page_number ASC`, [bookId]); // FETCH timeline here
             // --- MODIFICATION END ---
-            
+
             console.log(`DEBUG: Uploading PDF to Cloudinary for book: ${bookId}. PDF Buffer length: ${pdfBuffer ? pdfBuffer.length : 'null'}`);
             interiorPdfUrl = await uploadImageToCloudinary(pdfBuffer, `inkwell-ai/user_${userId}/books`);
             coverPdfUrl = book.cover_image_url || "https://www.dropbox.com/s/7bv6mg2tj0h3l0r/lulu_trade_perfect_template.pdf?dl=1&raw=1";
 
             await client.query(`UPDATE picture_books SET interior_pdf_url = $1, cover_pdf_url = $2 WHERE id = $3`, [interiorPdfUrl, coverPdfUrl, bookId]);
 
-            luluOrderDetails = { 
-                id: bookId, 
-                product_name: bookTitle, 
+            luluOrderDetails = {
+                id: bookId,
+                product_name: bookTitle,
                 lulu_product_id: luluProductId, // Use luluProductId from metadata
-                cover_pdf_url: coverPdfUrl, 
-                interior_pdf_url: interiorPdfUrl 
+                cover_pdf_url: coverPdfUrl,
+                interior_pdf_url: interiorPdfUrl
             };
 
         } else {
-             console.error(`❌ CRITICAL: Unknown book type received in webhook: ${bookType}`);
-             throw new Error(`Unknown book type: ${bookType}`);
+            console.error(`❌ CRITICAL: Unknown book type received in webhook: ${bookType}`);
+            throw new Error(`Unknown book type: ${bookType}`);
         }
 
         if (luluOrderDetails === null) {
@@ -142,10 +145,10 @@ const handleSuccessfulCheckout = async (session) => {
         }
 
         const orderSqlUpdate = `UPDATE orders SET lulu_order_id = $1, status = $2, lulu_job_status = $3, updated_at = NOW(), lulu_job_id = $4 WHERE id = $5`;
-        await client.query(orderSqlUpdate, [luluJob.id, 'completed', luluJob.status, luluJob.id, orderIdFromDB]); 
+        await client.query(orderSqlUpdate, [luluJob.id, 'completed', luluJob.status, luluJob.id, orderIdFromDB]);
 
         console.log('✅ Order record updated with Lulu Job ID and status. Order ID:', orderIdFromDB);
-        
+
         await client.query('COMMIT');
         console.log('✅ Transaction committed successfully.');
 
@@ -162,7 +165,7 @@ export const stripeWebhook = (req, res) => {
     const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
     let event;
     try {
-        const rawBody = req.rawBody || req.body; 
+        const rawBody = req.rawBody || req.body;
         console.log("DEBUG: Type of rawBody for Stripe webhook:", typeof rawBody, rawBody instanceof Buffer ? " (Buffer)" : "");
 
         event = stripeClient.webhooks.constructEvent(rawBody, sig, endpointSecret);
