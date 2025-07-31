@@ -62,30 +62,31 @@ export const getHardcoverSpineWidthMm = (pageCount) => {
     return 54;
 };
 
-// --- MODIFIED: getCoverDimensionsMm to pass correct landscape dimensions directly ---
+// --- MODIFIED: getCoverDimensionsMm to generate 'portrait' PDFKit dimensions that Lulu rotates ---
 export const getCoverDimensionsMm = (luluProductId, pageCount) => {
     const productInfo = PRODUCTS_TO_OFFER.find(p => p.id === luluProductId);
     if (!productInfo) {
         throw new Error(`Product with ID ${luluProductId} not found for cover dimensions.`);
     }
 
-    let coverWidthMm, coverHeightMm, targetPdfkitLayout;
-    
-    // We explicitly define targetLuluWidthMm and targetLuluHeightMm 
-    // as what Lulu expects the final LANDSCAPE PDF to be.
-    let targetLuluWidthMm, targetLuluHeightMm; 
+    let pdfkitWidthMm, pdfkitHeightMm, pdfkitLayout; // Dimensions to pass to PDFKit
+
+    // Define Lulu's required final landscape dimensions
+    let luluExpectedLandscapeWidthMm, luluExpectedLandscapeHeightMm;
 
     switch (luluProductId) {
         case '0550X0850BWSTDCW060UC444GXX': // Novella (5.5 x 8.5" book size)
-            // Lulu's required range for this specific product's hardcover cover (landscape spread):
-            // Width: 12.938"-13.062" (328.61mm-331.79mm)
-            // Height: 10.188"-10.312" (258.76mm-261.94mm)
+            // Lulu's REQUIRED landscape dimensions for this cover:
+            luluExpectedLandscapeWidthMm = (328.61 + 331.79) / 2; // Midpoint for Width (~330.20mm)
+            luluExpectedLandscapeHeightMm = (258.76 + 261.94) / 2; // Midpoint for Height (~260.35mm)
 
-            // PDFKit will be given these dimensions directly.
-            coverWidthMm = (328.61 + 331.79) / 2; // Midpoint for required Width
-            coverHeightMm = (258.76 + 261.94) / 2; // Midpoint for required Height
-            targetPdfkitLayout = 'landscape'; // Explicitly tell PDFKit it's landscape (width > height)
+            // To get this landscape result, we give PDFKit a "portrait" document
+            // where PDFKit's width is the final height, and PDFKit's height is the final width.
+            pdfkitWidthMm = luluExpectedLandscapeHeightMm; // PDFKit's width
+            pdfkitHeightMm = luluExpectedLandscapeWidthMm; // PDFKit's height
+            pdfkitLayout = 'portrait'; // Explicitly set PDFKit layout to portrait
             break;
+
         case '0827X1169BWPRELW060UC444GNG': // A4 Story Book
         case '0614X0921BWPRELW060UC444GNG': // Royal Hardcover
             const spineWidth = getHardcoverSpineWidthMm(pageCount);
@@ -98,29 +99,37 @@ export const getCoverDimensionsMm = (luluProductId, pageCount) => {
             const hardcoverTurnInMm = 15.875;
 
             // Calculate the total landscape cover dimensions Lulu expects
-            coverWidthMm = (2 * trimWidth) + spineWidth + (2 * outerBleedMm) + (2 * hardcoverHingeMm) + (2 * hardcoverTurnInMm);
-            coverHeightMm = trimHeight + (2 * outerBleedMm) + (2 * hardcoverTurnInMm);
-            targetPdfkitLayout = 'landscape'; // Width should be > Height
+            luluExpectedLandscapeWidthMm = (2 * trimWidth) + spineWidth + (2 * outerBleedMm) + (2 * hardcoverHingeMm) + (2 * hardcoverTurnInMm);
+            luluExpectedLandscapeHeightMm = trimHeight + (2 * outerBleedMm) + (2 * hardcoverTurnInMm);
+
+            // Give PDFKit the "rotated" dimensions
+            pdfkitWidthMm = luluExpectedLandscapeHeightMm;
+            pdfkitHeightMm = luluExpectedLandscapeWidthMm;
+            pdfkitLayout = 'portrait';
             break;
+
         case '0827X1169FCPRELW080CW444MNG': // A4 Premium Picture Book (landscape)
             const spineWidthPicture = getHardcoverSpineWidthMm(pageCount);
-            const trimWidthPicture = 297; // Landscape trim width
-            const trimHeightPicture = 210; // Landscape trim height
+            const trimWidthPicture = 297; // Landscape trim width (which is wider)
+            const trimHeightPicture = 210; // Landscape trim height (which is narrower)
 
-            coverWidthMm = (2 * trimWidthPicture) + spineWidthPicture + (2 * outerBleedMm) + (2 * hardcoverHingeMm) + (2 * hardcoverTurnInMm);
-            coverHeightMm = trimHeightPicture + (2 * outerBleedMm) + (2 * hardcoverTurnInMm);
-            targetPdfkitLayout = 'landscape';
+            luluExpectedLandscapeWidthMm = (2 * trimWidthPicture) + spineWidthPicture + (2 * outerBleedMm) + (2 * hardcoverHingeMm) + (2 * hardcoverTurnInMm);
+            luluExpectedLandscapeHeightMm = trimHeightPicture + (2 * outerBleedMm) + (2 * hardcoverTurnInMm);
+
+            pdfkitWidthMm = luluExpectedLandscapeHeightMm;
+            pdfkitHeightMm = luluExpectedLandscapeWidthMm;
+            pdfkitLayout = 'portrait';
             break;
         default:
             throw new Error(`Unknown product ID ${luluProductId} for cover dimensions calculation.`);
     }
 
-    console.log(`DEBUG: For ${luluProductId} (Pages: ${pageCount}) -> Lulu EXPECTS and PDFKit GENERATES: ${coverWidthMm.toFixed(2)}x${coverHeightMm.toFixed(2)}mm (${targetPdfkitLayout}).`);
+    console.log(`DEBUG: For ${luluProductId} (Pages: ${pageCount}) -> Lulu EXPECTS final LANDSCAPE: ${luluExpectedLandscapeWidthMm.toFixed(2)}x${luluExpectedLandscapeHeightMm.toFixed(2)}mm. PDFKit GENERATES PORTRAIT: ${pdfkitWidthMm.toFixed(2)}x${pdfkitHeightMm.toFixed(2)}mm.`);
 
     return {
-        width: coverWidthMm,
-        height: coverHeightMm,
-        layout: targetPdfkitLayout
+        width: pdfkitWidthMm,
+        height: pdfkitHeightMm,
+        layout: pdfkitLayout
     };
 };
 
