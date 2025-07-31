@@ -52,7 +52,7 @@ const handleSuccessfulCheckout = async (session) => {
         let coverPdfUrl;
         let pdfBuffer; 
         let luluProductIdentifier; 
-        let luluOrderDetails = null; // Initialize to null to ensure it's always declared
+        let luluOrderDetails = null; 
 
         if (bookType === 'textBook') { 
             const bookResult = await client.query(`SELECT * FROM text_books WHERE id = $1`, [bookId]);
@@ -63,22 +63,17 @@ const handleSuccessfulCheckout = async (session) => {
             luluProductIdentifier = book.lulu_product_id; 
             const chaptersResult = await client.query(`SELECT chapter_number, content FROM chapters WHERE book_id = $1 ORDER BY chapter_number ASC`, [bookId]);
             
-            // --- NEW DEBUGGING ---
             console.log(`DEBUG: Generating PDF for text book: ${book.title}. Chapters count: ${chaptersResult.rows.length}`);
-            // --- END NEW DEBUGGING ---
 
             pdfBuffer = await generateTextBookPdf(book.title, chaptersResult.rows);
             
-            // --- NEW DEBUGGING ---
             console.log(`DEBUG: Uploading PDF to Cloudinary for book: ${bookId}. PDF Buffer length: ${pdfBuffer ? pdfBuffer.length : 'null'}`);
-            // --- END NEW DEBUGGING ---
 
             interiorPdfUrl = await uploadImageToCloudinary(pdfBuffer, `inkwell-ai/user_${userId}/books`);
             coverPdfUrl = book.cover_image_url || "https://www.dropbox.com/s/7bv6mg2tj0h3l0r/lulu_trade_perfect_template.pdf?dl=1&raw=1";
             
             await client.query(`UPDATE text_books SET interior_pdf_url = $1, cover_pdf_url = $2 WHERE id = $3`, [interiorPdfUrl, coverPdfUrl, bookId]);
             
-            // --- MODIFICATION: Assign luluOrderDetails inside the block ---
             luluOrderDetails = { 
                 id: bookId, 
                 product_name: bookTitle, 
@@ -86,7 +81,6 @@ const handleSuccessfulCheckout = async (session) => {
                 cover_pdf_url: coverPdfUrl, 
                 interior_pdf_url: interiorPdfUrl 
             };
-            // --- END MODIFICATION ---
 
         } else if (bookType === 'pictureBook') { 
             const bookResult = await client.query(`SELECT * FROM picture_books WHERE id = $1`, [bookId]);
@@ -105,7 +99,6 @@ const handleSuccessfulCheckout = async (session) => {
 
             await client.query(`UPDATE picture_books SET interior_pdf_url = $1, cover_pdf_url = $2 WHERE id = $3`, [interiorPdfUrl, coverPdfUrl, bookId]);
 
-            // --- MODIFICATION: Assign luluOrderDetails inside the block ---
             luluOrderDetails = { 
                 id: bookId, 
                 product_name: bookTitle, 
@@ -113,19 +106,16 @@ const handleSuccessfulCheckout = async (session) => {
                 cover_pdf_url: coverPdfUrl, 
                 interior_pdf_url: interiorPdfUrl 
             };
-            // --- END MODIFICATION ---
 
         } else {
              console.error(`❌ CRITICAL: Unknown book type received in webhook: ${bookType}`);
              throw new Error(`Unknown book type: ${bookType}`);
         }
 
-        // --- NEW DEBUGGING: Check if luluOrderDetails was assigned ---
         if (luluOrderDetails === null) {
             console.error("❌ CRITICAL: luluOrderDetails was not assigned for bookType:", bookType);
             throw new Error("Lulu order details could not be prepared for the print job.");
         }
-        // --- END NEW DEBUGGING ---
 
         console.log("--- DEBUG: CHECKING PDF URLS (before Lulu call) ---");
         console.log("Interior PDF URL:", luluOrderDetails.interior_pdf_url);
@@ -145,8 +135,11 @@ const handleSuccessfulCheckout = async (session) => {
             throw new Error("Order record missing for completed session.");
         }
 
-        const orderSqlUpdate = `UPDATE orders SET lulu_order_id = $1, status = $2, lulu_job_status = $3, updated_at = NOW() WHERE id = $4`;
-        await client.query(orderSqlUpdate, [luluJob.id, 'completed', luluJob.status, orderIdFromDB]);
+        // --- MODIFICATION: Updated query to include lulu_job_id and lulu_job_status ---
+        const orderSqlUpdate = `UPDATE orders SET lulu_order_id = $1, status = $2, lulu_job_status = $3, updated_at = NOW(), lulu_job_id = $4 WHERE id = $5`;
+        await client.query(orderSqlUpdate, [luluJob.id, 'completed', luluJob.status, luluJob.id, orderIdFromDB]); // lulu_job_id is set to luluJob.id
+        // --- END MODIFICATION ---
+
         console.log('✅ Order record updated with Lulu Job ID and status. Order ID:', orderIdFromDB);
         
         await client.query('COMMIT');

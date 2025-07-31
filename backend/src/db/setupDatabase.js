@@ -14,7 +14,6 @@ const addColumnIfNotExists = async (dbConnection, tableName, columnName, columnD
             }
         } else { // SQLite
             // This fallback block is currently not fully implemented as per your previous code
-            // If you intend to support SQLite, you would need to implement the PRAGMA logic here
             const result = await dbConnection.all(`PRAGMA table_info(${tableName})`);
             if (!result.some(column => column.name === columnName)) {
                 console.log(`Adding column '${columnName}' to table '${tableName}'...`);
@@ -37,6 +36,7 @@ const createCommentsTable = `CREATE TABLE IF NOT EXISTS comments (id SERIAL PRIM
 
 // --- MODIFICATION START ---
 // Added interior_pdf_url and cover_pdf_url to orders table definition
+// Also added lulu_job_id and lulu_job_status
 const createOrdersTable = `CREATE TABLE IF NOT EXISTS orders (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,
@@ -47,8 +47,10 @@ const createOrdersTable = `CREATE TABLE IF NOT EXISTS orders (
     stripe_session_id TEXT,
     status TEXT,
     total_price NUMERIC(10, 2),
-    interior_pdf_url TEXT, -- NEW
-    cover_pdf_url TEXT,   -- NEW
+    interior_pdf_url TEXT,
+    cover_pdf_url TEXT,
+    lulu_job_id TEXT,       -- NEW
+    lulu_job_status TEXT,   -- NEW
     order_date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );`;
 // --- MODIFICATION END ---
@@ -69,7 +71,7 @@ export const setupDatabase = async () => {
             await client.query(createFollowsTable);
             await client.query(createLikesTable);
             await client.query(createCommentsTable);
-            await client.query(createOrdersTable); // Ensure this is run to create the table with new columns
+            await client.query(createOrdersTable); 
 
             console.log("Checking and adding missing columns (PostgreSQL)...");
             await addColumnIfNotExists(client, 'users', 'avatar_url', 'TEXT');
@@ -82,29 +84,14 @@ export const setupDatabase = async () => {
             await addColumnIfNotExists(client, 'orders', 'cover_pdf_url', 'TEXT');
             await addColumnIfNotExists(client, 'orders', 'shipping_carrier', 'TEXT');
             await addColumnIfNotExists(client, 'orders', 'tracking_number', 'TEXT');
+            
+            // --- NEW: Add lulu_job_id and lulu_job_status columns ---
+            await addColumnIfNotExists(client, 'orders', 'lulu_job_id', 'TEXT');
+            await addColumnIfNotExists(client, 'orders', 'lulu_job_status', 'TEXT');
+            // --- END NEW ---
 
         } else {
             // Fallback for SQLite - if you are not using SQLite, this block is fine as is
-            // console.log("Setting up database tables (SQLite)...");
-            // await db.exec(createUsersTable);
-            // await db.exec(createPictureBooksTable);
-            // await db.exec(createTextBooksTable);
-            // await db.exec(createChaptersTable);
-            // await db.exec(createTimelineEventsTable);
-            // await db.exec(createFollowsTable);
-            // await db.exec(createLikesTable);
-            // await db.exec(createCommentsTable);
-            // await db.exec(createOrdersTable);
-
-            // console.log("Checking and adding missing columns (SQLite)...");
-            // await addColumnIfNotExists(db, 'users', 'avatar_url', 'TEXT');
-            // await addColumnIfNotExists(db, 'text_books', 'total_chapters', 'INTEGER DEFAULT 0');
-            // await addColumnIfNotExists(db, 'picture_books', 'lulu_product_id', 'TEXT');
-            // await addColumnIfNotExists(db, 'timeline_events', 'overlay_text', 'TEXT');
-            // await addColumnIfNotExists(db, 'orders', 'interior_pdf_url', 'TEXT');
-            // await addColumnIfNotExists(db, 'orders', 'cover_pdf_url', 'TEXT');
-            // await addColumnIfNotExists(db, 'orders', 'shipping_carrier', 'TEXT');
-            // await addColumnIfNotExists(db, 'orders', 'tracking_number', 'TEXT');
         }
 
         console.log("✅ All application tables are ready.");
