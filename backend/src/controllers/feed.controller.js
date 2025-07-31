@@ -13,16 +13,17 @@ export const getForYouFeed = async (req, res) => {
     try {
         const db = await getDb();
 
+        // RETYPE THIS QUERY CAREFULLY, CHARACTER BY CHARACTER
         const allPublicBooksQuery = `
             (SELECT id, user_id, title, cover_image_url, like_count, comment_count, date_created, 'picture_book' AS book_type
             FROM picture_books
-            WHERE is_public = TRUE) -- MODIFIED: Wrapped SELECT in parentheses
+            WHERE is_public = TRUE)
 
             UNION ALL
 
             (SELECT id, user_id, title, cover_image_url, like_count, comment_count, date_created, 'text_book' AS book_type
             FROM text_books
-            WHERE is_public = TRUE) -- MODIFIED: Wrapped SELECT in parentheses
+            WHERE is_public = TRUE)
             ORDER BY date_created DESC
             LIMIT $1 OFFSET $2
         `;

@@ -65,11 +65,12 @@ export const getProfileByUsername = async (req, res) => {
             db.get(followingCountQuery, [profileUserId])
         ]);
 
+        // RETYPE THIS QUERY CAREFULLY, CHARACTER BY CHARACTER
         const booksQuery = `
             (SELECT id, title, cover_image_url, like_count, comment_count, 'picture_book' as book_type, user_id FROM picture_books WHERE user_id = $1 AND is_public = TRUE)
             UNION ALL
             (SELECT id, title, cover_image_url, like_count, comment_count, 'text_book' as book_type, user_id FROM text_books WHERE user_id = $2 AND is_public = TRUE)
-        `; // MODIFIED: Wrapped each SELECT in parentheses
+        `;
         
         console.log("[DEBUG] Executing booksQuery:", booksQuery); 
 
