@@ -135,10 +135,9 @@ const handleSuccessfulCheckout = async (session) => {
             throw new Error("Order record missing for completed session.");
         }
 
-        // --- MODIFICATION: Updated query to include lulu_job_id and lulu_job_status ---
+        // Modified query to include lulu_job_id and lulu_job_status
         const orderSqlUpdate = `UPDATE orders SET lulu_order_id = $1, status = $2, lulu_job_status = $3, updated_at = NOW(), lulu_job_id = $4 WHERE id = $5`;
-        await client.query(orderSqlUpdate, [luluJob.id, 'completed', luluJob.status, luluJob.id, orderIdFromDB]); // lulu_job_id is set to luluJob.id
-        // --- END MODIFICATION ---
+        await client.query(orderSqlUpdate, [luluJob.id, 'completed', luluJob.status, luluJob.id, orderIdFromDB]); 
 
         console.log('✅ Order record updated with Lulu Job ID and status. Order ID:', orderIdFromDB);
         

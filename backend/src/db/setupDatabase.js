@@ -13,7 +13,6 @@ const addColumnIfNotExists = async (dbConnection, tableName, columnName, columnD
                 await dbConnection.query(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnDefinition}`);
             }
         } else { // SQLite
-            // This fallback block is currently not fully implemented as per your previous code
             const result = await dbConnection.all(`PRAGMA table_info(${tableName})`);
             if (!result.some(column => column.name === columnName)) {
                 console.log(`Adding column '${columnName}' to table '${tableName}'...`);
@@ -35,8 +34,7 @@ const createLikesTable = `CREATE TABLE IF NOT EXISTS likes (user_id TEXT NOT NUL
 const createCommentsTable = `CREATE TABLE IF NOT EXISTS comments (id SERIAL PRIMARY KEY, user_id TEXT NOT NULL, book_id TEXT NOT NULL, book_type TEXT NOT NULL, comment_text TEXT NOT NULL, created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP);`;
 
 // --- MODIFICATION START ---
-// Added interior_pdf_url and cover_pdf_url to orders table definition
-// Also added lulu_job_id and lulu_job_status
+// Added interior_pdf_url, cover_pdf_url, lulu_job_id, lulu_job_status, and NOW updated_at to orders table definition
 const createOrdersTable = `CREATE TABLE IF NOT EXISTS orders (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,
@@ -49,9 +47,10 @@ const createOrdersTable = `CREATE TABLE IF NOT EXISTS orders (
     total_price NUMERIC(10, 2),
     interior_pdf_url TEXT,
     cover_pdf_url TEXT,
-    lulu_job_id TEXT,       -- NEW
-    lulu_job_status TEXT,   -- NEW
-    order_date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    lulu_job_id TEXT,
+    lulu_job_status TEXT,
+    order_date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP -- NEW
 );`;
 // --- MODIFICATION END ---
 
@@ -79,17 +78,14 @@ export const setupDatabase = async () => {
             await addColumnIfNotExists(client, 'picture_books', 'lulu_product_id', 'TEXT');
             await addColumnIfNotExists(client, 'timeline_events', 'overlay_text', 'TEXT');
             
-            // Explicitly add these columns in case the table already exists from a previous run
             await addColumnIfNotExists(client, 'orders', 'interior_pdf_url', 'TEXT');
             await addColumnIfNotExists(client, 'orders', 'cover_pdf_url', 'TEXT');
             await addColumnIfNotExists(client, 'orders', 'shipping_carrier', 'TEXT');
             await addColumnIfNotExists(client, 'orders', 'tracking_number', 'TEXT');
-            
-            // --- NEW: Add lulu_job_id and lulu_job_status columns ---
             await addColumnIfNotExists(client, 'orders', 'lulu_job_id', 'TEXT');
             await addColumnIfNotExists(client, 'orders', 'lulu_job_status', 'TEXT');
-            // --- END NEW ---
-
+            await addColumnIfNotExists(client, 'orders', 'updated_at', 'TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP'); // NEW
+            
         } else {
             // Fallback for SQLite - if you are not using SQLite, this block is fine as is
         }
