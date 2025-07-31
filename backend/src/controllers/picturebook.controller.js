@@ -206,15 +206,6 @@ export const createBookCheckoutSession = async (req, res) => {
         
         console.log(`Creating Stripe session for book ${bookId}...`);
 
-        const orderDetails = {
-            selections: {
-                id: productInfo.id,
-                name: productInfo.name,
-                description: book.title,
-            },
-            totalPrice: productInfo.price
-        };
-
         const orderId = randomUUID(); // Generate a unique orderId
 
         await client.query(
@@ -223,7 +214,7 @@ export const createBookCheckoutSession = async (req, res) => {
                 orderId, 
                 userId, 
                 bookId, 
-                'pictureBook', // book_type - This needs to be passed to Stripe metadata
+                'pictureBook', // book_type
                 book.title, // book_title
                 productInfo.id, // lulu_order_id (using productInfo.id as luluProductId/SKU for now)
                 'pending', 
@@ -234,12 +225,18 @@ export const createBookCheckoutSession = async (req, res) => {
             ]
         );
 
-        // --- MODIFICATION START ---
-        // Pass bookType in metadata to Stripe
+        // --- MODIFICATION START (passed productDetails, userId, orderId, bookId) ---
         const session = await createStripeCheckoutSession(
-            { ...orderDetails, bookType: 'pictureBook' }, // Add bookType to orderDetails
+            { // productDetails object
+                id: productInfo.id,
+                name: productInfo.name,
+                description: book.title,
+                price: productInfo.price, // Include price here too
+                bookType: 'pictureBook' // Explicitly pass bookType
+            }, 
             userId, 
-            orderId // This bookId parameter in createStripeCheckoutSession is actually the orderId in your service
+            orderId, // This is the orderId
+            bookId // This is the actual book project ID
         );
         // --- MODIFICATION END ---
         

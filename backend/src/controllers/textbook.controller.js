@@ -221,14 +221,6 @@ export const createTextBookCheckoutSession = async (req, res) => {
         // await client.query(`UPDATE text_books SET interior_pdf_url = $1, cover_pdf_url = $2 WHERE id = $3`, [interiorPdfUrl, coverPdfUrl, bookId]); // This line is not needed if storing in orders table
 
         console.log(`Creating Stripe session for text book ${bookId}...`);
-        const orderDetails = {
-            selections: {
-                id: productInfo.id,
-                name: productInfo.name,
-                description: book.title,
-            },
-            totalPrice: productInfo.price
-        };
         
         const orderId = randomUUID(); // Generate a unique orderId
 
@@ -238,7 +230,7 @@ export const createTextBookCheckoutSession = async (req, res) => {
                 orderId, 
                 userId, 
                 bookId, 
-                'textBook', // book_type - This needs to be passed to Stripe metadata
+                'textBook', // book_type
                 book.title, // book_title
                 productInfo.id, // lulu_order_id (using productInfo.id as luluProductId/SKU for now)
                 'pending', 
@@ -249,12 +241,18 @@ export const createTextBookCheckoutSession = async (req, res) => {
             ]
         );
 
-        // --- MODIFICATION START ---
-        // Pass bookType in metadata to Stripe
+        // --- MODIFICATION START (passed productDetails, userId, orderId, bookId) ---
         const session = await createStripeCheckoutSession(
-            { ...orderDetails, bookType: 'textBook' }, // Add bookType to orderDetails
+            { // productDetails object
+                id: productInfo.id,
+                name: productInfo.name,
+                description: book.title,
+                price: productInfo.price, // Include price here too
+                bookType: 'textBook' // Explicitly pass bookType
+            }, 
             userId, 
-            orderId // This bookId parameter in createStripeCheckoutSession is actually the orderId in your service
+            orderId, // This is the orderId
+            bookId // This is the actual book project ID
         );
         // --- MODIFICATION END ---
         
