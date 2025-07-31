@@ -1,10 +1,8 @@
 // backend/src/db/setupDatabase.js
-// No need for sqlite3 import anymore since we're using pg directly or the adapter
-// import sqlite3 from 'sqlite3';
-import { getDb } from './database.js'; // Import getDb function
+import { getDb } from './database.js';
 
 // Helper function to add a column if it doesn't exist
-// MODIFIED: Takes 'client' as argument if it's PostgreSQL, uses dbInstance for SQLite
+// MODIFIED: Takes 'dbConnection' (which is a pg Client or SQLite instance)
 const addColumnIfNotExists = async (dbConnection, tableName, columnName, columnDefinition) => {
     try {
         if (dbConnection.query) { // Check if it's a pg Client (has .query method)
@@ -27,7 +25,7 @@ const addColumnIfNotExists = async (dbConnection, tableName, columnName, columnD
             }
         }
     } catch (error) {
-        if (error.code === '42P01') { // PostgreSQL error code for undefined_table
+        if (error.code === '42P01') {
              console.warn(`Table ${tableName} does not exist when trying to add column ${columnName}. Will be created later.`);
         } else {
             console.error(`Failed to add column ${columnName} to ${tableName}:`, error);
@@ -144,10 +142,11 @@ export const setupDatabase = async () => {
     try {
         const poolOrSqliteDb = await getDb(); // Get the pool (either pg.Pool or SQLite instance)
 
+        // CORRECTED CHECK: Use poolOrSqliteDb.query for pg.Pool, which indicates it's a client/pool
         if (poolOrSqliteDb.query && poolOrSqliteDb.connect) { // Check if it's a pg.Pool instance (production)
             client = await poolOrSqliteDb.connect(); // Get a client from the pool
             console.log("Setting up database tables (PostgreSQL)...");
-            await client.query(createUsersTable); // Use client.query
+            await client.query(createUsersTable);
             await client.query(createPictureBooksTable);
             await client.query(createTextBooksTable);
             await client.query(createChaptersTable);
@@ -178,7 +177,7 @@ export const setupDatabase = async () => {
 
         } else { // It's the SQLite instance (development)
             console.log("Setting up database tables (SQLite)...");
-            await poolOrSqliteDb.exec(createUsersTable); // Use exec for SQLite
+            await poolOrSqliteDb.exec(createUsersTable);
             await poolOrSqliteDb.exec(createPictureBooksTable);
             await poolOrSqliteDb.exec(createTextBooksTable);
             await poolOrSqliteDb.exec(createChaptersTable);
@@ -213,6 +212,6 @@ export const setupDatabase = async () => {
         console.error("❌ Error setting up tables:", error);
         throw error;
     } finally {
-        if (client) client.release(); // Release client back to pool if it was acquired
+        if (client) client.release();
     }
 };

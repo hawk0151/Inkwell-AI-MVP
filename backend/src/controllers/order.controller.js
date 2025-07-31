@@ -1,26 +1,25 @@
-import { getDb } from '../db/database.js'; // CORRECTED: Import getDb function
+import { getDb } from '../db/database.js';
 import Stripe from 'stripe';
-import { PRODUCTS_TO_OFFER } from '../services/lulu.service.js'; // Assumed from context
-import { createLuluPrintJob } from '../services/lulu.service.js'; // Assumed from context
+import { PRODUCTS_TO_OFFER } from '../services/lulu.service.js';
+import { createLuluPrintJob } from '../services/lulu.service.js';
 
-// Initialize Stripe (use environment variable for secret key)
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
-// Helper to calculate total from line items (similar to frontend)
 const calculateOrderAmount = (items) => {
     let total = 0;
     for (const item of items) {
         const productInfo = PRODUCTS_TO_OFFER.find(p => p.id === item.productId);
         if (productInfo) {
-            total += productInfo.price; // Assuming price is simple for MVP
+            total += productInfo.price;
         }
     }
-    return total; // Amount in cents
+    return total;
 };
 
 export const createCheckoutSession = async (req, res) => {
+    let client;
     const { items, orderId, redirectUrls } = req.body;
-    const userId = req.userId; // From protect middleware
+    const userId = req.userId;
 
     if (!items || items.length === 0 || !orderId || !redirectUrls) {
         return res.status(400).json({ message: "Missing required order details." });
@@ -34,13 +33,11 @@ export const createCheckoutSession = async (req, res) => {
             }
             return {
                 price_data: {
-                    currency: 'aud', // or your desired currency
+                    currency: 'aud',
                     product_data: {
                         name: productInfo.name,
-                        // description: productInfo.description, // Optional
-                        // images: [productInfo.imageUrl], // Optional
                     },
-                    unit_amount: productInfo.price, // Price in cents
+                    unit_amount: productInfo.price,
                 },
                 quantity: item.quantity,
             };
@@ -54,22 +51,26 @@ export const createCheckoutSession = async (req, res) => {
             cancel_url: redirectUrls.cancelUrl,
             metadata: {
                 userId: userId,
-                orderId: orderId, // Link to your internal order ID
+                orderId: orderId,
             },
         });
 
         // Store the Stripe session ID with your order in the database for later reconciliation
-        const db = await getDb(); // Get the db instance
-        await db.run('UPDATE orders SET stripe_session_id = ? WHERE id = ?', [session.id, orderId]);
+        const pool = await getDb();
+        client = await pool.connect();
+        await client.query('UPDATE orders SET stripe_session_id = $1 WHERE id = $2', [session.id, orderId]);
 
         res.status(200).json({ sessionId: session.id });
     } catch (error) {
         console.error("Error creating checkout session:", error);
         res.status(500).json({ message: "Failed to create checkout session." });
+    } finally {
+        if (client) client.release(); // Release client for this specific DB operation
     }
 };
 
 export const handleWebhook = async (req, res) => {
+    let client;
     const sig = req.headers['stripe-signature'];
     let event;
 
@@ -80,94 +81,105 @@ export const handleWebhook = async (req, res) => {
         return res.status(400).send(`Webhook Error: ${err.message}`);
     }
 
-    const db = await getDb(); // Get the db instance
+    try {
+        const pool = await getDb();
+        client = await pool.connect(); // Acquire client once for the webhook logic
 
-    switch (event.type) {
-        case 'checkout.session.completed':
-            const session = event.data.object;
-            console.log(`Stripe checkout.session.completed event received for session: ${session.id}`);
+        switch (event.type) {
+            case 'checkout.session.completed':
+                const session = event.data.object;
+                console.log(`Stripe checkout.session.completed event received for session: ${session.id}`);
 
-            const { userId, orderId } = session.metadata;
-            const customerEmail = session.customer_details ? session.customer_details.email : null;
+                const { userId, orderId } = session.metadata;
+                const customerEmail = session.customer_details ? session.customer_details.email : null;
 
-            try {
-                // Update order status in your database
-                await db.run('UPDATE orders SET status = ?, stripe_customer_email = ?, payment_status = ? WHERE id = ? AND user_id = ?',
-                    ['completed', customerEmail, 'paid', orderId, userId]);
-                console.log(`Order ${orderId} marked as completed in DB.`);
+                try {
+                    await client.query('UPDATE orders SET status = $1, stripe_customer_email = $2, payment_status = $3 WHERE id = $4 AND user_id = $5',
+                        ['completed', customerEmail, 'paid', orderId, userId]);
+                    console.log(`Order ${orderId} marked as completed in DB.`);
 
-                // Optionally, create Lulu print job here
-                // You'd fetch more details from your order table using orderId
-                const orderDetails = await db.get('SELECT * FROM orders WHERE id = ?', [orderId]);
+                    const orderDetailsResult = await client.query('SELECT * FROM orders WHERE id = $1', [orderId]);
+                    const orderDetails = orderDetailsResult.rows[0];
 
-                if (orderDetails && orderDetails.lulu_order_data) {
-                    try {
-                        const luluOrderData = JSON.parse(orderDetails.lulu_order_data);
-                        const printJobResult = await createLuluPrintJob(luluOrderData);
-                        await db.run('UPDATE orders SET lulu_job_id = ?, lulu_job_status = ? WHERE id = ?',
-                            [printJobResult.id, printJobResult.status, orderId]);
-                        console.log(`Lulu print job created for order ${orderId}:`, printJobResult.id);
-                    } catch (luluError) {
-                        console.error(`Error creating Lulu print job for order ${orderId}:`, luluError);
-                        // Log or handle the failure to create print job
+                    if (orderDetails && orderDetails.lulu_order_data) {
+                        try {
+                            const luluOrderData = JSON.parse(orderDetails.lulu_order_data);
+                            const printJobResult = await createLuluPrintJob(luluOrderData);
+                            await client.query('UPDATE orders SET lulu_job_id = $1, lulu_job_status = $2 WHERE id = $3',
+                                [printJobResult.id, printJobResult.status, orderId]);
+                            console.log(`Lulu print job created for order ${orderId}:`, printJobResult.id);
+                        } catch (luluError) {
+                            console.error(`Error creating Lulu print job for order ${orderId}:`, luluError);
+                        }
                     }
+
+                } catch (dbError) {
+                    console.error(`Database update error for session ${session.id}:`, dbError);
+                    return res.status(500).send('Database update failed');
                 }
+                break;
+            case 'payment_intent.succeeded':
+                console.log(`PaymentIntent ${event.data.object.id} succeeded!`);
+                break;
+            case 'payment_intent.payment_failed':
+                console.log(`PaymentIntent ${event.data.object.id} failed.`);
+                const failedSessionId = event.data.object.id;
+                try {
+                    await client.query('UPDATE orders SET status = $1, payment_status = $2 WHERE stripe_session_id = $3',
+                        ['failed', 'failed', failedSessionId]);
+                    console.log(`Order associated with session ${failedSessionId} marked as failed.`);
+                } catch (dbError) {
+                    console.error(`Database update error for failed session ${failedSessionId}:`, dbError);
+                }
+                break;
+            default:
+                console.log(`Unhandled event type ${event.type}`);
+        }
 
-            } catch (dbError) {
-                console.error(`Database update error for session ${session.id}:`, dbError);
-                return res.status(500).send('Database update failed');
-            }
-            break;
-        case 'payment_intent.succeeded':
-            // Handle payment_intent.succeeded if needed for other payment flows
-            console.log(`PaymentIntent ${event.data.object.id} succeeded!`);
-            break;
-        case 'payment_intent.payment_failed':
-            // Handle payment_intent.payment_failed
-            console.log(`PaymentIntent ${event.data.object.id} failed.`);
-            const failedSessionId = event.data.object.id; // Or associated checkout session ID if available
-            try {
-                await db.run('UPDATE orders SET status = ?, payment_status = ? WHERE stripe_session_id = ?',
-                    ['failed', 'failed', failedSessionId]);
-                console.log(`Order associated with session ${failedSessionId} marked as failed.`);
-            } catch (dbError) {
-                console.error(`Database update error for failed session ${failedSessionId}:`, dbError);
-            }
-            break;
-        default:
-            console.log(`Unhandled event type ${event.type}`);
+        res.status(200).json({ received: true });
+    } catch (error) {
+        console.error("Error in webhook handler:", error);
+        res.status(500).json({ message: "Server error in webhook handler." });
+    } finally {
+        if (client) client.release(); // Release client for the webhook logic
     }
-
-    res.status(200).json({ received: true });
 };
 
 export const getMyOrders = async (req, res) => {
+    let client;
     const userId = req.userId;
     if (!userId) {
         return res.status(401).json({ message: 'User not authenticated.' });
     }
 
     try {
-        const db = await getDb(); // Get the db instance
-        const orders = await db.all('SELECT * FROM orders WHERE user_id = ? ORDER BY date_created DESC', [userId]);
+        const pool = await getDb();
+        client = await pool.connect();
+        const ordersResult = await client.query('SELECT * FROM orders WHERE user_id = $1 ORDER BY date_created DESC', [userId]);
+        const orders = ordersResult.rows;
         res.status(200).json(orders);
     } catch (error) {
         console.error("Error fetching orders:", error);
         res.status(500).json({ message: "Failed to fetch orders." });
+    } finally {
+        if (client) client.release();
     }
 };
 
 export const getOrderDetails = async (req, res) => {
+    let client;
     const { orderId } = req.params;
-    const userId = req.userId; // From protect middleware
+    const userId = req.userId;
 
     if (!orderId) {
         return res.status(400).json({ message: "Order ID is required." });
     }
 
     try {
-        const db = await getDb(); // Get the db instance
-        const order = await db.get('SELECT * FROM orders WHERE id = ? AND user_id = ?', [orderId, userId]);
+        const pool = await getDb();
+        client = await pool.connect();
+        const orderResult = await client.query('SELECT * FROM orders WHERE id = $1 AND user_id = $2', [orderId, userId]);
+        const order = orderResult.rows[0];
 
         if (!order) {
             return res.status(404).json({ message: 'Order not found or you do not have permission to view it.' });
@@ -177,10 +189,13 @@ export const getOrderDetails = async (req, res) => {
     } catch (error) {
         console.error("Error fetching order details:", error);
         res.status(500).json({ message: "Failed to fetch order details." });
+    } finally {
+        if (client) client.release();
     }
 };
 
 export const saveOrder = async (req, res) => {
+    let client;
     const { orderId, selectedProducts, totalAmount, bookId, bookType } = req.body;
     const userId = req.userId;
 
@@ -189,11 +204,12 @@ export const saveOrder = async (req, res) => {
     }
 
     try {
-        const db = await getDb(); // Get the db instance
+        const pool = await getDb();
+        client = await pool.connect();
         const productsJson = JSON.stringify(selectedProducts);
 
-        const result = await db.run(
-            'INSERT INTO orders (id, user_id, products, total_amount, status, book_id, book_type) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        const result = await client.query(
+            'INSERT INTO orders (id, user_id, products, total_amount, status, book_id, book_type) VALUES ($1, $2, $3, $4, $5, $6, $7)',
             [orderId, userId, productsJson, totalAmount, 'pending', bookId, bookType]
         );
 
@@ -201,10 +217,13 @@ export const saveOrder = async (req, res) => {
     } catch (error) {
         console.error("Error saving order:", error);
         res.status(500).json({ message: 'Failed to save order.' });
+    } finally {
+        if (client) client.release();
     }
 };
 
 export const updateOrderLuluData = async (req, res) => {
+    let client;
     const { orderId, luluOrderData } = req.body;
     const userId = req.userId;
 
@@ -213,13 +232,14 @@ export const updateOrderLuluData = async (req, res) => {
     }
 
     try {
-        const db = await getDb(); // Get the db instance
-        const result = await db.run(
-            'UPDATE orders SET lulu_order_data = ? WHERE id = ? AND user_id = ?',
+        const pool = await getDb();
+        client = await pool.connect();
+        const result = await client.query(
+            'UPDATE orders SET lulu_order_data = $1 WHERE id = $2 AND user_id = $3',
             [JSON.stringify(luluOrderData), orderId, userId]
         );
 
-        if (result.changes === 0) {
+        if (result.rowCount === 0) {
             return res.status(404).json({ message: 'Order not found or unauthorized.' });
         }
 
@@ -227,5 +247,7 @@ export const updateOrderLuluData = async (req, res) => {
     } catch (error) {
         console.error("Error updating Lulu order data:", error);
         res.status(500).json({ message: 'Failed to update Lulu order data.' });
+    } finally {
+        if (client) client.release();
     }
 };

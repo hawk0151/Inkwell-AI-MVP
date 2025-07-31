@@ -1,3 +1,4 @@
+// backend/src/controllers/social.book.controller.js
 import { getDb } from '../db/database.js';
 import admin from 'firebase-admin';
 
@@ -14,6 +15,7 @@ const getTableName = (bookType) => {
 
 // --- Like / Unlike a Book ---
 export const likeBook = async (req, res) => {
+    let client;
     const { bookId, bookType } = req.body;
     const userId = req.userId;
     const tableName = getTableName(bookType);
@@ -25,45 +27,44 @@ export const likeBook = async (req, res) => {
         return res.status(400).json({ message: 'Invalid book type specified.' });
     }
 
-    let dbInstance;
     try {
-        dbInstance = await getDb();
-        await dbInstance.run('BEGIN');
+        const pool = await getDb();
+        client = await pool.connect();
+        await client.query('BEGIN');
 
-        const checkLikeQuery = 'SELECT 1 FROM likes WHERE user_id = ? AND book_id = ? AND book_type = ?';
-        const existingLike = await dbInstance.get(checkLikeQuery, [userId, bookId, bookType]);
+        const checkLikeQuery = 'SELECT 1 FROM likes WHERE user_id = $1 AND book_id = $2 AND book_type = $3';
+        const existingLikeResult = await client.query(checkLikeQuery, [userId, bookId, bookType]);
+        const existingLike = existingLikeResult.rows[0];
 
         if (existingLike) {
             console.warn(`[LIKE DEBUG] User ${userId} already liked book ${bookId}. Not inserting.`);
-            await dbInstance.run('ROLLBACK');
+            await client.query('ROLLBACK');
             return res.status(409).json({ message: 'You have already liked this book.' });
         }
 
-        const insertLikeQuery = 'INSERT INTO likes (user_id, book_id, book_type) VALUES (?, ?, ?)';
-        const insertResult = await dbInstance.run(insertLikeQuery, [userId, bookId, bookType]);
-        console.log(`[LIKE DEBUG] Inserted into likes table. Changes: ${insertResult.changes}`);
+        const insertLikeQuery = 'INSERT INTO likes (user_id, book_id, book_type) VALUES ($1, $2, $3)';
+        const insertResult = await client.query(insertLikeQuery, [userId, bookId, bookType]);
+        console.log(`[LIKE DEBUG] Inserted into likes table. Changes: ${insertResult.rowCount}`);
 
-        const updateCountQuery = `UPDATE ${tableName} SET like_count = like_count + 1 WHERE id = ?`;
-        const updateResult = await dbInstance.run(updateCountQuery, [bookId]);
-        console.log(`[LIKE DEBUG] Updated ${tableName} like_count. Changes: ${updateResult.changes}`);
+        const updateCountQuery = `UPDATE ${tableName} SET like_count = like_count + 1 WHERE id = $1`;
+        const updateResult = await client.query(updateCountQuery, [bookId]);
+        console.log(`[LIKE DEBUG] Updated ${tableName} like_count. Changes: ${updateResult.rowCount}`);
 
-        await dbInstance.run('COMMIT');
+        await client.query('COMMIT');
         console.log(`[LIKE DEBUG] Transaction committed for liking book ${bookId}.`);
 
         res.status(201).json({ message: 'Book liked successfully.' });
     } catch (error) {
-        if (dbInstance) {
-            await dbInstance.run('ROLLBACK');
-        } else {
-            const db = await getDb();
-            await db.run('ROLLBACK');
-        }
+        if (client) await client.query('ROLLBACK');
         console.error(`[LIKE ERROR] Error liking book ${bookId}:`, error);
         res.status(500).json({ message: 'Server error while liking book.' });
+    } finally {
+        if (client) client.release();
     }
 };
 
 export const unlikeBook = async (req, res) => {
+    let client;
     const { bookId, bookType } = req.body;
     const userId = req.userId;
     const tableName = getTableName(bookType);
@@ -75,39 +76,38 @@ export const unlikeBook = async (req, res) => {
         return res.status(400).json({ message: 'Invalid book type specified.' });
     }
 
-    let dbInstance;
     try {
-        dbInstance = await getDb();
-        await dbInstance.run('BEGIN');
-        const deleteLikeQuery = 'DELETE FROM likes WHERE user_id = ? AND book_id = ? AND book_type = ?';
-        const deleteResult = await dbInstance.run(deleteLikeQuery, [userId, bookId, bookType]);
-        console.log(`[UNLIKE DEBUG] Deleted from likes table. Changes: ${deleteResult.changes}`);
+        const pool = await getDb();
+        client = await pool.connect();
+        await client.query('BEGIN');
+        
+        const deleteLikeQuery = 'DELETE FROM likes WHERE user_id = $1 AND book_id = $2 AND book_type = $3';
+        const deleteResult = await client.query(deleteLikeQuery, [userId, bookId, bookType]);
+        console.log(`[UNLIKE DEBUG] Deleted from likes table. Changes: ${deleteResult.rowCount}`);
 
-        if (deleteResult.changes > 0) {
-            const updateCountQuery = `UPDATE ${tableName} SET like_count = MAX(0, like_count - 1) WHERE id = ?`;
-            const updateResult = await dbInstance.run(updateCountQuery, [bookId]);
-            console.log(`[UNLIKE DEBUG] Updated ${tableName} like_count. Changes: ${updateResult.changes}`);
+        if (deleteResult.rowCount > 0) {
+            const updateCountQuery = `UPDATE ${tableName} SET like_count = MAX(0, like_count - 1) WHERE id = $1`;
+            const updateResult = await client.query(updateCountQuery, [bookId]);
+            console.log(`[UNLIKE DEBUG] Updated ${tableName} like_count. Changes: ${updateResult.rowCount}`);
         } else {
             console.warn(`[UNLIKE DEBUG] No like found for user ${userId} on book ${bookId}.`);
         }
-        await dbInstance.run('COMMIT');
+        await client.query('COMMIT');
         console.log(`[UNLIKE DEBUG] Transaction committed for unliking book ${bookId}.`);
 
         res.status(200).json({ message: 'Book unliked successfully.' });
     } catch (error) {
-        if (dbInstance) {
-            await dbInstance.run('ROLLBACK');
-        } else {
-            const db = await getDb();
-            await db.run('ROLLBACK');
-        }
+        if (client) await client.query('ROLLBACK');
         console.error(`[UNLIKE ERROR] Error unliking book ${bookId}:`, error);
         res.status(500).json({ message: 'Server error while unliking book.' });
+    } finally {
+        if (client) client.release();
     }
 };
 
 // --- Comments ---
 export const addComment = async (req, res) => {
+    let client;
     const { bookId, bookType, commentText } = req.body;
     const userId = req.userId;
     const tableName = getTableName(bookType);
@@ -121,39 +121,41 @@ export const addComment = async (req, res) => {
 
     console.log(`[COMMENT DEBUG] User ${userId} attempting to add comment to book ${bookId} of type ${bookType}`);
 
-    let dbInstance;
     try {
-        dbInstance = await getDb();
-        await dbInstance.run('BEGIN');
-        const insertQuery = 'INSERT INTO comments (user_id, book_id, book_type, comment_text) VALUES (?, ?, ?, ?)';
-        const insertResult = await dbInstance.run(insertQuery, [userId, bookId, bookType, commentText]);
-        console.log(`[COMMENT DEBUG] Inserted into comments table. Changes: ${insertResult.changes}. New comment ID: ${insertResult.lastID}`);
+        const pool = await getDb();
+        client = await pool.connect();
+        await client.query('BEGIN');
+        
+        const insertQuery = 'INSERT INTO comments (user_id, book_id, book_type, comment_text) VALUES ($1, $2, $3, $4)';
+        const insertResult = await client.query(insertQuery, [userId, bookId, bookType, commentText]);
+        // For SERIAL primary keys, you can get the lastID via RETURNING id
+        console.log(`[COMMENT DEBUG] Inserted into comments table. Changes: ${insertResult.rowCount}. New comment ID: ${insertResult.rows[0]?.id}`); // Assuming RETURNING id in insert
 
-        const updateCountQuery = `UPDATE ${tableName} SET comment_count = comment_count + 1 WHERE id = ?`;
-        const updateResult = await dbInstance.run(updateCountQuery, [bookId]);
-        console.log(`[COMMENT DEBUG] Updated ${tableName} comment_count. Changes: ${updateResult.changes}`);
+        const updateCountQuery = `UPDATE ${tableName} SET comment_count = comment_count + 1 WHERE id = $1`;
+        const updateResult = await client.query(updateCountQuery, [bookId]);
+        console.log(`[COMMENT DEBUG] Updated ${tableName} comment_count. Changes: ${updateResult.rowCount}`);
 
-        await dbInstance.run('COMMIT');
+        await client.query('COMMIT');
         console.log(`[COMMENT DEBUG] Transaction committed for adding comment.`);
         res.status(201).json({ message: 'Comment added successfully.' });
     } catch (error) {
-        if (dbInstance) {
-            await dbInstance.run('ROLLBACK');
-        } else {
-            const db = await getDb();
-            await db.run('ROLLBACK');
-        }
+        if (client) await client.query('ROLLBACK');
         console.error("[COMMENT ERROR] Error adding comment:", error);
         res.status(500).json({ message: 'Server error while adding comment.' });
+    } finally {
+        if (client) client.release();
     }
 };
 
 export const getCommentsForBook = async (req, res) => {
+    let client;
     const { bookId, bookType } = req.params;
     console.log(`[COMMENTS FETCH DEBUG] Fetching comments for book ID: ${bookId}, Type: ${bookType}`);
 
     try {
-        const db = await getDb();
+        const pool = await getDb();
+        client = await pool.connect();
+        
         const query = `
             SELECT
                 c.id,
@@ -166,9 +168,10 @@ export const getCommentsForBook = async (req, res) => {
                 u.avatar_url AS user_avatar_url
             FROM comments c
             JOIN users u ON c.user_id = u.id
-            WHERE c.book_id = ? AND c.book_type = ?
+            WHERE c.book_id = $1 AND c.book_type = $2
             ORDER BY c.created_at DESC`;
-        const comments = await db.all(query, [bookId, bookType]);
+        const commentsResult = await client.query(query, [bookId, bookType]);
+        const comments = commentsResult.rows;
         console.log(`[COMMENTS FETCH DEBUG] Found ${comments.length} comments. Sample:`, comments[0]);
 
         if (comments.length > 0 && !comments[0].username) {
@@ -180,10 +183,13 @@ export const getCommentsForBook = async (req, res) => {
     } catch (error) {
         console.error("[COMMENTS FETCH ERROR] Error getting comments:", error);
         res.status(500).json({ message: 'Server error while fetching comments.' });
+    } finally {
+        if (client) client.release();
     }
 };
 
 export const deleteComment = async (req, res) => {
+    let client;
     const { commentId, bookId, bookType } = req.params;
     const userId = req.userId;
 
@@ -195,54 +201,53 @@ export const deleteComment = async (req, res) => {
 
     console.log(`[COMMENT DELETE DEBUG] User ${userId} attempting to delete comment ${commentId} for book ${bookId} (${bookType})`);
 
-    let dbInstance;
     try {
-        dbInstance = await getDb();
-        await dbInstance.run('BEGIN');
+        const pool = await getDb();
+        client = await pool.connect();
+        await client.query('BEGIN');
 
-        const commentQuery = 'SELECT user_id FROM comments WHERE id = ? AND book_id = ? AND book_type = ?';
-        const comment = await dbInstance.get(commentQuery, [commentId, bookId, bookType]);
+        const commentQuery = 'SELECT user_id FROM comments WHERE id = $1 AND book_id = $2 AND book_type = $3';
+        const commentResult = await client.query(commentQuery, [commentId, bookId, bookType]);
+        const comment = commentResult.rows[0];
 
         if (!comment) {
-            await dbInstance.run('ROLLBACK');
+            await client.query('ROLLBACK');
             return res.status(404).json({ message: 'Comment not found.' });
         }
 
         if (comment.user_id !== userId) {
-            await dbInstance.run('ROLLBACK');
+            await client.query('ROLLBACK');
             return res.status(403).json({ message: 'You are not authorized to delete this comment.' });
         }
 
-        const deleteQuery = 'DELETE FROM comments WHERE id = ?';
-        const deleteResult = await dbInstance.run(deleteQuery, [commentId]);
-        console.log(`[COMMENT DELETE DEBUG] Deleted from comments table. Changes: ${deleteResult.changes}`);
+        const deleteQuery = 'DELETE FROM comments WHERE id = $1';
+        const deleteResult = await client.query(deleteQuery, [commentId]);
+        console.log(`[COMMENT DELETE DEBUG] Deleted from comments table. Changes: ${deleteResult.rowCount}`);
 
-        if (deleteResult.changes === 0) {
-            await dbInstance.run('ROLLBACK');
+        if (deleteResult.rowCount === 0) {
+            await client.query('ROLLBACK');
             return res.status(404).json({ message: 'Comment not found or already deleted.' });
         }
 
-        const updateCountQuery = `UPDATE ${tableName} SET comment_count = MAX(0, comment_count - 1) WHERE id = ?`;
-        const updateResult = await dbInstance.run(updateCountQuery, [bookId]);
-        console.log(`[COMMENT DELETE DEBUG] Updated ${tableName} comment_count. Changes: ${updateResult.changes}`);
+        const updateCountQuery = `UPDATE ${tableName} SET comment_count = MAX(0, comment_count - 1) WHERE id = $1`;
+        const updateResult = await client.query(updateCountQuery, [bookId]);
+        console.log(`[COMMENT DELETE DEBUG] Updated ${tableName} comment_count. Changes: ${updateResult.rowCount}`);
 
-        await dbInstance.run('COMMIT');
+        await client.query('COMMIT');
         console.log(`[COMMENT DELETE DEBUG] Transaction committed for deleting comment ${commentId}.`);
         res.status(200).json({ message: 'Comment deleted successfully.' });
 
     } catch (error) {
-        if (dbInstance) {
-            await dbInstance.run('ROLLBACK');
-        } else {
-            const db = await getDb();
-            await db.run('ROLLBACK');
-        }
+        if (client) await client.query('ROLLBACK');
         console.error("[COMMENT DELETE ERROR] Error deleting comment:", error);
         res.status(500).json({ message: 'Server error while deleting comment.' });
+    } finally {
+        if (client) client.release();
     }
 };
 
 export const toggleBookPrivacy = async (req, res) => {
+    let client;
     const { bookId, bookType } = req.body;
     const userId = req.userId;
     const tableName = getTableName(bookType);
@@ -251,11 +256,13 @@ export const toggleBookPrivacy = async (req, res) => {
         return res.status(400).json({ message: 'Invalid book type specified.' });
     }
 
-    let dbInstance;
     try {
-        dbInstance = await getDb();
-        const ownerQuery = `SELECT user_id, is_public FROM ${tableName} WHERE id = ?`;
-        const book = await dbInstance.get(ownerQuery, [bookId]);
+        const pool = await getDb();
+        client = await pool.connect();
+        
+        const ownerQuery = `SELECT user_id, is_public FROM ${tableName} WHERE id = $1`;
+        const bookResult = await client.query(ownerQuery, [bookId]);
+        const book = bookResult.rows[0];
 
         if (!book) {
             return res.status(404).json({ message: 'Book not found.' });
@@ -265,8 +272,8 @@ export const toggleBookPrivacy = async (req, res) => {
             return res.status(403).json({ message: 'You are not authorized to change this book\'s privacy.' });
         }
 
-        const toggleQuery = `UPDATE ${tableName} SET is_public = NOT is_public WHERE id = ?`;
-        await dbInstance.run(toggleQuery, [bookId]);
+        const toggleQuery = `UPDATE ${tableName} SET is_public = NOT is_public WHERE id = $1`;
+        await client.query(toggleQuery, [bookId]);
 
         const newIsPublicStatus = !book.is_public;
 
@@ -275,13 +282,10 @@ export const toggleBookPrivacy = async (req, res) => {
             is_public: newIsPublicStatus
         });
     } catch (error) {
-        if (dbInstance) {
-            await dbInstance.run('ROLLBACK');
-        } else {
-            const db = await getDb();
-            await db.run('ROLLBACK');
-        }
+        if (client) await client.query('ROLLBACK'); // Rollback if transaction exists, though this isn't a transaction currently
         console.error("Error toggling book privacy:", error);
         res.status(500).json({ message: 'Server error while toggling book privacy.' });
+    } finally {
+        if (client) client.release();
     }
 };

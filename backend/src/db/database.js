@@ -18,35 +18,28 @@ let dbPool = null; // Changed from 'db' to 'dbPool' to better represent a pg.Poo
 
 export async function getDb() {
     if (dbPool) {
-        // If dbPool is already connected, return the existing instance
         return dbPool; // Return the pool directly
     }
 
     try {
         if (isProduction) {
-            // NEW: Connect to PostgreSQL in production
             if (!process.env.DATABASE_URL) {
                 throw new Error('DATABASE_URL environment variable is not set for production.');
             }
             console.log("Attempting to connect to PostgreSQL...");
             const { Pool } = pg;
-            dbPool = new Pool({ // Initialize Pool here
+            dbPool = new Pool({
                 connectionString: process.env.DATABASE_URL,
                 ssl: {
                     rejectUnauthorized: false
                 }
             });
 
-            // Test the connection by performing a simple query
-            await dbPool.query('SELECT 1 + 1 AS solution');
+            await dbPool.query('SELECT 1 + 1 AS solution'); // Test the connection
             console.log("✅ Successfully connected to the PostgreSQL database pool.");
-            
-            // In production, we return the Pool instance directly.
-            // Controllers will use pool.query(), pool.connect() etc.
             return dbPool;
 
         } else {
-            // Connect to SQLite in development
             console.log("Attempting to connect to SQLite...");
             const sqliteDb = await open({
                 filename: DB_PATH,
@@ -56,10 +49,7 @@ export async function getDb() {
             await sqliteDb.exec('PRAGMA journal_mode = WAL;');
             console.log("✅ Successfully connected to the SQLite database.");
             
-            // For development, we return the SQLite client.
-            // We'll still need to provide db.all/db.get/db.run adapters for SQLite
-            // if existing code expects them, or convert the code to use db.query with callbacks.
-            // Let's re-add simplified adapters for SQLite here for local compatibility.
+            // Re-add simplified adapters for SQLite local compatibility
             sqliteDb.all = (sql, params = []) => new Promise((resolve, reject) => {
                 sqliteDb.all(sql, params, (err, rows) => err ? reject(err) : resolve(rows));
             });
@@ -67,7 +57,7 @@ export async function getDb() {
                 sqliteDb.get(sql, params, (err, row) => err ? reject(err) : resolve(row));
             });
             sqliteDb.run = (sql, params = []) => new Promise((resolve, reject) => {
-                sqliteDb.run(sql, params, function(err) { // Use function for 'this' context
+                sqliteDb.run(sql, params, function(err) {
                     if (err) return reject(err);
                     resolve({ lastID: this.lastID, changes: this.changes });
                 });
