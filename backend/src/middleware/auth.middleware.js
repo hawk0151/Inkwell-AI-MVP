@@ -11,6 +11,7 @@ import { getDb } from '../db/database.js';
  */
 export const protect = async (req, res, next) => {
     let token;
+    let client; // Declare client for database operations
 
     console.log(`[PROTECT DEBUG] Request to: ${req.method} ${req.originalUrl}`);
 
@@ -23,10 +24,12 @@ export const protect = async (req, res, next) => {
             req.userId = decodedToken.uid;
             console.log(`[PROTECT DEBUG] Token decoded. UID: ${req.userId}`);
 
-            const db = await getDb(); // Get the db instance within the function
-            // MODIFIED: Changed ? to $1 for PostgreSQL parameter
+            const pool = await getDb(); // Get the pool
+            client = await pool.connect(); // Get a client from the pool
+
             const userQuery = 'SELECT id, role FROM users WHERE id = $1';
-            const user = await db.get(userQuery, [req.userId]);
+            const userResult = await client.query(userQuery, [req.userId]); // Use client.query
+            const user = userResult.rows[0]; // Get the row from the result
 
             if (user) {
                 req.userRole = user.role;
@@ -45,11 +48,10 @@ export const protect = async (req, res, next) => {
 
                 console.log(`[AUTH DEBUG] Determined initialUsername for SQLite/Firestore: "${initialUsername}"`);
 
-                // MODIFIED: Changed ? to $1, $2, $3, $4, $5 for PostgreSQL parameters
                 const insertQuery = 'INSERT INTO users (id, email, username, role, avatar_url) VALUES ($1, $2, $3, $4, $5)';
                 const defaultRole = 'user';
 
-                await db.run(insertQuery, [req.userId, initialEmail, initialUsername, defaultRole, initialAvatarUrl]);
+                await client.query(insertQuery, [req.userId, initialEmail, initialUsername, defaultRole, initialAvatarUrl]); // Use client.query
                 console.log(`[AUTH DEBUG] SQLite entry created for ${req.userId} with username: ${initialUsername}`);
 
                 const firestore = admin.firestore();
@@ -69,13 +71,15 @@ export const protect = async (req, res, next) => {
             }
         } catch (error) {
             console.error('[PROTECT ERROR] Error in authentication middleware:', error);
-            // The SQLITE_CONSTRAINT error code is specific to SQLite.
-            // For PostgreSQL, check for error.code === '23505' for unique_violation.
             if (error.code === '23505' /* PostgreSQL unique_violation */ || error.code === 'SQLITE_CONSTRAINT') {
                 try {
-                    const db = await getDb(); // Get db for retry
-                    const userQuery = 'SELECT id, role FROM users WHERE id = $1'; // MODIFIED: Changed ? to $1
-                    const user = await db.get(userQuery, [req.userId]);
+                    // Re-acquire client for retry if it was released by initial error, or use same client if still valid
+                    // For simplicity, just get a fresh client for the retry logic
+                    const pool = await getDb();
+                    const retryClient = await pool.connect();
+                    const userQuery = 'SELECT id, role FROM users WHERE id = $1';
+                    const userResult = await retryClient.query(userQuery, [req.userId]); // Use client.query
+                    const user = userResult.rows[0];
                     if (user) {
                         req.userRole = user.role;
                         console.log(`[PROTECT DEBUG] User ${req.userId} found on retry after constraint error. Calling next().`);
@@ -86,11 +90,12 @@ export const protect = async (req, res, next) => {
                 }
                 return res.status(500).json({ message: 'A database constraint error occurred during user creation. Please try again.' });
             }
-            // For general Firebase token verification errors
             if (error.code === 'auth/id-token-expired' || error.code === 'auth/argument-error') {
                  return res.status(401).json({ message: 'Authentication failed: Invalid or expired token.' });
             }
             return res.status(401).json({ message: 'Not authorized, token failed' });
+        } finally {
+            if (client) client.release(); // Release the client back to the pool
         }
     } else {
         console.log('[PROTECT DEBUG] No Bearer token found in Authorization header.');
@@ -110,14 +115,22 @@ export const protect = async (req, res, next) => {
  * It will NOT throw an error if the user is not authenticated.
  */
 export const optionalAuth = async (req, res, next) => {
-    if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
-        try {
+    // This middleware doesn't perform DB writes, so a direct pool.query is often sufficient
+    // without explicit client acquisition/release IF it's only read and not part of a transaction.
+    // However, for consistency and robustness, let's use client.query here too.
+    let client;
+    try {
+        if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
             const token = req.headers.authorization.split(' ')[1];
             const decodedToken = await admin.auth().verifyIdToken(token);
             req.userId = decodedToken.uid;
-        } catch (error) {
-            req.userId = null;
         }
+    } catch (error) {
+        req.userId = null;
+    } finally {
+        // No client to release here if no pool.connect() was called.
+        // For simple read-only, pool.query() doesn't need explicit client.release().
+        // If pool.connect() was used here, then client.release() would be needed.
     }
     next();
 };
