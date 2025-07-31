@@ -1,0 +1,56 @@
+/* frontend/src/index.css */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    /* The new rich gradient background */
+    @apply bg-gradient-dark text-silver-text antialiased;
+    min-height: 100vh;
+  }
+
+  /* Set the default font for the whole app */
+  h1, h2, h3, h4, h5, h6, p, div, button, input, select, textarea {
+    @apply font-sans;
+  }
+}
+
+/* Reusable component classes for our new theme */
+@layer components {
+  /* The main content card with a subtle border */
+  .content-card {
+    @apply bg-black/20 backdrop-blur-xl p-8 rounded-2xl shadow-soft border border-border-dark;
+  }
+
+  /* The primary call-to-action button style */
+  .cta-button {
+    @apply bg-indigo-primary text-white font-bold py-3 px-6 rounded-xl shadow-md transition-all duration-300 transform hover:bg-indigo-600 hover:shadow-glow-indigo;
+  }
+
+  /* The secondary button style */
+  .secondary-button {
+     @apply bg-teal-secondary text-white font-bold py-2 px-5 rounded-lg hover:bg-teal-600 transition shadow-md;
+  }
+}
+/* For Webkit browsers (Chrome, Safari) */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 8px; /* Width of the scrollbar */
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: #334155; /* Color of the tracking area */
+  border-radius: 10px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background-color: #475569; /* Color of the scroll thumb */
+  border-radius: 10px; /* Roundness of the scroll thumb */
+  border: 2px solid #334155; /* Padding around scroll thumb */
+}
+
+/* For Firefox */
+.custom-scrollbar {
+  scrollbar-width: thin; /* "auto" (default), "thin" */
+  scrollbar-color: #475569 #334155; /* thumb and track color */
+}

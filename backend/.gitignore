@@ -1,0 +1,19 @@
+# Node.js
+node_modules/
+.env
+.env.local
+.env.development
+.env.production
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Database files
+*.db
+*.db-shm
+*.db-wal
+
+# Firebase service account key (if not loaded from environment variable)
+# Remove this line if you are reading the JSON string from FIREBASE_SERVICE_ACCOUNT_CONFIG env var
+# Otherwise, ensure serviceAccountKey.json is *not* committed
+serviceAccountKey.json
