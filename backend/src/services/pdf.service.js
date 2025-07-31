@@ -60,7 +60,7 @@ async function getImageBuffer(url) {
     return Buffer.from(response.data, 'binary');
 }
 
-// --- MODIFIED: Cover PDF Generator to use Lulu API for dimensions ---
+// --- MODIFIED: Cover PDF Generator to use Lulu API for dimensions and handle layout quirk ---
 export const generateCoverPdf = async (bookTitle, authorName, luluProductId, pageCount) => {
     return new Promise(async (resolve, reject) => {
         try {
@@ -68,22 +68,32 @@ export const generateCoverPdf = async (bookTitle, authorName, luluProductId, pag
             const { width: coverWidthMm, height: coverHeightMm, layout: coverLayout } =
                 await getCoverDimensionsFromApi(luluProductId, pageCount, 'mm');
 
-            // Convert MM to points for PDFKit
-            const docWidthPoints = mmToPoints(coverWidthMm);
-            const docHeightPoints = mmToPoints(coverHeightMm);
+            let docWidthPoints, docHeightPoints;
 
-            console.log(`DEBUG: Cover PDF for ${luluProductId} (Pages: ${pageCount}) will be generated with dimensions from Lulu API in MM: ${coverWidthMm.toFixed(2)}x${coverHeightMm.toFixed(2)}. In Points: ${docWidthPoints.toFixed(2)}x${docHeightPoints.toFixed(2)}. Layout: ${coverLayout}.`);
+            // CRITICAL FIX ATTEMPT: If Lulu API indicates 'landscape',
+            // swap width and height for PDFKit to effectively create a 'portrait' shaped PDF
+            // that matches Lulu's expected orientation of the underlying PDF document.
+            if (coverLayout === 'landscape') {
+                docWidthPoints = mmToPoints(coverHeightMm); // Lulu's height becomes PDFKit's width
+                docHeightPoints = mmToPoints(coverWidthMm); // Lulu's width becomes PDFKit's height
+                console.log(`DEBUG: Lulu API suggested landscape. Swapping dimensions for PDFKit. New PDFKit size in Points: ${docWidthPoints.toFixed(2)}x${docHeightPoints.toFixed(2)}.`);
+            } else {
+                docWidthPoints = mmToPoints(coverWidthMm);
+                docHeightPoints = mmToPoints(coverHeightMm);
+            }
+
+            console.log(`DEBUG: Cover PDF for ${luluProductId} (Pages: ${pageCount}) will be generated with dimensions from Lulu API in MM: ${coverWidthMm.toFixed(2)}x${coverHeightMm.toFixed(2)}. Final PDFKit setup in Points: ${docWidthPoints.toFixed(2)}x${docHeightPoints.toFixed(2)}. Intended Layout: ${coverLayout}.`);
 
             // Validate the dimensions before generating
-            if (docWidthPoints <= 0 || docHeightPoints <= 0 || docWidthPoints > 10000 || docHeightPoints > 10000) { // Arbitrary large value to catch extreme errors
-                const errorMessage = `Invalid or extreme cover dimensions retrieved from Lulu API: Width: ${coverWidthMm}mm (${docWidthPoints.toFixed(2)}pt), Height: ${coverHeightMm}mm (${docHeightPoints.toFixed(2)}pt). Aborting PDF generation.`;
+            if (docWidthPoints <= 0 || docHeightPoints <= 0 || docWidthPoints > 10000 || docHeightPoints > 10000) {
+                const errorMessage = `Invalid or extreme cover dimensions for PDFKit: Width: ${docWidthPoints.toFixed(2)}pt, Height: ${docHeightPoints.toFixed(2)}pt. Aborting PDF generation.`;
                 console.error(`❌ ${errorMessage}`);
                 return reject(new Error(errorMessage));
             }
 
             const doc = new PDFDocument({
                 size: [docWidthPoints, docHeightPoints],
-                layout: coverLayout, // Use layout returned by Lulu API call
+                layout: 'portrait', // ALWAYS use portrait for PDFKit for cover PDFs to handle Lulu's interpretation
                 autoFirstPage: false,
                 margins: { top: 0, bottom: 0, left: 0, right: 0 } // Covers usually have full bleed, no internal margins needed
             });
@@ -97,18 +107,12 @@ export const generateCoverPdf = async (bookTitle, authorName, luluProductId, pag
             // Fill background
             doc.rect(0, 0, doc.page.width, doc.page.height).fill('#313131'); // Dark background
 
-            // Ensure cover content (title/author) is centered but does not rely on internal margins that would break Lulu’s bleed expectations.
-            // Text is centered across the entire cover spread (front, spine, back).
-            // For a basic cover, we'll place text roughly in the center of the right half (which represents the front cover).
-            // Assuming the spine is roughly in the middle, the front cover starts at doc.page.width / 2.
-            // This is a simplification; a true cover design would involve more precise layout based on spine width.
-
-            // To center content on the *front cover* (right half of the spread), we need to calculate its bounds.
-            // For now, we'll just center on the whole spread for simplicity,
-            // as the instructions state "centered but does not rely on internal margins" which implies
-            // it needs to be robust for the whole canvas Lulu expects.
-            // If the text needs to be ONLY on the front cover, this logic needs refinement.
-            // For initial validation, centering on the full spread is sufficient.
+            // Content positioning: If the original Lulu layout was landscape,
+            // we need to rotate the canvas for the content.
+            // This is complex for cover spreads as text needs to go on the front cover.
+            // For now, let's keep it simple and center on the current page dimensions.
+            // If the issue is just the PDF *header* dimensions, this might be enough.
+            // True cover layout would need knowledge of spine width and rotations.
 
             doc.fontSize(48)
                 .fillColor('#FFFFFF')
@@ -129,7 +133,6 @@ export const generateCoverPdf = async (bookTitle, authorName, luluProductId, pag
             doc.end();
         } catch (error) {
             console.error("Error generating cover PDF:", error);
-            // Fallback and Error Visibility: re-reject the error from getCoverDimensionsFromApi
             reject(error);
         }
     });
