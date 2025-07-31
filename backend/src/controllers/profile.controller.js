@@ -65,16 +65,16 @@ export const getProfileByUsername = async (req, res) => {
             db.get(followingCountQuery, [profileUserId])
         ]);
 
-        // MODIFIED: REMOVED PARENTHESES around SELECT statements
+        // MODIFIED: TEMPORARILY SIMPLIFIED booksQuery for debugging
         const booksQuery = `
-            SELECT id, title, cover_image_url, like_count, comment_count, 'picture_book' as book_type, user_id FROM picture_books WHERE user_id = $1 AND is_public = TRUE
-            UNION ALL
-            SELECT id, title, cover_image_url, like_count, comment_count, 'text_book' as book_type, user_id FROM text_books WHERE user_id = $2 AND is_public = TRUE
+            SELECT id, title, cover_image_url, like_count, comment_count, 'picture_book' as book_type, user_id 
+            FROM picture_books 
+            WHERE user_id = $1 AND is_public = TRUE
         `;
         
         console.log("[DEBUG] Executing booksQuery:", booksQuery); 
 
-        let books = await db.all(booksQuery, [profileUserId, profileUserId]);
+        let books = await db.all(booksQuery, [profileUserId]); // Pass only $1 parameter now
 
         books = books.map(book => ({
             ...book,

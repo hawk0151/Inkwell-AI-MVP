@@ -13,16 +13,10 @@ export const getForYouFeed = async (req, res) => {
     try {
         const db = await getDb();
 
-        // MODIFIED: REMOVED PARENTHESES around SELECT statements
+        // MODIFIED: TEMPORARILY SIMPLIFIED allPublicBooksQuery for debugging
         const allPublicBooksQuery = `
             SELECT id, user_id, title, cover_image_url, like_count, comment_count, date_created, 'picture_book' AS book_type
             FROM picture_books
-            WHERE is_public = TRUE
-
-            UNION ALL
-
-            SELECT id, user_id, title, cover_image_url, like_count, comment_count, date_created, 'text_book' AS book_type
-            FROM text_books
             WHERE is_public = TRUE
             ORDER BY date_created DESC
             LIMIT $1 OFFSET $2
@@ -45,7 +39,7 @@ export const getForYouFeed = async (req, res) => {
                     const data = doc.data();
                     userProfiles.set(doc.id, {
                         username: data.username,
-                        avatar_url: data.头发_url
+                        avatar_url: data.avatar_url
                     });
                 }
             });
