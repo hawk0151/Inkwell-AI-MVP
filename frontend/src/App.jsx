@@ -1,12 +1,11 @@
 import React, { useState } from 'react';
-import { Routes, Route, useNavigate, useLocation } from 'react-router-dom';
+import { Routes, Route, useNavigate, useLocation, Link } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext.jsx';
 import LoginPage from './pages/LoginPage.jsx';
 import ProductSelectionPage from './pages/ProductSelectionPage.jsx';
 import PictureBookPage from './pages/PictureBookPage.jsx';
 import MyProjectsPage from './pages/MyProjectsPage.jsx';
 import MyOrdersPage from './pages/MyOrdersPage.jsx';
-// import AboutPage from './pages/AboutPage.jsx'; // REMOVED: Old About Page - ensure this line is gone
 import SuccessPage from './pages/SuccessPage.jsx';
 import CancelPage from './pages/CancelPage.jsx';
 import NovelPage from './pages/NovelPage.jsx';
@@ -14,10 +13,10 @@ import NovelSelectionPage from './pages/NovelSelectionPage.jsx';
 import FeedPage from './pages/FeedPage.jsx';
 import ProfilePage from './pages/ProfilePage.jsx';
 import EditProfilePage from './pages/EditProfilePage.jsx';
-// import HowItWorksPage from './pages/HowItWorksPage.jsx'; // REMOVED: Old How It Works Page - ensure this line is gone
-import AboutHowItWorksPage from './pages/AboutHowItWorksPage.jsx'; // NEW: Combined About & How It Works Page
+import AboutHowItWorksPage from './pages/AboutHowItWorksPage.jsx';
+import PolicyPage from './pages/PolicyPage.jsx';
+import TermsOfServicePage from './pages/TermsOfServicePage.jsx';
 import { Logo } from './components/common.jsx';
-// import { ProfileHeader } from './components/ProfileHeader.jsx'; // REMOVED: No longer a named export in App.jsx
 
 function ProtectedRoute({ children }) {
     const { currentUser } = useAuth();
@@ -25,24 +24,33 @@ function ProtectedRoute({ children }) {
     return children;
 }
 
+const AppFooter = () => (
+    <footer className="bg-black/20 mt-20 py-6 border-t border-white/10">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center text-slate-400 text-sm">
+            <div className="flex flex-wrap justify-center gap-x-6 gap-y-2">
+                <Link to="/terms-of-service" className="hover:text-white transition-colors">Terms of Service</Link>
+                <Link to="/privacy-policy" className="hover:text-white transition-colors">Privacy Policy</Link>
+                <Link to="/shipping-policy" className="hover:text-white transition-colors">Shipping Policy</Link>
+                <Link to="/refund-policy" className="hover:text-white transition-colors">Refund Policy</Link>
+                <Link to="/return-policy" className="hover:text-white transition-colors">Return Policy</Link>
+            </div>
+            <p className="mt-4">&copy; {new Date().getFullYear()} Inkwell AI. All Rights Reserved.</p>
+        </div>
+    </footer>
+);
+
 function App() {
     const { currentUser, logout, loading } = useAuth();
     const navigate = useNavigate();
     const location = useLocation();
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
-    // Helper to determine if a link is active based on current path
     const isLinkActive = (path) => location.pathname.startsWith(path);
 
-    // Custom NavLink component for desktop navigation
     const NavLink = ({ to, children }) => (
         <a
             href={to}
-            onClick={(e) => {
-                e.preventDefault();
-                navigate(to);
-                setIsMobileMenuOpen(false); // Close mobile menu on click
-            }}
+            onClick={(e) => { e.preventDefault(); navigate(to); setIsMobileMenuOpen(false); }}
             className={`px-3 py-2 rounded-md text-sm font-medium transition-colors ${
                 isLinkActive(to) ? 'bg-white/10 text-white' : 'text-slate-300 hover:bg-white/10 hover:text-white'
             }`}
@@ -51,15 +59,10 @@ function App() {
         </a>
     );
 
-    // Custom MobileNavLink component for mobile navigation
     const MobileNavLink = ({ to, children }) => (
         <a
             href={to}
-            onClick={(e) => {
-                e.preventDefault();
-                navigate(to);
-                setIsMobileMenuOpen(false); // Close mobile menu on click
-            }}
+            onClick={(e) => { e.preventDefault(); navigate(to); setIsMobileMenuOpen(false); }}
             className="block px-3 py-2 text-base font-medium text-white hover:bg-gray-700 rounded-md"
         >
             {children}
@@ -75,11 +78,10 @@ function App() {
     }
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-gray-900 to-black text-white font-inter">
+        <div className="min-h-screen bg-gradient-to-br from-gray-900 to-black text-white font-inter flex flex-col">
             <nav className="bg-black/20 backdrop-blur-lg shadow-lg sticky top-0 z-50 border-b border-white/10">
-                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+               <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                     <div className="flex items-center justify-between h-16">
-                        {/* Logo/Home link */}
                         <a
                             href="/"
                             onClick={(e) => {
@@ -91,11 +93,9 @@ function App() {
                         >
                             <Logo />
                         </a>
-                        {/* Desktop Navigation */}
                         <div className="hidden md:flex items-center space-x-4">
                             <NavLink to="/">Create</NavLink>
                             <NavLink to="/feed">Feed</NavLink>
-                            {/* Updated NavLink for the combined page */}
                             <NavLink to="/about-how-it-works">About & How It Works</NavLink>
                             {currentUser ? (
                                 <>
@@ -126,7 +126,6 @@ function App() {
                                 </button>
                             )}
                         </div>
-                        {/* Mobile Menu Button */}
                         <div className="-mr-2 flex md:hidden">
                             <button
                                 onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
@@ -146,14 +145,11 @@ function App() {
                         </div>
                     </div>
                 </div>
-
-                {/* Mobile Menu Content */}
                 {isMobileMenuOpen && (
                     <div className="md:hidden">
                         <div className="px-2 pt-2 pb-3 space-y-1 sm:px-3">
                             <MobileNavLink to="/">Create</MobileNavLink>
                             <MobileNavLink to="/feed">Feed</MobileNavLink>
-                            {/* Updated MobileNavLink for the combined page */}
                             <MobileNavLink to="/about-how-it-works">About & How It Works</MobileNavLink>
                             {currentUser ? (
                                 <>
@@ -163,6 +159,7 @@ function App() {
                                         </MobileNavLink>
                                     )}
                                     <MobileNavLink to="/my-projects">My Projects</MobileNavLink>
+                                    {/* THIS IS THE CORRECTED LINE */}
                                     <MobileNavLink to="/my-orders">My Orders</MobileNavLink>
                                     <button
                                         onClick={() => {
@@ -182,15 +179,21 @@ function App() {
                     </div>
                 )}
             </nav>
-            <main className="max-w-7xl mx-auto py-10 px-4 sm:px-6 lg:px-8">
+            <main className="max-w-7xl mx-auto py-10 px-4 sm:px-6 lg:px-8 flex-grow w-full">
                 <Routes>
                     <Route path="/" element={<ProductSelectionPage />} />
                     <Route path="/select-novel" element={<NovelSelectionPage />} />
                     <Route path="/login" element={<LoginPage />} />
-                    {/* New combined route */}
                     <Route path="/about-how-it-works" element={<AboutHowItWorksPage />} />
                     <Route path="/success" element={<SuccessPage />} />
                     <Route path="/cancel" element={<CancelPage />} />
+                    
+                    <Route path="/terms-of-service" element={<TermsOfServicePage />} />
+                    <Route path="/privacy-policy" element={<PolicyPage type="privacy" />} />
+                    <Route path="/shipping-policy" element={<PolicyPage type="shipping" />} />
+                    <Route path="/refund-policy" element={<PolicyPage type="refund" />} />
+                    <Route path="/return-policy" element={<PolicyPage type="return" />} />
+
                     <Route path="/feed" element={<ProtectedRoute><FeedPage /></ProtectedRoute>} />
                     <Route path="/profile/:username" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
                     <Route path="/profile/edit" element={<ProtectedRoute><EditProfilePage /></ProtectedRoute>} />
@@ -201,6 +204,7 @@ function App() {
                     <Route path="/project/:bookId" element={<ProtectedRoute><PictureBookPage /></ProtectedRoute>} />
                 </Routes>
             </main>
+            <AppFooter />
         </div>
     );
 }

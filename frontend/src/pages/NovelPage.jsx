@@ -2,10 +2,55 @@ import React, { useState, useEffect } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import apiClient from '../services/apiClient';
 import { useQueryClient, useQuery } from '@tanstack/react-query';
+// MODIFIED: Import motion and AnimatePresence for animations
+import { motion, AnimatePresence } from 'framer-motion';
 
 import { LoadingSpinner, Alert, MagicWandIcon } from '../components/common.jsx';
 
 // --- Sub-components ---
+
+// NEW: A dedicated component for the collapsible chapter UI
+const Chapter = ({ chapter, isOpen, onToggle }) => {
+    // Simple chevron icon for the dropdown indicator
+    const ChevronDownIcon = (props) => (
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" {...props}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+        </svg>
+    );
+
+    return (
+        <div className="border-b border-slate-700 last:border-b-0">
+            <button
+                onClick={onToggle}
+                className="w-full flex justify-between items-center text-left py-4 px-2 hover:bg-slate-700/50 rounded-lg transition-colors duration-200"
+            >
+                {/* Use the existing heading style from the prose class for consistency */}
+                <h2 className="text-2xl md:text-3xl font-serif text-amber-500 m-0 p-0">Chapter {chapter.chapter_number}</h2>
+                <ChevronDownIcon className={`w-6 h-6 text-slate-400 transform transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`} />
+            </button>
+            <AnimatePresence>
+                {isOpen && (
+                    <motion.div
+                        key="content"
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1, transition: { height: { duration: 0.4, ease: 'easeInOut' }, opacity: { duration: 0.25, delay: 0.15 } } }}
+                        exit={{ height: 0, opacity: 0, transition: { height: { duration: 0.4, ease: 'easeInOut' }, opacity: { duration: 0.25 } } }}
+                        className="overflow-hidden"
+                    >
+                        {/* Re-use the prose class for styling the chapter content */}
+                        <div className="prose prose-lg lg:prose-xl max-w-none text-slate-300 prose-p:text-slate-300 pt-2 pb-6 px-2">
+                            {chapter.content.split('\n').map((paragraph, index) => (
+                                <p key={index} className="mb-4">{paragraph}</p>
+                            ))}
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+        </div>
+    );
+};
+
+
 const PromptForm = ({ isLoading, onSubmit, productName }) => {
     const [details, setDetails] = useState({
         title: '',
@@ -137,11 +182,14 @@ function NovelPage() {
     const queryClient = useQueryClient();
     const { bookId: paramBookId } = useParams();
 
-    const [bookId, setBookId] = useState(paramBookId || null); 
-    const [bookDetails, setBookDetails] = useState(null); 
+    const [bookId, setBookId] = useState(paramBookId || null);
+    const [bookDetails, setBookDetails] = useState(null);
     const [chapters, setChapters] = useState([]);
+    
+    // MODIFIED: State to track which chapter is currently expanded
+    const [openChapter, setOpenChapter] = useState(null);
 
-    const [isLoadingPage, setIsLoadingPage] = useState(true); 
+    const [isLoadingPage, setIsLoadingPage] = useState(true);
     const [isActionLoading, setIsActionLoading] = useState(false);
     const [isCheckingOut, setIsCheckingOut] = useState(false);
     const [error, setError] = useState(null);
@@ -149,21 +197,28 @@ function NovelPage() {
     const { data: allBookOptions, isLoading: isLoadingBookOptions, isError: isErrorBookOptions } = useQuery({
         queryKey: ['allBookOptions'],
         queryFn: fetchBookOptions,
-        staleTime: Infinity, 
+        staleTime: Infinity,
     });
 
-    const [selectedProductForNew, setSelectedProductForNew] = useState(null); 
+    const [selectedProductForNew, setSelectedProductForNew] = useState(null);
     
     useEffect(() => {
         if (isLoadingBookOptions) return;
 
-        if (paramBookId) { 
+        if (paramBookId) {
             setIsLoadingPage(true);
             apiClient.get(`/text-books/${paramBookId}`)
                 .then(detailsRes => {
                     const bookData = detailsRes.data.book;
+                    const fetchedChapters = detailsRes.data.chapters;
                     setBookDetails(bookData);
-                    setChapters(detailsRes.data.chapters);
+                    setChapters(fetchedChapters);
+                    
+                    // MODIFIED: Open the latest chapter by default when the book loads
+                    if (fetchedChapters.length > 0) {
+                        setOpenChapter(fetchedChapters[fetchedChapters.length - 1].chapter_number);
+                    }
+                    
                     const product = allBookOptions?.find((p) => p.id === bookData.luluProductId);
                     setSelectedProductForNew(product);
                     setBookId(paramBookId);
@@ -174,7 +229,7 @@ function NovelPage() {
                     setError("Could not load your project.");
                     setIsLoadingPage(false);
                 });
-        } else if (location.state?.selectedProductId && !bookId) { 
+        } else if (location.state?.selectedProductId && !bookId) {
             const product = allBookOptions?.find((p) => p.id === location.state.selectedProductId);
             if (product) {
                 setSelectedProductForNew(product);
@@ -183,7 +238,7 @@ function NovelPage() {
                 setError("Invalid book format selected. Please go back and choose a format.");
                 setIsLoadingPage(false);
             }
-        } else { 
+        } else {
             setError("To create a new novel, please select a book format first.");
             setIsLoadingPage(false);
         }
@@ -206,8 +261,8 @@ function NovelPage() {
             const response = await apiClient.post('/text-books', bookData);
             queryClient.invalidateQueries({ queryKey: ['projects'] });
             
-            navigate(`/novel/${response.data.bookId}`, { 
-                replace: true, 
+            navigate(`/novel/${response.data.bookId}`, {
+                replace: true,
             });
         } catch (err) {
             setError(err.response?.data?.message || 'Failed to create the book.');
@@ -221,13 +276,15 @@ function NovelPage() {
         setError(null);
         try {
             const response = await apiClient.post(`/text-books/${bookId}/generate-chapter`);
-            setChapters((prev) => [
-                ...prev,
-                {
-                    chapter_number: response.data.chapterNumber,
-                    content: response.data.newChapter,
-                },
-            ]);
+            const newChapterData = {
+                chapter_number: response.data.chapterNumber,
+                content: response.data.newChapter,
+            };
+            setChapters((prev) => [...prev, newChapterData]);
+            
+            // MODIFIED: Automatically open the new chapter after it's generated
+            setOpenChapter(newChapterData.chapter_number);
+
             if (response.data.isStoryComplete) {
                  console.log("Story generation complete!");
             }
@@ -238,6 +295,11 @@ function NovelPage() {
         }
     };
     
+    // NEW: Handler function to open/close chapters
+    const handleToggleChapter = (chapterNumber) => {
+        setOpenChapter(openChapter === chapterNumber ? null : chapterNumber);
+    };
+
     const handleFinalizeAndPurchase = async () => {
         setIsCheckingOut(true);
         setError(null);
@@ -262,7 +324,7 @@ function NovelPage() {
             <div className="text-center py-10">
                 <Alert title="Error">To create a new novel, please select a book format first.</Alert>
                 <button
-                    onClick={() => navigate('/select-novel')} 
+                    onClick={() => navigate('/select-novel')}
                     className="mt-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-5 rounded-lg"
                 >
                     Back to Selection
@@ -272,17 +334,17 @@ function NovelPage() {
     }
     
     if (bookId && !bookDetails) {
-        return <LoadingSpinner text="Loading book details..." />; 
+        return <LoadingSpinner text="Loading book details..." />;
     }
 
-    const currentProduct = bookId ? selectedProductForNew : selectedProductForNew; 
-    const productName = currentProduct?.name || bookDetails?.productName || 'Novel'; 
-    const totalChapters = bookDetails?.totalChapters || currentProduct?.totalChapters || 1; 
+    const currentProduct = bookId ? selectedProductForNew : selectedProductForNew;
+    const productName = currentProduct?.name || bookDetails?.productName || 'Novel';
+    const totalChapters = bookDetails?.totalChapters || currentProduct?.totalChapters || 1;
     const isStoryComplete = chapters.length >= totalChapters;
 
 
     // --- Render PromptForm for New Books, or Story Content for Existing Books ---
-    if (!bookId) { 
+    if (!bookId) {
         if (!selectedProductForNew) {
             return <Alert title="Error">Missing book format. Please go back to selection.</Alert>;
         }
@@ -298,19 +360,19 @@ function NovelPage() {
                     <p className="text-lg text-slate-400 mt-2">Your personalized story</p>
                 </div>
 
-                <div className="prose prose-lg lg:prose-xl max-w-none prose-headings:font-serif prose-headings:text-amber-500 text-slate-300 prose-p:text-slate-300">
+                {/* MODIFIED: Replaced the static list with the new collapsible Chapter components */}
+                <div className="space-y-2">
                     {chapters.map((chapter) => (
-                        <div key={chapter.chapter_number} className="mb-8">
-                            <h2>Chapter {chapter.chapter_number}</h2>
-                            {chapter.content.split('\n').map((paragraph, index) => (
-                                <p key={index}>{paragraph}</p>
-                            ))}
-                        </div>
+                        <Chapter 
+                            key={chapter.chapter_number}
+                            chapter={chapter}
+                            isOpen={openChapter === chapter.chapter_number}
+                            onToggle={() => handleToggleChapter(chapter.chapter_number)}
+                        />
                     ))}
                 </div>
 
-                {/* MODIFIED: More specific loading message */}
-                {isActionLoading && <LoadingSpinner text={`Generating Chapter ${chapters.length + 1}...`} />}
+                {isActionLoading && <div className="mt-8"><LoadingSpinner text={`Generating Chapter ${chapters.length + 1}...`} /></div>}
 
                 <div className="mt-12 border-t-2 border-dashed border-slate-700 pt-8 text-center">
                     {!isStoryComplete ? (
