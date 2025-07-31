@@ -217,20 +217,7 @@ export const createBookCheckoutSession = async (req, res) => {
 
         const orderId = randomUUID(); // Generate a unique orderId
 
-        // --- TEMPORARY DEBUGGING START ---
-        console.log('DEBUG: Attempting to insert into orders table with values:');
-        console.log('orderId:', orderId);
-        console.log('userId:', userId);
-        console.log('bookId:', bookId);
-        console.log('book.title:', book.title);
-        console.log('productInfo.id:', productInfo.id);
-        console.log('productInfo.price:', productInfo.price);
-        console.log('interiorPdfUrl:', interiorPdfUrl);
-        console.log('coverPdfUrl:', coverPdfUrl);
-        // --- TEMPORARY DEBUGGING END ---
-
-        // Temporarily comment out database interaction to isolate Stripe initialization
-        /*
+        // --- DATABASE INSERT RE-ENABLED ---
         await client.query(
             `INSERT INTO orders (id, user_id, book_id, book_type, book_title, lulu_order_id, status, total_price, interior_pdf_url, cover_pdf_url, order_date) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
             [
@@ -247,12 +234,13 @@ export const createBookCheckoutSession = async (req, res) => {
                 new Date().toISOString()
             ]
         );
-        */
+        // --- END DATABASE INSERT RE-ENABLED ---
 
         const session = await createStripeCheckoutSession(orderDetails, userId, orderId);
         
-        // Temporarily comment out database interaction to isolate Stripe initialization
-        // await client.query('UPDATE orders SET stripe_session_id = $1 WHERE id = $2', [session.id, orderId]);
+        // --- DATABASE UPDATE RE-ENABLED ---
+        await client.query('UPDATE orders SET stripe_session_id = $1 WHERE id = $2', [session.id, orderId]);
+        // --- END DATABASE UPDATE RE-ENABLED ---
 
         res.status(200).json({ url: session.url });
     } catch (error) {
