@@ -66,12 +66,11 @@ export const getProfileByUsername = async (req, res) => {
         ]);
 
         const booksQuery = `
-            SELECT id, title, cover_image_url, like_count, comment_count, 'picture_book' as book_type, user_id FROM picture_books WHERE user_id = $1 AND is_public = TRUE
+            (SELECT id, title, cover_image_url, like_count, comment_count, 'picture_book' as book_type, user_id FROM picture_books WHERE user_id = $1 AND is_public = TRUE)
             UNION ALL
-            SELECT id, title, cover_image_url, like_count, comment_count, 'text_book' as book_type, user_id FROM text_books WHERE user_id = $2 AND is_public = TRUE
-        `;
+            (SELECT id, title, cover_image_url, like_count, comment_count, 'text_book' as book_type, user_id FROM text_books WHERE user_id = $2 AND is_public = TRUE)
+        `; // MODIFIED: Wrapped each SELECT in parentheses
         
-        // NEW LINE: Log the query before execution
         console.log("[DEBUG] Executing booksQuery:", booksQuery); 
 
         let books = await db.all(booksQuery, [profileUserId, profileUserId]);
