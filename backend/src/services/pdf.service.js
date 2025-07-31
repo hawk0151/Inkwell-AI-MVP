@@ -1,7 +1,6 @@
-// backend/src/services/pdf.service.js
 import PDFDocument from 'pdfkit';
 import axios from 'axios';
-import { PRODUCTS_TO_OFFER } from './lulu.service.js'; // Ensure this import is correct
+import { PRODUCTS_TO_OFFER } from './lulu.service.js';
 
 // Helper function to convert mm to points
 const mmToPoints = (mm) => mm * (72 / 25.4);
@@ -22,7 +21,7 @@ const getProductDimensions = (luluProductId) => {
             layout = 'portrait';
             break;
         case '0827X1169BWPRELW060UC444GNG': // A4 Story Book (8.27 x 11.69" / 209.55 x 296.9 mm - from template)
-            widthMm = 209.55; 
+            widthMm = 209.55;
             heightMm = 296.9;
             layout = 'portrait';
             break;
@@ -41,10 +40,17 @@ const getProductDimensions = (luluProductId) => {
             throw new Error(`Unknown product ID ${luluProductId} for PDF dimensions.`);
     }
 
-    return { 
-        width: mmToPoints(widthMm), 
-        height: mmToPoints(heightMm), 
-        layout: layout 
+    const widthPoints = mmToPoints(widthMm);
+    const heightPoints = mmToPoints(heightMm);
+
+    // --- NEW DEBUG LOG ---
+    console.log(`DEBUG: Product ${luluProductId} dimensions in MM: ${widthMm}x${heightMm}. In Points: ${widthPoints.toFixed(2)}x${heightPoints.toFixed(2)}.`);
+    // --- END NEW DEBUG LOG ---
+
+    return {
+        width: widthPoints,
+        height: heightPoints,
+        layout: layout
     };
 };
 
@@ -55,16 +61,18 @@ async function getImageBuffer(url) {
 }
 
 // --- Picture Book PDF Generator (MODIFIED to accept luluProductId) ---
-export const generatePictureBookPdf = async (book, events, luluProductId) => { 
+export const generatePictureBookPdf = async (book, events, luluProductId) => {
     return new Promise(async (resolve, reject) => {
         try {
             const { width, height, layout } = getProductDimensions(luluProductId);
 
             const doc = new PDFDocument({
-                size: [width, height], 
-                layout: layout, 
+                size: [width, height],
+                layout: layout,
                 autoFirstPage: false,
+                // --- MODIFICATION START: Set margins once here ---
                 margins: { top: 36, bottom: 36, left: 36, right: 36 }
+                // --- MODIFICATION END ---
             });
 
             const buffers = [];
@@ -89,7 +97,9 @@ export const generatePictureBookPdf = async (book, events, luluProductId) => {
 
             // --- Timeline Pages ---
             for (const event of events) {
-                doc.addPage();
+                // --- MODIFICATION START: Remove redundant margins from addPage ---
+                doc.addPage(); // Use global margins set in constructor
+                // --- MODIFICATION END ---
                 const imageUrl = event.uploaded_image_url || event.image_url;
                 if (imageUrl) {
                     try {
@@ -99,12 +109,12 @@ export const generatePictureBookPdf = async (book, events, luluProductId) => {
                         console.error(`Failed to load image from ${imageUrl}`, imgErr);
                     }
                 }
-                
+
                 if (event.overlay_text) {
                     doc.fontSize(24).font('Helvetica-Bold').text(
                         event.overlay_text,
                         doc.page.margins.left,
-                        doc.page.height - doc.page.margins.bottom - 100, 
+                        doc.page.height - doc.page.margins.bottom - 100,
                         { align: 'center', width: doc.page.width - doc.page.margins.left * 2 }
                     );
                 }
@@ -118,14 +128,16 @@ export const generatePictureBookPdf = async (book, events, luluProductId) => {
 
 
 // --- Text Book PDF Generator (MODIFIED to accept luluProductId) ---
-export const generateTextBookPdf = (title, chapters, luluProductId) => { 
+export const generateTextBookPdf = (title, chapters, luluProductId) => {
     return new Promise((resolve) => {
         const { width, height, layout } = getProductDimensions(luluProductId);
 
         const doc = new PDFDocument({
-            size: [width, height], 
-            layout: layout, 
+            size: [width, height],
+            layout: layout,
+            // --- MODIFICATION START: Set margins once here ---
             margins: { top: 72, bottom: 72, left: 72, right: 72 }
+            // --- MODIFICATION END ---
         });
 
         const buffers = [];
@@ -142,7 +154,9 @@ export const generateTextBookPdf = (title, chapters, luluProductId) => {
 
         // --- Chapter Pages ---
         for (const chapter of chapters) {
-            doc.addPage({ margins: { top: 72, bottom: 72, left: 72, right: 72 }}); 
+            // --- MODIFICATION START: Remove redundant margins from addPage ---
+            doc.addPage(); // Use global margins set in constructor
+            // --- MODIFICATION END ---
             doc.fontSize(18).font('Times-Bold').text(`Chapter ${chapter.chapter_number}`, { align: 'center' });
             doc.moveDown(2);
             doc.fontSize(12).font('Times-Roman').text(chapter.content, { align: 'justify' });
