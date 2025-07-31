@@ -10,17 +10,21 @@ export const getForYouFeed = async (req, res) => {
 
     console.log(`[FEED DEBUG 1] Fetching feed for user: ${userId}, page: ${page}, limit: ${limit}`);
 
-    let client; // Declare client for transaction management
+    let client;
     try {
-        const pool = await getDb(); // Get the pool directly
-        client = await pool.connect(); // Get a client from the pool
+        const pool = await getDb();
+        client = await pool.connect();
 
-        // MODIFIED: TEMPORARILY SIMPLIFIED & SINGLE-LINE allPublicBooksQuery for debugging
-        const allPublicBooksQuery = `SELECT id, user_id, title, cover_image_url, like_count, comment_count, date_created, 'picture_book' AS book_type FROM picture_books WHERE is_public = TRUE ORDER BY date_created DESC LIMIT $1 OFFSET $2`;
+        // MODIFIED: Used plain string concatenation instead of template literal
+        const allPublicBooksQuery = 
+            "SELECT id, user_id, title, cover_image_url, like_count, comment_count, date_created, 'picture_book' AS book_type " +
+            "FROM picture_books " +
+            "WHERE is_public = TRUE " +
+            "ORDER BY date_created DESC LIMIT $1 OFFSET $2";
 
         console.log("[DEBUG] Executing allPublicBooksQuery:", allPublicBooksQuery, "with params:", [limit, offset]); 
 
-        let feedBooks = (await client.query(allPublicBooksQuery, [limit, offset])).rows; // Use client.query and get .rows
+        let feedBooks = (await client.query(allPublicBooksQuery, [limit, offset])).rows;
         console.log(`[FEED DEBUG 2] Found ${feedBooks.length} public books from both tables.`);
 
         // Map Firebase UIDs to usernames and avatar URLs
@@ -61,7 +65,7 @@ export const getForYouFeed = async (req, res) => {
             });
 
             const likesSql = `SELECT book_id, book_type FROM likes WHERE user_id = $1 AND (book_id, book_type) IN (${bookTypePlaceholders})`;
-            const likedResults = (await client.query(likesSql, likeCheckParams)).rows; // Use client.query
+            const likedResults = (await client.query(likesSql, likeCheckParams)).rows;
 
             const likedSet = new Set(likedResults.map(like => `${like.book_type}:${like.book_id}`));
 
@@ -81,6 +85,6 @@ export const getForYouFeed = async (req, res) => {
         console.error('[FEED ERROR] Failed to generate feed:', error);
         res.status(500).json({ message: 'Could not generate feed.' });
     } finally {
-        if (client) client.release(); // Release client back to pool
+        if (client) client.release();
     }
 };
