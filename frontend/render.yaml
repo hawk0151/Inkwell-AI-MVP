@@ -1,0 +1,16 @@
+# frontend/render.yaml
+# A `render.yaml` file to configure your frontend service on Render.
+# This ensures that all non-file paths fall back to index.html for React Router.
+
+# This block defines a Static Site service
+services:
+  - type: static
+    name: inkwell-ai-frontend
+    # Specify the directory where your build output will be (e.g., 'dist' for Vite)
+    buildCommand: 'npm install && npm run build'
+    publishPath: './dist'
+    # The crucial part for React Router: rewrite all non-file paths to index.html
+    pullRequestPreviewsEnabled: true
+    rewrites:
+      - source: '/*'
+        destination: '/index.html'

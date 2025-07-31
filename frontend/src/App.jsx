@@ -1,3 +1,4 @@
+// frontend/src/App.jsx
 // MODIFIED: Added useRef and useEffect for the dropdown
 import React, { useState, useRef, useEffect } from 'react';
 import { Routes, Route, useNavigate, useLocation, Link } from 'react-router-dom';
@@ -9,8 +10,10 @@ import ProductSelectionPage from './pages/ProductSelectionPage.jsx';
 import PictureBookPage from './pages/PictureBookPage.jsx';
 import MyProjectsPage from './pages/MyProjectsPage.jsx';
 import MyOrdersPage from './pages/MyOrdersPage.jsx';
-import SuccessPage from './pages/SuccessPage.jsx'; // Ensure this is imported
-import CancelPage from './pages/CancelPage.jsx'; // Ensure this is imported
+// --- Start of Success/Cancel Page Imports ---
+import SuccessPage from './pages/SuccessPage.jsx';
+import CancelPage from './pages/CancelPage.jsx';
+// --- End of Success/Cancel Page Imports ---
 import NovelPage from './pages/NovelPage.jsx';
 import NovelSelectionPage from './pages/NovelSelectionPage.jsx';
 import FeedPage from './pages/FeedPage.jsx';
@@ -20,6 +23,7 @@ import AboutHowItWorksPage from './pages/AboutHowItWorksPage.jsx';
 import PolicyPage from './pages/PolicyPage.jsx';
 import TermsOfServicePage from './pages/TermsOfServicePage.jsx';
 import { Logo } from './components/common.jsx';
+// REMOVED: import ContactUsPage from './pages/ContactUsPage.jsx'; // Not adding this for now
 
 function ProtectedRoute({ children }) {
     const { currentUser } = useAuth();
@@ -36,6 +40,7 @@ const AppFooter = () => (
                 <Link to="/shipping-policy" className="hover:text-white transition-colors">Shipping Policy</Link>
                 <Link to="/refund-policy" className="hover:text-white transition-colors">Refund Policy</Link>
                 <Link to="/return-policy" className="hover:text-white transition-colors">Return Policy</Link>
+                {/* REMOVED: <Link to="/contact-us" className="hover:text-white transition-colors">Contact Us</Link> */}
             </div>
             <p className="mt-4">&copy; {new Date().getFullYear()} Inkwell AI. All Rights Reserved.</p>
         </div>
@@ -244,6 +249,7 @@ function App() {
                     <Route path="/about-how-it-works" element={<AboutHowItWorksPage />} />
                     <Route path="/success" element={<SuccessPage />} />
                     <Route path="/cancel" element={<CancelPage />} />
+                    {/* REMOVED: <Route path="/contact-us" element={<ContactUsPage />} /> */}
                     <Route path="/terms-of-service" element={<TermsOfServicePage />} />
                     <Route path="/privacy-policy" element={<PolicyPage type="privacy" />} />
                     <Route path="/shipping-policy" element={<PolicyPage type="shipping" />} />
