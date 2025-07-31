@@ -31,10 +31,10 @@ export async function getDb() {
             const { Pool } = pg;
             const pool = new Pool({
                 connectionString: process.env.DATABASE_URL,
-                // Add SSL options for Render if needed, often they handle this automatically
-                // ssl: {
-                //     rejectUnauthorized: false // Use this if you have issues with self-signed certs (e.g. some development setups)
-                // }
+                // NEW: Add SSL options for Render's PostgreSQL
+                ssl: {
+                    rejectUnauthorized: false // Required for Render connections
+                }
             });
             // Test the connection
             db = await pool.connect();
@@ -45,9 +45,6 @@ export async function getDb() {
                     await db.query(sql);
                 } finally {
                     // Release the client back to the pool if it was a direct client, not for pool.connect()
-                    // If pool.connect() returns a client that needs releasing, handle that.
-                    // For simple queries, using pool.query is often sufficient.
-                    // For 'exec' where you don't expect results, pool.query should work.
                 }
             };
             db.all = async (sql, params = []) => {
@@ -61,15 +58,8 @@ export async function getDb() {
             db.run = async (sql, params = []) => {
                 const res = await db.query(sql, params);
                 // Simulate lastID and changes for compatibility if needed.
-                // PostgreSQL doesn't directly return lastID like SQLite for inserts without RETURNING.
-                // For updates/deletes, changes can be inferred from rowCount.
                 return { lastID: null, changes: res.rowCount };
             };
-            // For transactions, direct pool.query('BEGIN'), etc., might be needed in controllers
-            // Or a more sophisticated transaction management with 'pg' package.
-            // For now, these basic adapters should allow existing `db.run`, `db.all`, `db.get` calls to work.
-
-            // Set a flag to easily check if it's a pg connection
             db._isPg = true;
             return db;
 
