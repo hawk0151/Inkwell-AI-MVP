@@ -1,6 +1,15 @@
 // backend/src/services/image.service.js
 import axios from 'axios';
 import { v2 as cloudinary } from 'cloudinary';
+import { randomUUID } from 'crypto';
+
+// --- NEW DEBUGGING START ---
+console.log("DEBUG: Cloudinary config values from process.env:");
+console.log("CLOUDINARY_CLOUD_NAME:", process.env.CLOUDINARY_CLOUD_NAME ? "SET" : "NOT SET");
+console.log("CLOUDINARY_API_KEY:", process.env.CLOUDINARY_API_KEY ? "SET" : "NOT SET");
+console.log("CLOUDINARY_API_SECRET:", process.env.CLOUDINARY_API_SECRET ? "SET" : "NOT SET");
+console.log("CLOUDINARY_UPLOAD_PRESET:", process.env.CLOUDINARY_UPLOAD_PRESET ? "SET" : "NOT SET");
+// --- NEW DEBUGGING END ---
 
 cloudinary.config({ 
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME, 
@@ -25,11 +34,8 @@ export const generateImageFromApi = async (prompt, style) => {
       apiUrl,
       {
         text_prompts: [{ text: fullPrompt }],
-        cfg_scale: 7,
-        height: 1024,
-        width: 1024,
-        samples: 1,
-        steps: 30,
+        cfg_scale: 7, height: 1024, width: 1024,
+        samples: 1, steps: 30,
       },
       {
         headers: {
@@ -56,15 +62,18 @@ export const generateImageFromApi = async (prompt, style) => {
 export const uploadImageToCloudinary = (fileBuffer, folder) => {
   return new Promise((resolve, reject) => {
     cloudinary.uploader.upload_stream({
-        resource_type: 'image',
-        folder: folder
-      },
-      (error, result) => {
-        if (error) {
-          return reject(error);
-        }
-        resolve(result.secure_url);
+      upload_preset: process.env.CLOUDINARY_UPLOAD_PRESET,
+      resource_type: 'auto',
+      folder: folder,
+      public_id: randomUUID(),
+    },
+    (error, result) => {
+      if (error) {
+        console.error("Cloudinary Upload Error:", error);
+        return reject(error);
       }
+      resolve(result.secure_url);
+    }
     ).end(fileBuffer);
   });
 };
