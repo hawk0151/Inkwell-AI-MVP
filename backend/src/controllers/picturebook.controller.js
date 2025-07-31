@@ -1,4 +1,3 @@
-// backend/src/controllers/picturebook.controller.js
 import { getDb } from '../db/database.js';
 import { randomUUID } from 'crypto';
 import { generatePictureBookPdf } from '../services/pdf.service.js';
@@ -195,10 +194,9 @@ export const createBookCheckoutSession = async (req, res) => {
         if (!productInfo) return res.status(500).json({ message: "Picture book product definition not found." });
 
         console.log(`Generating PDF for book ${bookId}...`);
-        const pdfBuffer = await generatePictureBookPdf(book, timeline); // OLD Call - Missing luluProductId
-
+        
         // --- MODIFICATION START ---
-        // Pass book.lulu_product_id to the PDF generator function
+        console.log(`DEBUG: book.lulu_product_id being passed to PDF generator: ${book.lulu_product_id}`);
         pdfBuffer = await generatePictureBookPdf(book, timeline, book.lulu_product_id); 
         // --- MODIFICATION END ---
         

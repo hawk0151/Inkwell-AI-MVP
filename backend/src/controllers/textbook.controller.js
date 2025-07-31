@@ -1,4 +1,3 @@
-// backend/src/controllers/textbook.controller.js
 import { getDb } from '../db/database.js';
 import { randomUUID } from 'crypto';
 import { generateStoryFromApi } from '../services/gemini.service.js';
@@ -21,7 +20,7 @@ export const createTextBook = async (req, res) => {
     try {
         const pool = await getDb();
         client = await pool.connect();
-        
+
         if (!printOptionsCache) {
             printOptionsCache = await getPrintOptions();
         }
@@ -71,7 +70,7 @@ export const generateNextChapter = async (req, res) => {
     try {
         const pool = await getDb();
         client = await pool.connect();
-        
+
         const bookResult = await client.query(`SELECT * FROM text_books WHERE id = $1 AND user_id = $2`, [bookId, userId]);
         const book = bookResult.rows[0];
         if (!book) return res.status(404).json({ message: 'Book project not found.' });
@@ -84,7 +83,7 @@ export const generateNextChapter = async (req, res) => {
 
         const chaptersResult = await client.query(`SELECT * FROM chapters WHERE book_id = $1 ORDER BY chapter_number ASC`, [bookId]);
         const chapters = chaptersResult.rows;
-        
+
         const previousChaptersText = chapters.map(c => c.content).join('\n\n---\n\n');
         const nextChapterNumber = chapters.length + 1;
         const promptDetails = JSON.parse(book.prompt_details);
@@ -126,7 +125,7 @@ export const getTextBooks = async (req, res) => {
     try {
         const pool = await getDb();
         client = await pool.connect();
-        
+
         const booksResult = await client.query(`
             SELECT
                 tb.id, tb.title, tb.last_modified, tb.lulu_product_id, tb.is_public, tb.cover_image_url, tb.total_chapters,
@@ -162,14 +161,14 @@ export const getTextBookDetails = async (req, res) => {
     try {
         const pool = await getDb();
         client = await pool.connect();
-        
+
         const bookResult = await client.query(`SELECT *, total_chapters FROM text_books WHERE id = $1 AND user_id = $2`, [bookId, userId]);
         const book = bookResult.rows[0];
         if (!book) return res.status(404).json({ message: 'Book project not found.' });
-        
+
         const chaptersResult = await client.query(`SELECT chapter_number, content FROM chapters WHERE book_id = $1 ORDER BY chapter_number ASC`, [bookId]);
         const chapters = chaptersResult.rows;
-        
+
         const bookDetails = {
             id: book.id,
             title: book.title,
@@ -179,7 +178,8 @@ export const getTextBookDetails = async (req, res) => {
             totalChapters: book.total_chapters,
         };
         res.status(200).json({ book: bookDetails, chapters });
-    } catch (error) {
+    }
+    catch (error) {
         console.error(`Error fetching details for book ${bookId}:`, error);
         res.status(500).json({ message: 'Failed to fetch book details.' });
     } finally {
@@ -194,11 +194,15 @@ export const createTextBookCheckoutSession = async (req, res) => {
     try {
         const pool = await getDb();
         client = await pool.connect();
-        
+
         const bookResult = await client.query(`SELECT * FROM text_books WHERE id = $1 AND user_id = $2`, [bookId, userId]);
         const book = bookResult.rows[0];
         if (!book) return res.status(404).json({ message: "Project not found." });
-        
+
+        // --- NEW DEBUG LOG (Added to see the full book object) ---
+        console.log('DEBUG: Full book object from DB for checkout:', book);
+        // --- END NEW DEBUG LOG ---
+
         const chaptersResult = await client.query(`SELECT * FROM chapters WHERE book_id = $1`, [bookId]);
         const chapters = chaptersResult.rows;
 
@@ -213,12 +217,10 @@ export const createTextBookCheckoutSession = async (req, res) => {
         if (!productInfo) return res.status(500).json({ message: "Book product definition not found." });
 
         console.log(`Generating text PDF for book ${bookId}...`);
-        const pdfBuffer = await generateTextBookPdf(book.title, chapters); // OLD Call - Missing luluProductId
-        
-        // --- MODIFICATION START ---
-        // Pass book.lulu_product_id to the PDF generator function
-        pdfBuffer = await generateTextBookPdf(book.title, chapters, book.lulu_product_id); 
-        // --- MODIFICATION END ---
+
+        // This log will now be hit AFTER the above productInfo lookup, but it's still good to keep for a second level of verification
+        console.log(`DEBUG: book.lulu_product_id passed to PDF generation: ${book.lulu_product_id}`);
+        let pdfBuffer = await generateTextBookPdf(book.title, chapters, book.lulu_product_id);
 
         console.log(`Uploading text PDF to Cloudinary for book ${bookId}...`);
         const folder = `inkwell-ai/user_${userId}/books`;
@@ -227,22 +229,22 @@ export const createTextBookCheckoutSession = async (req, res) => {
         // await client.query(`UPDATE text_books SET interior_pdf_url = $1, cover_pdf_url = $2 WHERE id = $3`, [interiorPdfUrl, coverPdfUrl, bookId]); // This line is not needed if storing in orders table
 
         console.log(`Creating Stripe session for text book ${bookId}...`);
-        
+
         const orderId = randomUUID(); // Generate a unique orderId
 
         await client.query(
             `INSERT INTO orders (id, user_id, book_id, book_type, book_title, lulu_order_id, status, total_price, interior_pdf_url, cover_pdf_url, order_date) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
             [
-                orderId, 
-                userId, 
-                bookId, 
+                orderId,
+                userId,
+                bookId,
                 'textBook', // book_type
                 book.title, // book_title
                 productInfo.id, // lulu_order_id (using productInfo.id as luluProductId/SKU for now)
-                'pending', 
-                productInfo.price, 
-                interiorPdfUrl, 
-                coverPdfUrl, 
+                'pending',
+                productInfo.price,
+                interiorPdfUrl,
+                coverPdfUrl,
                 new Date().toISOString()
             ]
         );
@@ -254,12 +256,12 @@ export const createTextBookCheckoutSession = async (req, res) => {
                 description: book.title,
                 price: productInfo.price, // Include price here too
                 bookType: 'textBook' // Explicitly pass bookType
-            }, 
-            userId, 
+            },
+            userId,
             orderId, // This is the orderId
             bookId // This is the actual book project ID
         );
-        
+
         await client.query('UPDATE orders SET stripe_session_id = $1 WHERE id = $2', [session.id, orderId]);
 
         res.status(200).json({ url: session.url });
@@ -282,7 +284,7 @@ export const toggleTextBookPrivacy = async (req, res) => {
     try {
         const pool = await getDb();
         client = await pool.connect();
-        
+
         const bookResult = await client.query(`SELECT id, user_id FROM text_books WHERE id = $1`, [bookId]);
         const book = bookResult.rows[0];
         if (!book) {
@@ -312,7 +314,7 @@ export const deleteTextBook = async (req, res) => {
         const pool = await getDb();
         client = await pool.connect();
         await client.query('BEGIN'); // Start transaction
-        
+
         const bookResult = await client.query(`SELECT id FROM text_books WHERE id = $1 AND user_id = $2`, [bookId, userId]);
         const book = bookResult.rows[0];
         if (!book) {
@@ -320,7 +322,7 @@ export const deleteTextBook = async (req, res) => {
         }
         await client.query(`DELETE FROM chapters WHERE book_id = $1`, [bookId]);
         await client.query(`DELETE FROM text_books WHERE id = $1`, [bookId]);
-        
+
         await client.query('COMMIT'); // Commit transaction
         res.status(200).json({ message: 'Text book project and all its chapters have been deleted.' });
     } catch (error) {
