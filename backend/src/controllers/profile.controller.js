@@ -1,3 +1,4 @@
+// backend/src/controllers/profile.controller.js
 import admin from 'firebase-admin';
 import { getDb } from '../db/database.js'; // MODIFIED: Import getDb function
 
@@ -11,15 +12,15 @@ export const toggleFollow = async (req, res) => {
 
     try {
         const db = await getDb(); // NEW: Get the db instance
-        const checkQuery = 'SELECT * FROM follows WHERE follower_id = ? AND following_id = ?';
+        const checkQuery = 'SELECT * FROM follows WHERE follower_id = $1 AND following_id = $2'; // PostgreSQL parameters
         const existingFollow = await db.get(checkQuery, [followerId, followingId]);
 
         if (existingFollow) {
-            const deleteQuery = 'DELETE FROM follows WHERE follower_id = ? AND following_id = ?';
+            const deleteQuery = 'DELETE FROM follows WHERE follower_id = $1 AND following_id = $2'; // PostgreSQL parameters
             await db.run(deleteQuery, [followerId, followingId]);
             res.status(200).json({ message: 'User unfollowed successfully.', isFollowing: false });
         } else {
-            const insertQuery = 'INSERT INTO follows (follower_id, following_id) VALUES (?, ?)';
+            const insertQuery = 'INSERT INTO follows (follower_id, following_id) VALUES ($1, $2)'; // PostgreSQL parameters
             await db.run(insertQuery, [followerId, followingId]);
             res.status(201).json({ message: 'User followed successfully.', isFollowing: true });
         }
@@ -49,12 +50,12 @@ export const getProfileByUsername = async (req, res) => {
         const profileDataFromFirestore = userDoc.data();
         const profileUserId = userDoc.id;
 
-        const followersCountQuery = `SELECT COUNT(*) as count FROM follows WHERE following_id = ?`;
-        const followingCountQuery = `SELECT COUNT(*) as count FROM follows WHERE follower_id = ?`;
+        const followersCountQuery = `SELECT COUNT(*) as count FROM follows WHERE following_id = $1`; // PostgreSQL parameters
+        const followingCountQuery = `SELECT COUNT(*) as count FROM follows WHERE follower_id = $1`; // PostgreSQL parameters
 
         let isFollowing = false;
         if (viewerId && viewerId !== profileUserId) {
-            const followStatusQuery = 'SELECT 1 FROM follows WHERE follower_id = ? AND following_id = ?';
+            const followStatusQuery = 'SELECT 1 FROM follows WHERE follower_id = $1 AND following_id = $2'; // PostgreSQL parameters
             const result = await db.get(followStatusQuery, [viewerId, profileUserId]);
             isFollowing = !!result;
         }
@@ -65,10 +66,10 @@ export const getProfileByUsername = async (req, res) => {
         ]);
 
         const booksQuery = `
-            SELECT id, title, cover_image_url, like_count, comment_count, 'picture_book' as book_type, user_id FROM picture_books WHERE user_id = ? AND is_public = 1
+            SELECT id, title, cover_image_url, like_count, comment_count, 'picture_book' as book_type, user_id FROM picture_books WHERE user_id = $1 AND is_public = TRUE
             UNION ALL
-            SELECT id, title, cover_image_url, like_count, comment_count, 'text_book' as book_type, user_id FROM text_books WHERE user_id = ? AND is_public = 1
-        `;
+            SELECT id, title, cover_image_url, like_count, comment_count, 'text_book' as book_type, user_id FROM text_books WHERE user_id = $2 AND is_public = TRUE
+        `; // PostgreSQL parameters and BOOLEAN
         let books = await db.all(booksQuery, [profileUserId, profileUserId]);
 
         books = books.map(book => ({
@@ -78,8 +79,18 @@ export const getProfileByUsername = async (req, res) => {
         }));
 
         if (viewerId) {
-            const likeQuery = `SELECT book_id, book_type FROM likes WHERE user_id = ?`;
-            const userLikes = await db.all(likeQuery, [viewerId]);
+            const bookIds = books.map(book => book.id);
+            // This part for likes needs to be careful with IN clause parameterization in PG
+            // A common way for IN ( (?), (?) ) is to use a dynamic number of $ parameters
+            const bookTypePlaceholders = books.map((_, i) => `($${2*i+1}, $${2*i+2})`).join(','); // Example: ($1, $2), ($3, $4)
+            const likeCheckParams = [];
+            books.forEach(book => {
+                likeCheckParams.push(book.id, book.book_type);
+            });
+
+            const likeQuery = `SELECT book_id, book_type FROM likes WHERE user_id = $1 AND (book_id, book_type) IN (${bookTypePlaceholders})`;
+            const userLikes = await db.all(likeQuery, [viewerId, ...likeCheckParams]); // Combine parameters correctly
+
             const likedSet = new Set(userLikes.map(like => `${like.book_type}:${like.book_id}`));
             books = books.map(book => ({
                 ...book,

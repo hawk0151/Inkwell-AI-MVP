@@ -1,3 +1,4 @@
+// backend/src/db/database.js
 import sqlite3 from 'sqlite3';
 import { open } from 'sqlite'; // Used for SQLite connection
 import pg from 'pg'; // NEW: Import PostgreSQL client
