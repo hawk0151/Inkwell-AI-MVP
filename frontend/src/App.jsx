@@ -1,5 +1,8 @@
-import React, { useState } from 'react';
+// MODIFIED: Added useRef and useEffect for the dropdown
+import React, { useState, useRef, useEffect } from 'react';
 import { Routes, Route, useNavigate, useLocation, Link } from 'react-router-dom';
+// MODIFIED: Import AnimatePresence for the dropdown animation
+import { motion, AnimatePresence } from 'framer-motion';
 import { AuthProvider, useAuth } from './contexts/AuthContext.jsx';
 import LoginPage from './pages/LoginPage.jsx';
 import ProductSelectionPage from './pages/ProductSelectionPage.jsx';
@@ -38,6 +41,71 @@ const AppFooter = () => (
         </div>
     </footer>
 );
+
+// NEW: Profile Dropdown Component to declutter the navbar
+const ProfileDropdown = ({ user, onLogout }) => {
+    const [isOpen, setIsOpen] = useState(false);
+    const dropdownRef = useRef(null);
+    const navigate = useNavigate();
+
+    // Close dropdown if clicked outside
+    useEffect(() => {
+        const handleClickOutside = (event) => {
+            if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+                setIsOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+        };
+    }, []);
+
+    const handleNavigate = (path) => {
+        navigate(path);
+        setIsOpen(false);
+    };
+    
+    const handleLogout = () => {
+        onLogout();
+        setIsOpen(false);
+    };
+
+    return (
+        <div className="relative" ref={dropdownRef}>
+            <button onClick={() => setIsOpen(!isOpen)} className="flex items-center space-x-2 p-1 rounded-full hover:bg-white/10 transition-colors">
+                <img 
+                  src={user.avatar_url || `https://api.dicebear.com/8.x/initials/svg?seed=${encodeURIComponent(user.username || user.email)}`} 
+                  alt="Profile" 
+                  className="w-8 h-8 rounded-full bg-slate-700 object-cover" 
+                />
+                <span className="text-white font-medium text-sm hidden lg:block">{user.username}</span>
+                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className={`w-5 h-5 text-slate-400 transition-transform ${isOpen ? 'rotate-180' : ''}`}>
+                    <path fillRule="evenodd" d="M5.22 8.22a.75.75 0 0 1 1.06 0L10 11.94l3.72-3.72a.75.75 0 1 1 1.06 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L5.22 9.28a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" />
+                </svg>
+            </button>
+            <AnimatePresence>
+                {isOpen && (
+                    <motion.div
+                        initial={{ opacity: 0, y: -10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -10 }}
+                        transition={{ duration: 0.2, ease: 'easeInOut' }}
+                        className="absolute right-0 mt-2 w-48 bg-slate-800 border border-slate-700 rounded-md shadow-lg z-20"
+                    >
+                        <div className="py-1">
+                            <a onClick={() => handleNavigate(`/profile/${encodeURIComponent(user.username)}`)} className="cursor-pointer block px-4 py-2 text-sm text-slate-300 hover:bg-slate-700">My Profile</a>
+                            <a onClick={() => handleNavigate('/my-projects')} className="cursor-pointer block px-4 py-2 text-sm text-slate-300 hover:bg-slate-700">My Projects</a>
+                            <a onClick={() => handleNavigate('/my-orders')} className="cursor-pointer block px-4 py-2 text-sm text-slate-300 hover:bg-slate-700">My Orders</a>
+                            <div className="border-t border-slate-700 my-1"></div>
+                            <a onClick={handleLogout} className="cursor-pointer block px-4 py-2 text-sm text-red-400 hover:bg-slate-700">Logout</a>
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+        </div>
+    );
+};
 
 function App() {
     const { currentUser, logout, loading } = useAuth();
@@ -97,26 +165,15 @@ function App() {
                             <NavLink to="/">Create</NavLink>
                             <NavLink to="/feed">Feed</NavLink>
                             <NavLink to="/about-how-it-works">About & How It Works</NavLink>
+                            {/* MODIFIED: Replaced individual links with the ProfileDropdown */}
                             {currentUser ? (
-                                <>
-                                    {currentUser.username && (
-                                        <NavLink to={`/profile/${encodeURIComponent(currentUser.username)}`}>
-                                            My Profile
-                                        </NavLink>
-                                    )}
-                                    <NavLink to="/my-projects">My Projects</NavLink>
-                                    <NavLink to="/my-orders">My Orders</NavLink>
-                                    <button
-                                        onClick={() => {
-                                            logout();
-                                            navigate('/');
-                                            setIsMobileMenuOpen(false);
-                                        }}
-                                        className="text-slate-300 hover:bg-white/10 hover:text-white px-3 py-2 rounded-md text-sm font-medium"
-                                    >
-                                        Logout
-                                    </button>
-                                </>
+                                <ProfileDropdown 
+                                    user={currentUser} 
+                                    onLogout={() => {
+                                        logout();
+                                        navigate('/');
+                                    }} 
+                                />
                             ) : (
                                 <button
                                     onClick={() => navigate('/login')}
@@ -145,6 +202,7 @@ function App() {
                         </div>
                     </div>
                 </div>
+                {/* Mobile Menu still has individual links, which is fine for that layout */}
                 {isMobileMenuOpen && (
                     <div className="md:hidden">
                         <div className="px-2 pt-2 pb-3 space-y-1 sm:px-3">
@@ -159,7 +217,6 @@ function App() {
                                         </MobileNavLink>
                                     )}
                                     <MobileNavLink to="/my-projects">My Projects</MobileNavLink>
-                                    {/* THIS IS THE CORRECTED LINE */}
                                     <MobileNavLink to="/my-orders">My Orders</MobileNavLink>
                                     <button
                                         onClick={() => {
@@ -187,13 +244,11 @@ function App() {
                     <Route path="/about-how-it-works" element={<AboutHowItWorksPage />} />
                     <Route path="/success" element={<SuccessPage />} />
                     <Route path="/cancel" element={<CancelPage />} />
-                    
                     <Route path="/terms-of-service" element={<TermsOfServicePage />} />
                     <Route path="/privacy-policy" element={<PolicyPage type="privacy" />} />
                     <Route path="/shipping-policy" element={<PolicyPage type="shipping" />} />
                     <Route path="/refund-policy" element={<PolicyPage type="refund" />} />
                     <Route path="/return-policy" element={<PolicyPage type="return" />} />
-
                     <Route path="/feed" element={<ProtectedRoute><FeedPage /></ProtectedRoute>} />
                     <Route path="/profile/:username" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
                     <Route path="/profile/edit" element={<ProtectedRoute><EditProfilePage /></ProtectedRoute>} />
