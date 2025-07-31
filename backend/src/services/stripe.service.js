@@ -1,4 +1,3 @@
-// backend/src/services/stripe.service.js
 import Stripe from 'stripe';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
@@ -12,47 +11,47 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
  * @returns {Promise<Stripe.Checkout.Session>} The created Stripe session object.
  */
 export const createStripeCheckoutSession = async (productDetails, userId, orderId, bookId) => {
-  const { id: luluProductId, name: productName, description: productDescription, price: totalPrice, bookType } = productDetails;
-  
-  // This should point to your frontend development server URL
-  const clientDomain = 'http://localhost:5173'; 
+    const { id: luluProductId, name: productName, description: productDescription, price: totalPrice, bookType } = productDetails;
 
-  try {
-    const session = await stripe.checkout.sessions.create({
-      payment_method_types: ['card'],
-      line_items: [{
-        price_data: {
-          currency: 'usd',
-          product_data: {
-            name: productName,
-            description: productDescription,
-          },
-          unit_amount: Math.round(totalPrice * 100), // Price in cents
-        },
-        quantity: 1,
-      }],
-      mode: 'payment',
-      shipping_address_collection: {
-        allowed_countries: ['US', 'CA', 'GB', 'AU'], // Example countries, you can change this
-      },
-      // Metadata is crucial for linking the payment back to our internal records
-      // --- MODIFICATION START ---
-      metadata: {
-        userId: userId,
-        orderId: orderId, // The unique ID for our internal order record
-        bookId: bookId, // The ID of the actual book project (textbook or picturebook)
-        bookType: bookType, // Pass the book type explicitly
-        luluProductId: luluProductId, // The Lulu SKU for the print job
-        productName: productName
-      },
-      // --- MODIFICATION END ---
-      // Use the correct routes for success and cancellation
-      success_url: `${clientDomain}/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${clientDomain}/cancel`,
-    });
-    return session;
-  } catch (error) {
-    console.error("Error creating Stripe session:", error);
-    throw new Error("Failed to create Stripe checkout session.");
-  }
+    // --- MODIFICATION START ---
+    // Use an environment variable for the client domain, default to localhost for development
+    const clientDomain = process.env.CLIENT_URL || 'http://localhost:5173';
+    // --- MODIFICATION END ---
+
+    try {
+        const session = await stripe.checkout.sessions.create({
+            payment_method_types: ['card'],
+            line_items: [{
+                price_data: {
+                    currency: 'usd',
+                    product_data: {
+                        name: productName,
+                        description: productDescription,
+                    },
+                    unit_amount: Math.round(totalPrice * 100), // Price in cents
+                },
+                quantity: 1,
+            }],
+            mode: 'payment',
+            shipping_address_collection: {
+                allowed_countries: ['US', 'CA', 'GB', 'AU'], // Example countries, you can change this
+            },
+            // Metadata is crucial for linking the payment back to our internal records
+            metadata: {
+                userId: userId,
+                orderId: orderId, // The unique ID for our internal order record
+                bookId: bookId, // The ID of the actual book project (textbook or picturebook)
+                bookType: bookType, // Pass the book type explicitly
+                luluProductId: luluProductId, // The Lulu SKU for the print job
+                productName: productName
+            },
+            // Use the correct routes for success and cancellation
+            success_url: `${clientDomain}/success?session_id={CHECKOUT_SESSION_ID}`,
+            cancel_url: `${clientDomain}/cancel`,
+        });
+        return session;
+    } catch (error) {
+        console.error("Error creating Stripe session:", error);
+        throw new Error("Failed to create Stripe checkout session.");
+    }
 };
