@@ -217,14 +217,13 @@ export const createBookCheckoutSession = async (req, res) => {
 
         const orderId = randomUUID(); // Generate a unique orderId
 
-        // --- DATABASE INSERT RE-ENABLED ---
         await client.query(
             `INSERT INTO orders (id, user_id, book_id, book_type, book_title, lulu_order_id, status, total_price, interior_pdf_url, cover_pdf_url, order_date) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
             [
                 orderId, 
                 userId, 
                 bookId, 
-                'pictureBook', // book_type
+                'pictureBook', // book_type - This needs to be passed to Stripe metadata
                 book.title, // book_title
                 productInfo.id, // lulu_order_id (using productInfo.id as luluProductId/SKU for now)
                 'pending', 
@@ -234,13 +233,17 @@ export const createBookCheckoutSession = async (req, res) => {
                 new Date().toISOString()
             ]
         );
-        // --- END DATABASE INSERT RE-ENABLED ---
 
-        const session = await createStripeCheckoutSession(orderDetails, userId, orderId);
+        // --- MODIFICATION START ---
+        // Pass bookType in metadata to Stripe
+        const session = await createStripeCheckoutSession(
+            { ...orderDetails, bookType: 'pictureBook' }, // Add bookType to orderDetails
+            userId, 
+            orderId // This bookId parameter in createStripeCheckoutSession is actually the orderId in your service
+        );
+        // --- MODIFICATION END ---
         
-        // --- DATABASE UPDATE RE-ENABLED ---
-        await client.query('UPDATE orders SET stripe_session_id = $1 WHERE id = $2', [session.id, orderId]);
-        // --- END DATABASE UPDATE RE-ENABLED ---
+        await client.query('UPDATE orders SET stripe_session_id = $1 WHERE id = $2', [session.id, orderId]); // orderId is now defined
 
         res.status(200).json({ url: session.url });
     } catch (error) {
