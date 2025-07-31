@@ -25,8 +25,19 @@ export const getPrintOptions = async () => {
     return pricedProducts;
 };
 
+// Helper function to convert inches to millimeters (already present)
 const inchesToMm = (inches) => inches * 25.4;
 const mmToInches = (mm) => mm / 25.4;
+
+// --- NEW HELPER: Convert from various units to mm ---
+const convertUnitToMm = (value, unit) => {
+    if (unit === 'mm') return value;
+    if (unit === 'in') return inchesToMm(value);
+    if (unit === 'pt') return value / (72 / 25.4); // Convert points to mm
+    console.warn(`[Lulu Service] Unknown unit for conversion: ${unit}. Returning original value.`);
+    return value;
+};
+// --- END NEW HELPER ---
 
 export const getHardcoverSpineWidthMm = (pageCount) => {
     if (pageCount < 24) return 0;
@@ -62,77 +73,54 @@ export const getHardcoverSpineWidthMm = (pageCount) => {
     return 54;
 };
 
-// --- MODIFIED: getCoverDimensionsMm to generate 'portrait' PDFKit dimensions that Lulu rotates ---
-export const getCoverDimensionsMm = (luluProductId, pageCount) => {
-    const productInfo = PRODUCTS_TO_OFFER.find(p => p.id === luluProductId);
-    if (!productInfo) {
-        throw new Error(`Product with ID ${luluProductId} not found for cover dimensions.`);
+// --- MODIFIED FUNCTION: Call Lulu Cover Dimensions API ---
+export const getCoverDimensionsFromApi = async (podPackageId, interiorPageCount, unit = 'mm') => {
+    const accessToken = await getLuluAuthToken();
+
+    const coverDimensionsUrl = `${LULU_API_URL}/cover-dimensions/`;
+    const payload = {
+        pod_package_id: podPackageId,
+        interior_page_count: interiorPageCount,
+        unit: unit
+    };
+
+    console.log(`DEBUG: Calling Lulu Cover Dimensions API for ${podPackageId}, pages: ${interiorPageCount}, unit: ${unit}`);
+
+    const response = await fetch(coverDimensionsUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${accessToken}` },
+        body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) {
+        const errorBody = await response.text();
+        console.error(`[LULU_ERROR] Failed to get cover dimensions from API. Status: ${response.status}. Body: ${errorBody}`);
+        throw new Error(`Failed to get cover dimensions from Lulu API: ${errorBody}`);
     }
 
-    let pdfkitWidthMm, pdfkitHeightMm, pdfkitLayout; // Dimensions to pass to PDFKit
+    const data = await response.json();
+    console.log(`✅ Lulu Cover Dimensions API Response: Width: ${data.width}${data.unit}, Height: ${data.height}${data.unit}`);
 
-    // Define Lulu's required final landscape dimensions
-    let luluExpectedLandscapeWidthMm, luluExpectedLandscapeHeightMm;
+    // --- MODIFICATION START: Robust unit handling and dimension validation ---
+    const widthInMm = convertUnitToMm(parseFloat(data.width), data.unit);
+    const heightInMm = convertUnitToMm(parseFloat(data.height), data.unit);
 
-    switch (luluProductId) {
-        case '0550X0850BWSTDCW060UC444GXX': // Novella (5.5 x 8.5" book size)
-            // Lulu's REQUIRED landscape dimensions for this cover:
-            luluExpectedLandscapeWidthMm = (328.61 + 331.79) / 2; // Midpoint for Width (~330.20mm)
-            luluExpectedLandscapeHeightMm = (258.76 + 261.94) / 2; // Midpoint for Height (~260.35mm)
-
-            // To get this landscape result, we give PDFKit a "portrait" document
-            // where PDFKit's width is the final height, and PDFKit's height is the final width.
-            pdfkitWidthMm = luluExpectedLandscapeHeightMm; // PDFKit's width
-            pdfkitHeightMm = luluExpectedLandscapeWidthMm; // PDFKit's height
-            pdfkitLayout = 'portrait'; // Explicitly set PDFKit layout to portrait
-            break;
-
-        case '0827X1169BWPRELW060UC444GNG': // A4 Story Book
-        case '0614X0921BWPRELW060UC444GNG': // Royal Hardcover
-            const spineWidth = getHardcoverSpineWidthMm(pageCount);
-            let trimWidth, trimHeight;
-            if (luluProductId === '0827X1169BWPRELW060UC444GNG') { trimWidth = 210; trimHeight = 297; }
-            else { trimWidth = 156; trimHeight = 234; }
-
-            const outerBleedMm = 3.175;
-            const hardcoverHingeMm = 19.05;
-            const hardcoverTurnInMm = 15.875;
-
-            // Calculate the total landscape cover dimensions Lulu expects
-            luluExpectedLandscapeWidthMm = (2 * trimWidth) + spineWidth + (2 * outerBleedMm) + (2 * hardcoverHingeMm) + (2 * hardcoverTurnInMm);
-            luluExpectedLandscapeHeightMm = trimHeight + (2 * outerBleedMm) + (2 * hardcoverTurnInMm);
-
-            // Give PDFKit the "rotated" dimensions
-            pdfkitWidthMm = luluExpectedLandscapeHeightMm;
-            pdfkitHeightMm = luluExpectedLandscapeWidthMm;
-            pdfkitLayout = 'portrait';
-            break;
-
-        case '0827X1169FCPRELW080CW444MNG': // A4 Premium Picture Book (landscape)
-            const spineWidthPicture = getHardcoverSpineWidthMm(pageCount);
-            const trimWidthPicture = 297; // Landscape trim width (which is wider)
-            const trimHeightPicture = 210; // Landscape trim height (which is narrower)
-
-            luluExpectedLandscapeWidthMm = (2 * trimWidthPicture) + spineWidthPicture + (2 * outerBleedMm) + (2 * hardcoverHingeMm) + (2 * hardcoverTurnInMm);
-            luluExpectedLandscapeHeightMm = trimHeightPicture + (2 * outerBleedMm) + (2 * hardcoverTurnInMm);
-
-            pdfkitWidthMm = luluExpectedLandscapeHeightMm;
-            pdfkitHeightMm = luluExpectedLandscapeWidthMm;
-            pdfkitLayout = 'portrait';
-            break;
-        default:
-            throw new Error(`Unknown product ID ${luluProductId} for cover dimensions calculation.`);
+    if (isNaN(widthInMm) || isNaN(heightInMm) || widthInMm <= 0 || heightInMm <= 0) {
+        console.error(`❌ Lulu Cover Dimensions API returned invalid dimensions: Width: ${data.width}, Height: ${data.height}`);
+        throw new Error('Lulu Cover Dimensions API returned invalid or non-positive dimensions.');
     }
 
-    console.log(`DEBUG: For ${luluProductId} (Pages: ${pageCount}) -> Lulu EXPECTS final LANDSCAPE: ${luluExpectedLandscapeWidthMm.toFixed(2)}x${luluExpectedLandscapeHeightMm.toFixed(2)}mm. PDFKit GENERATES PORTRAIT: ${pdfkitWidthMm.toFixed(2)}x${pdfkitHeightMm.toFixed(2)}mm.`);
+    // Lulu API returns width > height for landscape, so use it directly
+    const layout = (widthInMm > heightInMm) ? 'landscape' : 'portrait'; 
+    // --- MODIFICATION END ---
 
     return {
-        width: pdfkitWidthMm,
-        height: pdfkitHeightMm,
-        layout: pdfkitLayout
+        width: widthInMm,
+        height: heightInMm,
+        unit: 'mm', // Standardize to mm
+        layout: layout
     };
 };
-
 
 const getLuluAuthToken = async () => {
     const clientKey = process.env.LULU_CLIENT_KEY;

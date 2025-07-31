@@ -1,13 +1,16 @@
 import PDFDocument from 'pdfkit';
 import axios from 'axios';
-import { PRODUCTS_TO_OFFER, getCoverDimensionsMm } from './lulu.service.js'; // Import getCoverDimensionsMm
+// MODIFIED: Import getCoverDimensionsFromApi
+import { PRODUCTS_TO_OFFER, getCoverDimensionsFromApi } from './lulu.service.js';
 
 // Helper function to convert mm to points
 const mmToPoints = (mm) => mm * (72 / 25.4);
 
 // Helper to get dimensions from product ID using PRECISE TEMPLATE SPECS
 const getProductDimensions = (luluProductId) => {
+    // --- FIX START: Corrected typo from PRODUCTS_TOFFER to PRODUCTS_TO_OFFER ---
     const product = PRODUCTS_TO_OFFER.find(p => p.id === luluProductId);
+    // --- FIX END ---
     if (!product) {
         throw new Error(`Product with ID ${luluProductId} not found in PRODUCTS_TO_OFFER.`);
     }
@@ -58,21 +61,23 @@ async function getImageBuffer(url) {
     return Buffer.from(response.data, 'binary');
 }
 
-// --- NEW: Cover PDF Generator ---
+// --- MODIFIED: Cover PDF Generator to use Lulu API for dimensions ---
 export const generateCoverPdf = async (bookTitle, authorName, luluProductId, pageCount) => {
     return new Promise(async (resolve, reject) => {
         try {
-            const { width, height, layout } = getCoverDimensionsMm(luluProductId, pageCount);
-
+            // Get dimensions directly from Lulu API
+            const { width: coverWidthMm, height: coverHeightMm, layout: coverLayout } = 
+                await getCoverDimensionsFromApi(luluProductId, pageCount, 'mm');
+            
             // Convert MM to points for PDFKit
-            const docWidthPoints = mmToPoints(width);
-            const docHeightPoints = mmToPoints(height);
+            const docWidthPoints = mmToPoints(coverWidthMm);
+            const docHeightPoints = mmToPoints(coverHeightMm);
 
-            console.log(`DEBUG: Cover PDF for ${luluProductId} (Pages: ${pageCount}) will be generated with dimensions in MM: ${width.toFixed(2)}x${height.toFixed(2)}. In Points: ${docWidthPoints.toFixed(2)}x${docHeightPoints.toFixed(2)}.`);
+            console.log(`DEBUG: Cover PDF for ${luluProductId} (Pages: ${pageCount}) will be generated with dimensions from Lulu API in MM: ${coverWidthMm.toFixed(2)}x${coverHeightMm.toFixed(2)}. In Points: ${docWidthPoints.toFixed(2)}x${docHeightPoints.toFixed(2)}. Layout: ${coverLayout}.`);
 
             const doc = new PDFDocument({
                 size: [docWidthPoints, docHeightPoints],
-                layout: layout,
+                layout: coverLayout, // Use layout returned by Lulu API call
                 autoFirstPage: false,
                 margins: { top: 0, bottom: 0, left: 0, right: 0 } // Covers usually have full bleed, no internal margins needed
             });
@@ -85,6 +90,7 @@ export const generateCoverPdf = async (bookTitle, authorName, luluProductId, pag
 
             doc.rect(0, 0, doc.page.width, doc.page.height).fill('#313131'); // Dark background
 
+            // Basic text layout (Front Cover Title) - centered on the full spread
             doc.fontSize(48).fillColor('#FFFFFF').font('Helvetica-Bold').text(bookTitle, 0, doc.page.height / 3, {
                 align: 'center',
                 width: doc.page.width
@@ -121,9 +127,8 @@ export const generatePictureBookPdf = async (book, events, luluProductId) => {
             doc.on('data', buffers.push.bind(buffers));
             doc.on('end', () => resolve(Buffer.concat(buffers)));
 
-            // --- Cover Page (Interior file might have an auto-generated cover page, this is just the first page of content) ---
             doc.addPage();
-            if (book.cover_image_url) { // Assuming book.cover_image_url is for the *first interior page* in picture books if not the actual cover
+            if (book.cover_image_url) {
                 try {
                     const coverImageBuffer = await getImageBuffer(book.cover_image_url);
                     doc.image(coverImageBuffer, 0, 0, { width: doc.page.width, height: doc.page.height });
@@ -184,13 +189,11 @@ export const generateTextBookPdf = (title, chapters, luluProductId) => {
             resolve(Buffer.concat(buffers));
         });
 
-        // --- Title Page ---
         doc.addPage();
         doc.fontSize(28).font('Times-Roman').text(title, { align: 'center' });
         doc.moveDown(4);
         doc.fontSize(16).text('A Story by Inkwell AI', { align: 'center' });
 
-        // --- Chapter Pages ---
         for (const chapter of chapters) {
             doc.addPage();
             doc.fontSize(18).font('Times-Bold').text(`Chapter ${chapter.chapter_number}`, { align: 'center' });
