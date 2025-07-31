@@ -1,22 +1,25 @@
-import { getDb } from './database.js';
+// backend/src/db/setupDatabase.js
+// No need for sqlite3 import anymore since we're using pg directly
+// import sqlite3 from 'sqlite3';
+import { getDb } from './database.js'; // Import getDb function
 
 // Helper function to add a column if it doesn't exist
-// This needs to be slightly smarter for PG, as PRAGMA table_info is SQLite-specific.
-// For PG, we query information_schema.columns.
 const addColumnIfNotExists = async (dbInstance, tableName, columnName, columnDefinition) => {
+    let client; // Declare client to ensure it's released
     try {
-        if (dbInstance._isPg) { // Check if it's a PostgreSQL connection
-            const result = await dbInstance.all(`
+        if (dbInstance.query) { // Check if it's a pg Pool or Client (has .query method)
+            client = await dbInstance.connect(); // Get a client from the pool
+            const result = await client.query(`
                 SELECT column_name
                 FROM information_schema.columns
                 WHERE table_name = $1 AND column_name = $2
             `, [tableName, columnName]);
-            const columnExists = result.length > 0;
+            const columnExists = result.rows.length > 0;
             if (!columnExists) {
                 console.log(`Adding column '${columnName}' to table '${tableName}' (PostgreSQL)...`);
-                await dbInstance.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnDefinition}`);
+                await client.query(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnDefinition}`);
             }
-        } else { // Assume SQLite
+        } else { // Assume it's the SQLite instance (for local dev)
             const result = await dbInstance.all(`PRAGMA table_info(${tableName})`);
             const columnExists = result.some(column => column.name === columnName);
             if (!columnExists) {
@@ -25,9 +28,14 @@ const addColumnIfNotExists = async (dbInstance, tableName, columnName, columnDef
             }
         }
     } catch (error) {
-        if (!error.message.includes('relation "')) { // PostgreSQL "no such table" might be "relation 'tablename' does not exist"
+        // More specific check for "relation does not exist" in PostgreSQL
+        if (error.code === '42P01') { // PostgreSQL error code for undefined_table
+             console.warn(`Table ${tableName} does not exist when trying to add column ${columnName}. Will be created later.`);
+        } else {
             console.error(`Failed to add column ${columnName} to ${tableName}:`, error);
         }
+    } finally {
+        if (client) client.release(); // Release the client back to the pool
     }
 };
 
@@ -85,7 +93,7 @@ const createTextBooksTable = `
 
 const createChaptersTable = `
     CREATE TABLE IF NOT EXISTS chapters (
-        id SERIAL PRIMARY KEY, -- Changed from INTEGER PRIMARY KEY AUTOINCREMENT
+        id SERIAL PRIMARY KEY,
         book_id TEXT NOT NULL,
         chapter_number INTEGER NOT NULL,
         content TEXT,
@@ -96,7 +104,7 @@ const createChaptersTable = `
 
 const createTimelineEventsTable = `
     CREATE TABLE IF NOT EXISTS timeline_events (
-        id SERIAL PRIMARY KEY, -- Changed from INTEGER PRIMARY KEY AUTOINCREMENT
+        id SERIAL PRIMARY KEY,
         book_id TEXT NOT NULL,
         page_number INTEGER NOT NULL,
         event_date TEXT,
@@ -131,7 +139,7 @@ const createLikesTable = `
 
 const createCommentsTable = `
     CREATE TABLE IF NOT EXISTS comments (
-        id SERIAL PRIMARY KEY, -- Changed from INTEGER PRIMARY KEY AUTOINCREMENT
+        id SERIAL PRIMARY KEY,
         user_id TEXT NOT NULL,
         book_id TEXT NOT NULL,
         book_type TEXT NOT NULL,
@@ -141,47 +149,79 @@ const createCommentsTable = `
 `;
 
 export const setupDatabase = async () => {
+    let client; // Declare client for transaction management
     try {
-        const dbInstance = await getDb();
+        const pool = await getDb(); // Get the pool (either pg.Pool or SQLite instance)
 
-        // --- Create Tables ---
-        console.log("Setting up database tables...");
-        await dbInstance.exec(createUsersTable);
-        await dbInstance.exec(createPictureBooksTable);
-        await dbInstance.exec(createTextBooksTable);
-        await dbInstance.exec(createChaptersTable);
-        await dbInstance.exec(createTimelineEventsTable);
-        await dbInstance.exec(createFollowsTable);
-        await dbInstance.exec(createLikesTable);
-        await dbInstance.exec(createCommentsTable);
+        if (pool.query) { // Check if it's a pg.Pool instance (production)
+            client = await pool.connect(); // Get a client from the pool
+            console.log("Setting up database tables (PostgreSQL)...");
+            await client.query(createUsersTable); // Use client.query
+            await client.query(createPictureBooksTable);
+            await client.query(createTextBooksTable);
+            await client.query(createChaptersTable);
+            await client.query(createTimelineEventsTable);
+            await client.query(createFollowsTable);
+            await client.query(createLikesTable);
+            await client.query(createCommentsTable);
 
-        // --- Add Missing Columns to Tables (as a fallback) ---
-        // Ensure that column additions are idempotent and handle existing columns.
-        // PostgreSQL ALTER TABLE ADD COLUMN IF NOT EXISTS is in newer versions, older requires check.
-        // Our addColumnIfNotExists helper handles this by checking information_schema for PG.
-        console.log("Checking and adding missing columns...");
-        await addColumnIfNotExists(dbInstance, 'users', 'avatar_url', 'TEXT');
-        await addColumnIfNotExists(dbInstance, 'text_books', 'prompt_details', 'TEXT');
-        await addColumnIfNotExists(dbInstance, 'text_books', 'lulu_product_id', 'TEXT');
-        await addColumnIfNotExists(dbInstance, 'text_books', 'interior_pdf_url', 'TEXT');
-        await addColumnIfNotExists(dbInstance, 'text_books', 'cover_pdf_url', 'TEXT');
-        await addColumnIfNotExists(dbInstance, 'text_books', 'date_created', 'TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP');
-        await addColumnIfNotExists(dbInstance, 'text_books', 'is_public', 'BOOLEAN DEFAULT FALSE');
-        await addColumnIfNotExists(dbInstance, 'text_books', 'total_chapters', 'INTEGER DEFAULT 0');
+            // For addColumnIfNotExists, pass the client so it uses client.query()
+            console.log("Checking and adding missing columns (PostgreSQL)...");
+            await addColumnIfNotExists(client, 'users', 'avatar_url', 'TEXT');
+            await addColumnIfNotExists(client, 'text_books', 'prompt_details', 'TEXT');
+            await addColumnIfNotExists(client, 'text_books', 'lulu_product_id', 'TEXT');
+            await addColumnIfNotExists(client, 'text_books', 'interior_pdf_url', 'TEXT');
+            await addColumnIfNotExists(client, 'text_books', 'cover_pdf_url', 'TEXT');
+            await addColumnIfNotExists(client, 'text_books', 'date_created', 'TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP');
+            await addColumnIfNotExists(client, 'text_books', 'is_public', 'BOOLEAN DEFAULT FALSE');
+            await addColumnIfNotExists(client, 'text_books', 'total_chapters', 'INTEGER DEFAULT 0');
 
-        await addColumnIfNotExists(dbInstance, 'picture_books', 'interior_pdf_url', 'TEXT');
-        await addColumnIfNotExists(dbInstance, 'picture_books', 'cover_pdf_url', 'TEXT');
-        await addColumnIfNotExists(dbInstance, 'picture_books', 'lulu_product_id', 'TEXT');
-        await addColumnIfNotExists(dbInstance, 'picture_books', 'date_created', 'TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP');
-        await addColumnIfNotExists(dbInstance, 'picture_books', 'is_public', 'BOOLEAN DEFAULT FALSE');
+            await addColumnIfNotExists(client, 'picture_books', 'interior_pdf_url', 'TEXT');
+            await addColumnIfNotExists(client, 'picture_books', 'cover_pdf_url', 'TEXT');
+            await addColumnIfNotExists(client, 'picture_books', 'lulu_product_id', 'TEXT');
+            await addColumnIfNotExists(client, 'picture_books', 'date_created', 'TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP');
+            await addColumnIfNotExists(client, 'picture_books', 'is_public', 'BOOLEAN DEFAULT FALSE');
 
-        await addColumnIfNotExists(dbInstance, 'timeline_events', 'uploaded_image_url', 'TEXT');
-        await addColumnIfNotExists(dbInstance, 'timeline_events', 'overlay_text', 'TEXT');
+            await addColumnIfNotExists(client, 'timeline_events', 'uploaded_image_url', 'TEXT');
+            await addColumnIfNotExists(client, 'timeline_events', 'overlay_text', 'TEXT');
+
+        } else { // It's the SQLite instance (development)
+            console.log("Setting up database tables (SQLite)...");
+            await pool.exec(createUsersTable); // Use pool.exec for SQLite
+            await pool.exec(createPictureBooksTable);
+            await pool.exec(createTextBooksTable);
+            await pool.exec(createChaptersTable);
+            await pool.exec(createTimelineEventsTable);
+            await pool.exec(createFollowsTable);
+            await pool.exec(createLikesTable);
+            await pool.exec(createCommentsTable);
+
+            // For addColumnIfNotExists, pass the SQLite instance
+            console.log("Checking and adding missing columns (SQLite)...");
+            await addColumnIfNotExists(pool, 'users', 'avatar_url', 'TEXT');
+            await addColumnIfNotExists(pool, 'text_books', 'prompt_details', 'TEXT');
+            await addColumnIfNotExists(pool, 'text_books', 'lulu_product_id', 'TEXT');
+            await addColumnIfNotExists(pool, 'text_books', 'interior_pdf_url', 'TEXT');
+            await addColumnIfNotExists(pool, 'text_books', 'cover_pdf_url', 'TEXT');
+            await addColumnIfNotExists(pool, 'text_books', 'date_created', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP');
+            await addColumnIfNotExists(pool, 'text_books', 'is_public', 'BOOLEAN DEFAULT 0');
+            await addColumnIfNotExists(pool, 'text_books', 'total_chapters', 'INTEGER DEFAULT 0');
+
+            await addColumnIfNotExists(pool, 'picture_books', 'interior_pdf_url', 'TEXT');
+            await addColumnIfNotExists(pool, 'picture_books', 'cover_pdf_url', 'TEXT');
+            await addColumnIfNotExists(pool, 'picture_books', 'lulu_product_id', 'TEXT');
+            await addColumnIfNotExists(pool, 'picture_books', 'date_created', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP');
+            await addColumnIfNotExists(pool, 'picture_books', 'is_public', 'BOOLEAN DEFAULT 0');
+
+            await addColumnIfNotExists(pool, 'timeline_events', 'uploaded_image_url', 'TEXT');
+            await addColumnIfNotExists(pool, 'timeline_events', 'overlay_text', 'TEXT');
+        }
 
         console.log("✅ All application tables are ready.");
     } catch (error) {
         console.error("❌ Error setting up tables:", error);
-        // Important: Re-throw the error so the server doesn't start with a bad DB connection
         throw error;
+    } finally {
+        if (client) client.release(); // Release client back to pool if it was acquired
     }
 };
