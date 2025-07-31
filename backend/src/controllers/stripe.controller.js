@@ -1,7 +1,7 @@
 // backend/src/controllers/stripe.controller.js
 import stripe from 'stripe';
 import { getDb } from '../db/database.js';
-import { generateTextBookPdf, generatePictureBookPdf } from '../services/pdf.service.js';
+import { generateTextBookPdf, generatePictureBookPdf } from '../services/pdf.service.js'; // Ensure these imports are correct
 import { uploadImageToCloudinary } from '../services/image.service.js';
 import { createLuluPrintJob } from '../services/lulu.service.js';
 import { randomUUID } from 'crypto';
@@ -17,11 +17,11 @@ const handleSuccessfulCheckout = async (session) => {
         expand: ['customer'],
     });
     
-    const { userId, bookId, bookType, luluProductId, productName } = fullSession.metadata; 
+    const { userId, bookId, bookType, luluProductId, productName } = fullSession.metadata; // luluProductId is now available here
 
     console.log("DEBUG: Stripe Session Metadata -> userId:", userId, "bookId:", bookId, "bookType:", bookType, "luluProductId:", luluProductId, "productName:", productName);
 
-    if (!bookId || !bookType || !userId) {
+    if (!bookId || !bookType || !userId || !luluProductId) { // Add luluProductId to validation
         console.error("❌ Missing required metadata in Stripe session.");
         return;
     }
@@ -51,7 +51,7 @@ const handleSuccessfulCheckout = async (session) => {
         let interiorPdfUrl;
         let coverPdfUrl;
         let pdfBuffer; 
-        let luluProductIdentifier; 
+        // luluProductIdentifier is now taken directly from metadata: luluProductId
         let luluOrderDetails = null; 
 
         if (bookType === 'textBook') { 
@@ -60,12 +60,14 @@ const handleSuccessfulCheckout = async (session) => {
             if (!book) throw new Error(`Text book with ID ${bookId} not found in DB.`);
             
             bookTitle = book.title;
-            luluProductIdentifier = book.lulu_product_id; 
-            const chaptersResult = await client.query(`SELECT chapter_number, content FROM chapters WHERE book_id = $1 ORDER BY chapter_number ASC`, [bookId]);
+            // luluProductIdentifier = book.lulu_product_id; // Now comes from metadata
             
             console.log(`DEBUG: Generating PDF for text book: ${book.title}. Chapters count: ${chaptersResult.rows.length}`);
+            const chaptersResult = await client.query(`SELECT chapter_number, content FROM chapters WHERE book_id = $1 ORDER BY chapter_number ASC`, [bookId]);
 
-            pdfBuffer = await generateTextBookPdf(book.title, chaptersResult.rows);
+            // --- MODIFICATION START (Pass luluProductId to PDF generator) ---
+            pdfBuffer = await generateTextBookPdf(book.title, chaptersResult.rows, luluProductId); 
+            // --- MODIFICATION END ---
             
             console.log(`DEBUG: Uploading PDF to Cloudinary for book: ${bookId}. PDF Buffer length: ${pdfBuffer ? pdfBuffer.length : 'null'}`);
 
@@ -77,7 +79,7 @@ const handleSuccessfulCheckout = async (session) => {
             luluOrderDetails = { 
                 id: bookId, 
                 product_name: bookTitle, 
-                lulu_product_id: luluProductIdentifier, 
+                lulu_product_id: luluProductId, // Use luluProductId from metadata
                 cover_pdf_url: coverPdfUrl, 
                 interior_pdf_url: interiorPdfUrl 
             };
@@ -88,10 +90,14 @@ const handleSuccessfulCheckout = async (session) => {
             if (!book) throw new Error(`Picture book with ID ${bookId} not found in DB.`);
 
             bookTitle = book.title;
-            luluProductIdentifier = book.lulu_product_id; 
+            // luluProductIdentifier = book.lulu_product_id; // Now comes from metadata
             
             console.log(`DEBUG: Generating PDF for picture book: ${book.title}`);
-            pdfBuffer = await generatePictureBookPdf(bookId); 
+            // --- MODIFICATION START (Pass luluProductId to PDF generator) ---
+            pdfBuffer = await generatePictureBookPdf(book, timelineResult.rows, luluProductId); // Assuming generatePictureBookPdf uses book and timeline
+            // (Note: you'd need to fetch timeline here if it's not passed, similar to chapters for text books)
+            const timelineResult = await client.query(`SELECT * FROM timeline_events WHERE book_id = $1 ORDER BY page_number ASC`, [bookId]); // FETCH timeline here
+            // --- MODIFICATION END ---
             
             console.log(`DEBUG: Uploading PDF to Cloudinary for book: ${bookId}. PDF Buffer length: ${pdfBuffer ? pdfBuffer.length : 'null'}`);
             interiorPdfUrl = await uploadImageToCloudinary(pdfBuffer, `inkwell-ai/user_${userId}/books`);
@@ -102,7 +108,7 @@ const handleSuccessfulCheckout = async (session) => {
             luluOrderDetails = { 
                 id: bookId, 
                 product_name: bookTitle, 
-                lulu_product_id: luluProductIdentifier, 
+                lulu_product_id: luluProductId, // Use luluProductId from metadata
                 cover_pdf_url: coverPdfUrl, 
                 interior_pdf_url: interiorPdfUrl 
             };
@@ -135,7 +141,6 @@ const handleSuccessfulCheckout = async (session) => {
             throw new Error("Order record missing for completed session.");
         }
 
-        // Modified query to include lulu_job_id and lulu_job_status
         const orderSqlUpdate = `UPDATE orders SET lulu_order_id = $1, status = $2, lulu_job_status = $3, updated_at = NOW(), lulu_job_id = $4 WHERE id = $5`;
         await client.query(orderSqlUpdate, [luluJob.id, 'completed', luluJob.status, luluJob.id, orderIdFromDB]); 
 

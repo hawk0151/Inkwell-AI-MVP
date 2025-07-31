@@ -1,9 +1,54 @@
 // backend/src/services/pdf.service.js
 import PDFDocument from 'pdfkit';
 import axios from 'axios';
+// Import PRODUCTS_TO_OFFER to get product dimensions
+import { PRODUCTS_TO_OFFER } from './lulu.service.js'; 
 
 // Helper function to convert mm to points
 const mmToPoints = (mm) => mm * (72 / 25.4);
+
+// Helper to get dimensions from product ID
+const getProductDimensions = (luluProductId) => {
+    const product = PRODUCTS_TO_OFFER.find(p => p.id === luluProductId);
+    if (!product) {
+        throw new Error(`Product with ID ${luluProductId} not found in PRODUCTS_TO_OFFER.`);
+    }
+
+    let widthMm, heightMm, layout;
+
+    // You might want to store these specific dimensions with your PRODUCTS_TO_OFFER objects
+    // or use a more comprehensive lookup here if Lulu has many variations.
+    switch (product.id) {
+        case '0550X0850BWSTDCW060UC444GXX': // Novella (5.5 x 8.5" / 140 x 216 mm)
+            widthMm = 140;
+            heightMm = 216;
+            layout = 'portrait';
+            break;
+        case '0827X1169BWPRELW060UC444GNG': // A4 Story Book (8.27 x 11.69" / 210 x 297 mm)
+            widthMm = 210;
+            heightMm = 297;
+            layout = 'portrait';
+            break;
+        case '0614X0921BWPRELW060UC444GNG': // Royal Hardcover (6.14 x 9.21" / 156 x 234 mm)
+            widthMm = 156;
+            heightMm = 234;
+            layout = 'portrait';
+            break;
+        case '0827X1169FCPRELW080CW444MNG': // A4 Premium Picture Book (8.27 x 11.69" / 210 x 297 mm, usually landscape)
+            widthMm = 297; // For landscape, width > height
+            heightMm = 210;
+            layout = 'landscape';
+            break;
+        default:
+            throw new Error(`Unknown product ID ${luluProductId} for PDF dimensions.`);
+    }
+
+    return { 
+        width: mmToPoints(widthMm), 
+        height: mmToPoints(heightMm), 
+        layout: layout 
+    };
+};
 
 // --- Image Helper ---
 async function getImageBuffer(url) {
@@ -11,18 +56,15 @@ async function getImageBuffer(url) {
     return Buffer.from(response.data, 'binary');
 }
 
-// --- Picture Book PDF Generator ---
-export const generatePictureBookPdf = async (book, events) => {
+// --- Picture Book PDF Generator (MODIFIED to accept luluProductId) ---
+export const generatePictureBookPdf = async (book, events, luluProductId) => {
     return new Promise(async (resolve, reject) => {
         try {
-            // A4 landscape from PRODUCTS_TO_OFFER: 8.27 x 11.69″ / 210 x 297 mm
-            // For landscape, width is longer side (297mm), height is shorter side (210mm)
-            const widthInPoints = mmToPoints(297); 
-            const heightInPoints = mmToPoints(210);
+            const { width, height, layout } = getProductDimensions(luluProductId);
 
             const doc = new PDFDocument({
-                size: [widthInPoints, heightInPoints], // Landscape A4 equivalent
-                layout: 'landscape', 
+                size: [width, height], 
+                layout: layout, 
                 autoFirstPage: false,
                 margins: { top: 36, bottom: 36, left: 36, right: 36 }
             });
@@ -77,16 +119,14 @@ export const generatePictureBookPdf = async (book, events) => {
 };
 
 
-// --- Text Book PDF Generator ---
-// MODIFIED to use exact Lulu dimensions for Digest (5.5 x 8.5 inches / 140 x 216 mm)
-export const generateTextBookPdf = (title, chapters) => {
+// --- Text Book PDF Generator (MODIFIED to accept luluProductId) ---
+export const generateTextBookPdf = (title, chapters, luluProductId) => {
     return new Promise((resolve) => {
-        const widthInPoints = mmToPoints(140); // 140 mm
-        const heightInPoints = mmToPoints(216); // 216 mm
+        const { width, height, layout } = getProductDimensions(luluProductId);
 
         const doc = new PDFDocument({
-            size: [widthInPoints, heightInPoints], // Set exact dimensions based on mm
-            layout: 'portrait', 
+            size: [width, height], 
+            layout: layout, 
             margins: { top: 72, bottom: 72, left: 72, right: 72 }
         });
 
