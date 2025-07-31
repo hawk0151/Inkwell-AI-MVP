@@ -60,7 +60,7 @@ async function getImageBuffer(url) {
     return Buffer.from(response.data, 'binary');
 }
 
-// --- MODIFIED: Cover PDF Generator to use Lulu API for dimensions directly ---
+// --- MODIFIED: Cover PDF Generator with aggressive dimension normalization for Lulu ---
 export const generateCoverPdf = async (bookTitle, authorName, luluProductId, pageCount) => {
     return new Promise(async (resolve, reject) => {
         try {
@@ -68,11 +68,32 @@ export const generateCoverPdf = async (bookTitle, authorName, luluProductId, pag
             const { width: coverWidthMm, height: coverHeightMm, layout: coverLayout } =
                 await getCoverDimensionsFromApi(luluProductId, pageCount, 'mm');
 
-            // Convert MM to points for PDFKit using Lulu's direct width/height
-            const docWidthPoints = mmToPoints(coverWidthMm);
-            const docHeightPoints = mmToPoints(coverHeightMm);
+            // --- CRITICAL FIX ATTEMPT: Normalize PDFKit size to always be portrait-shaped,
+            // and apply rotation manually if Lulu expects landscape ---
+            let docBaseWidthMm, docBaseHeightMm;
+            let needsRotation = false;
 
-            console.log(`DEBUG: Cover PDF for ${luluProductId} (Pages: ${pageCount}) will be generated with dimensions from Lulu API in MM: ${coverWidthMm.toFixed(2)}x${coverHeightMm.toFixed(2)}. Final PDFKit setup in Points: ${docWidthPoints.toFixed(2)}x${docHeightPoints.toFixed(2)}. Layout: ${coverLayout}.`);
+            // Determine the "portrait" dimensions of the PDF document itself
+            docBaseWidthMm = Math.min(coverWidthMm, coverHeightMm);
+            docBaseHeightMm = Math.max(coverWidthMm, coverHeightMm);
+
+            // If Lulu's *intended* layout is landscape, but our base PDF is portrait,
+            // we will need to rotate the content.
+            if (coverLayout === 'landscape' && coverWidthMm > coverHeightMm) {
+                // If Lulu's width is greater than its height (landscape),
+                // and we set the PDF base dimensions as portrait (short side first),
+                // then the PDF needs content rotation.
+                // Our PDF base will be [260.35mm_pts, 330.20mm_pts] for Novella
+                needsRotation = true;
+                console.log(`DEBUG: Lulu API suggested landscape (${coverWidthMm}x${coverHeightMm}). Setting PDFKit base size as portrait (${docBaseWidthMm}x${docBaseHeightMm}) and preparing for manual content rotation.`);
+            } else {
+                 console.log(`DEBUG: Lulu API suggested portrait (${coverWidthMm}x${coverHeightMm}). Setting PDFKit base size as portrait (${docBaseWidthMm}x${docBaseHeightMm}). No content rotation needed.`);
+            }
+
+            const docWidthPoints = mmToPoints(docBaseWidthMm);
+            const docHeightPoints = mmToPoints(docBaseHeightMm);
+
+            console.log(`DEBUG: Cover PDF for ${luluProductId} (Pages: ${pageCount}) will be generated. Lulu API MM: ${coverWidthMm.toFixed(2)}x${coverHeightMm.toFixed(2)}. Final PDFKit base size in Points: ${docWidthPoints.toFixed(2)}x${docHeightPoints.toFixed(2)}. Intended Layout: ${coverLayout}. Needs Rotation: ${needsRotation}`);
 
             // Validate the dimensions before generating
             if (docWidthPoints <= 0 || docHeightPoints <= 0 || docWidthPoints > 10000 || docHeightPoints > 10000) {
@@ -82,8 +103,8 @@ export const generateCoverPdf = async (bookTitle, authorName, luluProductId, pag
             }
 
             const doc = new PDFDocument({
-                size: [docWidthPoints, docHeightPoints], // Use direct dimensions from Lulu API
-                layout: coverLayout, // Use layout returned by Lulu API call
+                size: [docWidthPoints, docHeightPoints], // ALWAYS portrait-shaped based on min/max dimensions
+                layout: 'portrait', // ALWAYS 'portrait' for PDFKit itself
                 autoFirstPage: false,
                 margins: { top: 0, bottom: 0, left: 0, right: 0 } // Covers usually have full bleed, no internal margins needed
             });
@@ -94,24 +115,61 @@ export const generateCoverPdf = async (bookTitle, authorName, luluProductId, pag
 
             doc.addPage();
 
-            // Fill background
-            doc.rect(0, 0, doc.page.width, doc.page.height).fill('#313131'); // Dark background
+            // Apply rotation if needed to match Lulu's expected landscape orientation
+            if (needsRotation) {
+                // Rotate the canvas by 90 degrees clockwise (for landscape)
+                // Need to translate origin after rotation.
+                // New origin (0,0) will be at what was (old_height, 0).
+                doc.rotate(90, { origin: [0, 0] });
+                doc.translate(0, -docWidthPoints); // Shift origin after rotation
+                
+                // After rotation, doc.page.width and doc.page.height are swapped from the original size parameter.
+                // So now, doc.page.width is actually the original height, and doc.page.height is the original width.
+                // Use original coverWidthMm and coverHeightMm for content positioning.
+                // Convert original Lulu dimensions to points for content placement
+                const originalCoverWidthPoints = mmToPoints(coverWidthMm);
+                const originalCoverHeightPoints = mmToPoints(coverHeightMm);
 
-            doc.fontSize(48)
-                .fillColor('#FFFFFF')
-                .font('Helvetica-Bold')
-                .text(bookTitle, 0, doc.page.height / 3, { // Centered vertically in the upper third
-                    align: 'center',
-                    width: doc.page.width // Center across the full spread
-                });
-            doc.moveDown(1);
-            doc.fontSize(24)
-                .fillColor('#CCCCCC')
-                .font('Helvetica')
-                .text(authorName || 'Inkwell AI', {
-                    align: 'center',
-                    width: doc.page.width // Center across the full spread
-                });
+                // Fill background
+                doc.rect(0, 0, originalCoverWidthPoints, originalCoverHeightPoints).fill('#313131');
+
+                // Content positioning adjusted for the rotated canvas
+                doc.fontSize(48)
+                    .fillColor('#FFFFFF')
+                    .font('Helvetica-Bold')
+                    .text(bookTitle, 0, originalCoverHeightPoints / 3, { // Center vertically in upper third of original height
+                        align: 'center',
+                        width: originalCoverWidthPoints // Center across original width
+                    });
+                doc.moveDown(1);
+                doc.fontSize(24)
+                    .fillColor('#CCCCCC')
+                    .font('Helvetica')
+                    .text(authorName || 'Inkwell AI', {
+                        align: 'center',
+                        width: originalCoverWidthPoints // Center across original width
+                    });
+
+            } else {
+                // No rotation needed, use standard positioning
+                doc.rect(0, 0, doc.page.width, doc.page.height).fill('#313131'); // Dark background
+
+                doc.fontSize(48)
+                    .fillColor('#FFFFFF')
+                    .font('Helvetica-Bold')
+                    .text(bookTitle, 0, doc.page.height / 3, { // Centered vertically in the upper third
+                        align: 'center',
+                        width: doc.page.width // Center across the full spread
+                    });
+                doc.moveDown(1);
+                doc.fontSize(24)
+                    .fillColor('#CCCCCC')
+                    .font('Helvetica')
+                    .text(authorName || 'Inkwell AI', {
+                        align: 'center',
+                        width: doc.page.width // Center across the full spread
+                    });
+            }
 
             doc.end();
         } catch (error) {
@@ -143,7 +201,7 @@ export const generatePictureBookPdf = async (book, events, luluProductId) => {
             if (book.cover_image_url) {
                 try {
                     const coverImageBuffer = await getImageBuffer(book.cover_image_url);
-                    doc.image(coverImageBuffer, 0, 0, { fit: [doc.page.width - 72, doc.page.height - 150], align: 'center', valign: 'top' });
+                    doc.image(coverImageBuffer, 0, 0, { width: doc.page.width, height: doc.page.height });
                 } catch (imgErr) {
                     console.error(`Failed to load cover image for interior from ${book.cover_image_url}`, imgErr);
                     doc.fontSize(40).font('Helvetica-Bold').text(book.title, { align: 'center' });
