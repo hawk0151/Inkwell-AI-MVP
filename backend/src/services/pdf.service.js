@@ -60,7 +60,7 @@ async function getImageBuffer(url) {
     return Buffer.from(response.data, 'binary');
 }
 
-// --- MODIFIED: Cover PDF Generator to use Lulu API for dimensions and handle layout quirk ---
+// --- MODIFIED: Cover PDF Generator to use Lulu API for dimensions directly ---
 export const generateCoverPdf = async (bookTitle, authorName, luluProductId, pageCount) => {
     return new Promise(async (resolve, reject) => {
         try {
@@ -68,21 +68,11 @@ export const generateCoverPdf = async (bookTitle, authorName, luluProductId, pag
             const { width: coverWidthMm, height: coverHeightMm, layout: coverLayout } =
                 await getCoverDimensionsFromApi(luluProductId, pageCount, 'mm');
 
-            let docWidthPoints, docHeightPoints;
+            // Convert MM to points for PDFKit using Lulu's direct width/height
+            const docWidthPoints = mmToPoints(coverWidthMm);
+            const docHeightPoints = mmToPoints(coverHeightMm);
 
-            // CRITICAL FIX ATTEMPT: If Lulu API indicates 'landscape',
-            // swap width and height for PDFKit to effectively create a 'portrait' shaped PDF
-            // that matches Lulu's expected orientation of the underlying PDF document.
-            if (coverLayout === 'landscape') {
-                docWidthPoints = mmToPoints(coverHeightMm); // Lulu's height becomes PDFKit's width
-                docHeightPoints = mmToPoints(coverWidthMm); // Lulu's width becomes PDFKit's height
-                console.log(`DEBUG: Lulu API suggested landscape. Swapping dimensions for PDFKit. New PDFKit size in Points: ${docWidthPoints.toFixed(2)}x${docHeightPoints.toFixed(2)}.`);
-            } else {
-                docWidthPoints = mmToPoints(coverWidthMm);
-                docHeightPoints = mmToPoints(coverHeightMm);
-            }
-
-            console.log(`DEBUG: Cover PDF for ${luluProductId} (Pages: ${pageCount}) will be generated with dimensions from Lulu API in MM: ${coverWidthMm.toFixed(2)}x${coverHeightMm.toFixed(2)}. Final PDFKit setup in Points: ${docWidthPoints.toFixed(2)}x${docHeightPoints.toFixed(2)}. Intended Layout: ${coverLayout}.`);
+            console.log(`DEBUG: Cover PDF for ${luluProductId} (Pages: ${pageCount}) will be generated with dimensions from Lulu API in MM: ${coverWidthMm.toFixed(2)}x${coverHeightMm.toFixed(2)}. Final PDFKit setup in Points: ${docWidthPoints.toFixed(2)}x${docHeightPoints.toFixed(2)}. Layout: ${coverLayout}.`);
 
             // Validate the dimensions before generating
             if (docWidthPoints <= 0 || docHeightPoints <= 0 || docWidthPoints > 10000 || docHeightPoints > 10000) {
@@ -92,8 +82,8 @@ export const generateCoverPdf = async (bookTitle, authorName, luluProductId, pag
             }
 
             const doc = new PDFDocument({
-                size: [docWidthPoints, docHeightPoints],
-                layout: 'portrait', // ALWAYS use portrait for PDFKit for cover PDFs to handle Lulu's interpretation
+                size: [docWidthPoints, docHeightPoints], // Use direct dimensions from Lulu API
+                layout: coverLayout, // Use layout returned by Lulu API call
                 autoFirstPage: false,
                 margins: { top: 0, bottom: 0, left: 0, right: 0 } // Covers usually have full bleed, no internal margins needed
             });
@@ -106,13 +96,6 @@ export const generateCoverPdf = async (bookTitle, authorName, luluProductId, pag
 
             // Fill background
             doc.rect(0, 0, doc.page.width, doc.page.height).fill('#313131'); // Dark background
-
-            // Content positioning: If the original Lulu layout was landscape,
-            // we need to rotate the canvas for the content.
-            // This is complex for cover spreads as text needs to go on the front cover.
-            // For now, let's keep it simple and center on the current page dimensions.
-            // If the issue is just the PDF *header* dimensions, this might be enough.
-            // True cover layout would need knowledge of spine width and rotations.
 
             doc.fontSize(48)
                 .fillColor('#FFFFFF')
@@ -160,7 +143,7 @@ export const generatePictureBookPdf = async (book, events, luluProductId) => {
             if (book.cover_image_url) {
                 try {
                     const coverImageBuffer = await getImageBuffer(book.cover_image_url);
-                    doc.image(coverImageBuffer, 0, 0, { width: doc.page.width, height: doc.page.height });
+                    doc.image(coverImageBuffer, 0, 0, { fit: [doc.page.width - 72, doc.page.height - 150], align: 'center', valign: 'top' });
                 } catch (imgErr) {
                     console.error(`Failed to load cover image for interior from ${book.cover_image_url}`, imgErr);
                     doc.fontSize(40).font('Helvetica-Bold').text(book.title, { align: 'center' });
