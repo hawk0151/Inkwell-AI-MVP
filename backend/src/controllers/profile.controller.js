@@ -66,10 +66,10 @@ export const getProfileByUsername = async (req, res) => {
         ]);
 
         const booksQuery = `
-            SELECT id, title, cover_image_url, like_count, comment_count, 'picture_book' as book_type, user_id FROM picture_books WHERE user_id = $1 AND is_public = 1
+            SELECT id, title, cover_image_url, like_count, comment_count, 'picture_book' as book_type, user_id FROM picture_books WHERE user_id = $1 AND is_public = TRUE
             UNION ALL
-            SELECT id, title, cover_image_url, like_count, comment_count, 'text_book' as book_type, user_id FROM text_books WHERE user_id = $2 AND is_public = 1
-        `; // MODIFIED: is_public = TRUE changed to is_public = 1
+            SELECT id, title, cover_image_url, like_count, comment_count, 'text_book' as book_type, user_id FROM text_books WHERE user_id = $2 AND is_public = TRUE
+        `; // MODIFIED: is_public = 1 changed back to is_public = TRUE
         let books = await db.all(booksQuery, [profileUserId, profileUserId]);
 
         books = books.map(book => ({
@@ -79,18 +79,12 @@ export const getProfileByUsername = async (req, res) => {
         }));
 
         if (viewerId) {
-            // Re-evaluating this dynamic IN clause to be safer for PostgreSQL
-            // It's generally safer to build the IN clause with specific parameters
-            // or pass as an array and let PG expand, but db.all adapter might not handle array expansion.
-            // For now, let's keep the parameter construction for the IN clause consistent,
-            // but the primary error was likely the boolean comparison.
             const bookTypePlaceholders = books.map((_, i) => `($${i * 2 + 2}, $${i * 2 + 3})`).join(',');
             const likeCheckParams = [];
             books.forEach(book => {
                 likeCheckParams.push(book.id, book.book_type);
             });
 
-            // Ensure $1 is for viewerId, and subsequent are for bookTypePlaceholders
             const likeQuery = `SELECT book_id, book_type FROM likes WHERE user_id = $1 AND (book_id, book_type) IN (${bookTypePlaceholders})`;
             const userLikes = await db.all(likeQuery, [viewerId, ...likeCheckParams]);
 
