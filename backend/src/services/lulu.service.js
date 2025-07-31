@@ -62,36 +62,33 @@ export const getHardcoverSpineWidthMm = (pageCount) => {
     return 54;
 };
 
-// --- MODIFIED: getCoverDimensionsMm to perform explicit swap for PDFKit ---
 export const getCoverDimensionsMm = (luluProductId, pageCount) => {
     const productInfo = PRODUCTS_TO_OFFER.find(p => p.id === luluProductId);
     if (!productInfo) {
         throw new Error(`Product with ID ${luluProductId} not found for cover dimensions.`);
     }
 
-    let targetLuluWidthMm, targetLuluHeightMm, targetPdfkitLayout;
+    // --- FIX START: Declare variables here ---
+    let coverWidthMm, coverHeightMm, targetPdfkitLayout;
+    // --- FIX END ---
+
+    let targetLuluWidthMm, targetLuluHeightMm; // These are intermediate values for clarity
 
     switch (luluProductId) {
         case '0550X0850BWSTDCW060UC444GXX': // Novella (5.5 x 8.5" book size)
-            // Lulu expects: W: ~330.20mm, H: ~260.35mm (Landscape)
-            // But if Lulu swaps, it receives H: ~260.35mm, W: ~330.20mm
-            // So we need to generate for PDFKit: W: ~260.35mm, H: ~330.20mm (Portrait)
             targetLuluWidthMm = (328.61 + 331.79) / 2; // ~330.20mm
             targetLuluHeightMm = (258.76 + 261.94) / 2; // ~260.35mm
 
-            // For PDFKit, we swap so Lulu receives the correct orientation after its internal logic
-            coverWidthMm = targetLuluHeightMm; // This becomes PDFKit's width
-            coverHeightMm = targetLuluWidthMm; // This becomes PDFKit's height
+            coverWidthMm = targetLuluHeightMm; // This becomes PDFKit's width (smaller)
+            coverHeightMm = targetLuluWidthMm; // This becomes PDFKit's height (larger)
             targetPdfkitLayout = 'portrait'; // Because PDFKit's height is now > width
             break;
         case '0827X1169BWPRELW060UC444GNG': // A4 Story Book
         case '0614X0921BWPRELW060UC444GNG': // Royal Hardcover
-            // For these, we currently calculate. Let's apply the same swapping logic.
-            // Assuming these covers are also meant to be landscape in Lulu's view.
             const spineWidth = getHardcoverSpineWidthMm(pageCount);
             let trimWidth, trimHeight;
             if (luluProductId === '0827X1169BWPRELW060UC444GNG') { trimWidth = 210; trimHeight = 297; }
-            else { trimWidth = 156; trimHeight = 234; } // Royal Hardcover
+            else { trimWidth = 156; trimHeight = 234; }
 
             const outerBleedMm = 3.175; // 0.125 inches
             const hardcoverHingeMm = 19.05; // 0.75 inches
@@ -105,8 +102,6 @@ export const getCoverDimensionsMm = (luluProductId, pageCount) => {
             targetPdfkitLayout = 'portrait';
             break;
         case '0827X1169FCPRELW080CW444MNG': // A4 Premium Picture Book (landscape)
-            // This is trickier as it's already a "landscape" product, but the cover spread is still landscape.
-            // Assuming the same swapping logic applies.
             const spineWidthPicture = getHardcoverSpineWidthMm(pageCount);
             const trimWidthPicture = 297; // Landscape trim width
             const trimHeightPicture = 210; // Landscape trim height
