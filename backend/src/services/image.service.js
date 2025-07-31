@@ -3,13 +3,15 @@ import axios from 'axios';
 import { v2 as cloudinary } from 'cloudinary';
 import { randomUUID } from 'crypto';
 
-// --- NEW DEBUGGING START ---
+// It is critical that environment variables are loaded before this point.
+// If running locally, ensure 'dotenv' is configured at your app's entry file (e.g., server.js or app.js).
+// For Render, ensure environment variables are set in the Render dashboard.
+
 console.log("DEBUG: Cloudinary config values from process.env:");
 console.log("CLOUDINARY_CLOUD_NAME:", process.env.CLOUDINARY_CLOUD_NAME ? "SET" : "NOT SET");
 console.log("CLOUDINARY_API_KEY:", process.env.CLOUDINARY_API_KEY ? "SET" : "NOT SET");
 console.log("CLOUDINARY_API_SECRET:", process.env.CLOUDINARY_API_SECRET ? "SET" : "NOT SET");
 console.log("CLOUDINARY_UPLOAD_PRESET:", process.env.CLOUDINARY_UPLOAD_PRESET ? "SET" : "NOT SET");
-// --- NEW DEBUGGING END ---
 
 cloudinary.config({ 
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME, 
@@ -59,14 +61,21 @@ export const generateImageFromApi = async (prompt, style) => {
   }
 };
 
+
 export const uploadImageToCloudinary = (fileBuffer, folder) => {
   return new Promise((resolve, reject) => {
+    // --- MODIFICATION START ---
+    // Explicitly set resource_type to 'raw' for PDFs to ensure they are handled as files,
+    // not images, and ensure the public preset is applied.
     cloudinary.uploader.upload_stream({
       upload_preset: process.env.CLOUDINARY_UPLOAD_PRESET,
-      resource_type: 'auto',
+      resource_type: 'raw', // Changed from 'auto' to 'raw'
       folder: folder,
       public_id: randomUUID(),
+      // Adding type: 'upload' just for extra explicit default, usually not needed with upload_preset
+      type: 'upload'
     },
+    // --- MODIFICATION END ---
     (error, result) => {
       if (error) {
         console.error("Cloudinary Upload Error:", error);
