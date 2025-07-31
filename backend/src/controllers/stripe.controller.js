@@ -99,12 +99,6 @@ const handleSuccessfulCheckout = async (session) => {
             interior_pdf_url: interiorPdfUrl 
         };
 
-        // Debugging steps (commented out for deploy)
-        // const debugPdfPath = path.join(process.cwd(), 'debug_book.pdf');
-        // console.log(`--- Saving debug PDF locally to: ${debugPdfPath} ---`);
-        // await fs.writeFile(debugPdfPath, pdfBuffer);
-        // console.log(`--- Debug PDF saved. ---`);
-
         console.log("--- DEBUG: CHECKING PDF URLS (before Lulu call) ---");
         console.log("Interior PDF URL:", luluOrderDetails.interior_pdf_url);
         console.log("Cover PDF URL:", luluOrderDetails.cover_pdf_url);
@@ -143,12 +137,14 @@ export const stripeWebhook = (req, res) => {
     const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
     let event;
     try {
-        // --- FIX START ---
-        // Crucial: Use req.rawBody if Express raw body parser is configured for this route.
-        // If req.rawBody is not available, req.body should be a Buffer.
-        // Express.raw() makes req.body a Buffer.
-        event = stripeClient.webhooks.constructEvent(req.body, sig, endpointSecret);
-        // --- FIX END ---
+        // --- FINAL FIX ATTEMPT FOR RAW BODY ---
+        // Prioritize req.rawBody if available (from older Express versions or other middlewares),
+        // otherwise fall back to req.body which express.raw() puts the buffer into.
+        const rawBody = req.rawBody || req.body; 
+        console.log("DEBUG: Type of rawBody for Stripe webhook:", typeof rawBody, rawBody instanceof Buffer ? " (Buffer)" : "");
+
+        event = stripeClient.webhooks.constructEvent(rawBody, sig, endpointSecret);
+        // --- END FINAL FIX ATTEMPT ---
     } catch (err) {
         console.error(`❌ Webhook signature verification failed.`, err.message);
         return res.status(400).send(`Webhook Error: ${err.message}`);
