@@ -6,9 +6,12 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 import admin from 'firebase-admin';
-// import fs from 'fs'; // REMOVED: No longer reading serviceAccountKey.json from file
 import morgan from 'morgan';
 import { setupDatabase } from './src/db/setupDatabase.js';
+
+// NEW: Import the Stripe controller
+import { stripeWebhook } from './src/controllers/stripe.controller.js';
+
 
 const startServer = async () => {
     await setupDatabase();
@@ -77,9 +80,14 @@ const startServer = async () => {
     }));
 
     app.use(morgan('dev'));
-
+    
+    // --- Webhook routes that need the raw body must come BEFORE express.json() ---
     app.post('/api/orders/webhook', express.raw({ type: 'application/json' }), handleWebhook);
+    // NEW: Add the Stripe webhook route
+    app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), stripeWebhook);
 
+
+    // --- Parsers for all other routes ---
     app.use(express.json());
     app.use(express.urlencoded({ extended: true }));
     app.use(cookieParser());
