@@ -151,16 +151,22 @@ export const generateAndSaveTextBookPdf = async (book, productConfig, addFinalBl
     await fs.mkdir(tempPdfsDir, { recursive: true });
     const tempFilePath = path.join(tempPdfsDir, `interior_textbook_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.pdf`);
 
-    doc.fontSize(28).font('Times-Roman').text(book.title, { align: 'center' });
+    // --- FONT FIX START ---
+    // Changed font for title from 'Times-Roman' to 'Helvetica-Bold'
+    doc.fontSize(28).font('Helvetica-Bold').text(book.title, { align: 'center' });
     doc.moveDown(4);
-    doc.fontSize(16).text('A Story by Inkwell AI', { align: 'center' });
+    // Changed font for generic text from default to 'Helvetica'
+    doc.fontSize(16).font('Helvetica').text('A Story by Inkwell AI', { align: 'center' });
 
     for (const chapter of book.chapters) {
         doc.addPage();
-        doc.fontSize(18).font('Times-Bold').text(`Chapter ${chapter.chapter_number}`, { align: 'center' });
+        // Changed font for chapter title from 'Times-Bold' to 'Helvetica-Bold'
+        doc.fontSize(18).font('Helvetica-Bold').text(`Chapter ${chapter.chapter_number}`, { align: 'center' });
         doc.moveDown(2);
-        doc.fontSize(12).font('Times-Roman').text(chapter.content, { align: 'justify' });
+        // Changed font for chapter content from 'Times-Roman' to 'Helvetica'
+        doc.fontSize(12).font('Helvetica').text(chapter.content, { align: 'justify' });
     }
+    // --- FONT FIX END ---
     
     if (addFinalBlankPage) {
         console.log("DEBUG: Adding a final blank page to make page count even.");
