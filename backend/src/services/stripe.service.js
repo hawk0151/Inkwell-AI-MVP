@@ -7,10 +7,16 @@ import { randomUUID } from 'crypto';
 
 const stripeClient = stripe(process.env.STRIPE_SECRET_KEY);
 
-export const createStripeCheckoutSession = async (productDetails, userId, orderId, bookId) => {
+export const createStripeCheckoutSession = async (productDetails, userId, orderId, bookType) => {
     try {
         const session = await stripeClient.checkout.sessions.create({
             payment_method_types: ['card'],
+
+            // FIXED: This block tells Stripe that a shipping address is required for this purchase.
+            shipping_address_collection: {
+                allowed_countries: ['AU', 'US', 'CA', 'GB', 'NZ'], // You can customize this list
+            },
+
             line_items: [
                 {
                     price_data: {
@@ -18,7 +24,6 @@ export const createStripeCheckoutSession = async (productDetails, userId, orderI
                         product_data: {
                             name: productDetails.name,
                             description: productDetails.description,
-                            // images: [productDetails.imageUrl], // if you have product images
                         },
                         unit_amount: Math.round(productDetails.price * 100), // Price in cents
                     },
@@ -27,14 +32,12 @@ export const createStripeCheckoutSession = async (productDetails, userId, orderI
             ],
             mode: 'payment',
             success_url: `${process.env.CLIENT_URL}/checkout-success?session_id={CHECKOUT_SESSION_ID}`,
-            cancel_url: `${process.env.CLIENT_URL}/checkout-cancel`,
+            cancel_url: `${process.env.CLIENT_URL}/`, // Changed to root, as checkout-cancel may not exist
             metadata: {
                 userId: userId,
                 orderId: orderId,
-                bookId: bookId,
-                luluProductId: productDetails.id, // This is now the DYNAMIC LULU SKU
-                bookType: productDetails.bookType,
-                pageCount: productDetails.pageCount
+                bookId: bookId, 
+                bookType: bookType
             },
         });
         return session;
@@ -44,7 +47,8 @@ export const createStripeCheckoutSession = async (productDetails, userId, orderI
     }
 };
 
-
+// NOTE: The two functions below belong in stripe.controller.js, but I am keeping them
+// here as per your provided file structure to avoid breaking changes.
 const handleSuccessfulCheckout = async (session) => {
     console.log("✅ Webhook received for Session ID:", session.id);
 
@@ -52,12 +56,12 @@ const handleSuccessfulCheckout = async (session) => {
         expand: ['customer'],
     });
 
-    const { userId, bookId, bookType, luluProductId, productName, pageCount } = fullSession.metadata;
+    const { userId, orderId, bookId, bookType } = fullSession.metadata;
 
-    console.log("DEBUG: Stripe Session Metadata -> userId:", userId, "bookId:", bookId, "bookType:", bookType, "luluProductId (Dynamic SKU):", luluProductId, "productName:", productName, "pageCount (Actual from Metadata):", pageCount);
+    console.log("DEBUG: Stripe Session Metadata -> userId:", userId, "bookId:", bookId, "bookType:", bookType, "orderId:", orderId);
 
-    if (!bookId || !bookType || !userId || !luluProductId || !pageCount) {
-        console.error("❌ Missing required metadata in Stripe session (bookId, bookType, userId, luluProductId, or pageCount).");
+    if (!orderId || !userId) {
+        console.error("❌ Missing required metadata in Stripe session (orderId or userId).");
         return;
     }
     if (!fullSession.shipping_details || !fullSession.shipping_details.address) {
@@ -70,6 +74,15 @@ const handleSuccessfulCheckout = async (session) => {
         const pool = await getDb();
         client = await pool.connect();
         await client.query('BEGIN');
+        
+        const orderResult = await client.query('SELECT * FROM orders WHERE id = $1 AND status = $2', [orderId, 'pending']);
+        const order = orderResult.rows[0];
+
+        if (!order) {
+            console.warn(`⚠️ Order with ID ${orderId} not found or already processed.`);
+            await client.query('COMMIT');
+            return;
+        }
 
         let shippingInfo = {
             name: fullSession.shipping_details.name,
@@ -82,36 +95,18 @@ const handleSuccessfulCheckout = async (session) => {
             phone_number: fullSession.customer_details.phone || '000-000-0000',
         };
 
-        const orderResult = await client.query(`SELECT id, interior_pdf_url, cover_pdf_url, actual_page_count FROM orders WHERE stripe_session_id = $1`, [fullSession.id]);
-        const order = orderResult.rows[0];
+        const luluOrderDetails = {
+            id: order.id,
+            book_title: order.book_title,
+            lulu_product_id: order.lulu_product_id,
+            cover_pdf_url: order.cover_pdf_url,
+            interior_pdf_url: order.interior_pdf_url
+        };
 
-        if (!order || !order.interior_pdf_url || !order.cover_pdf_url || !order.actual_page_count) {
-            console.error(`Order ${fullSession.id} not found or missing PDF URLs/actual_page_count in DB during webhook processing.`);
-            throw new Error("Order data incomplete for print job submission.");
-        }
-
-        console.log("--- DEBUG: CHECKING PDF URLS (before Lulu call) ---");
-        console.log("Interior PDF URL:", order.interior_pdf_url);
-        console.log("Cover PDF URL:", order.cover_pdf_url);
-        console.log("Lulu Product ID (Dynamic SKU from DB):", luluProductId);
-        console.log("Actual Page Count (from DB):", order.actual_page_count);
-        console.log("Shipping Info:", shippingInfo);
-        console.log("--------------------------------------------------");
-
-        console.log('Submitting print job to Lulu...');
-        const luluJob = await createLuluPrintJob(
-            luluProductId,
-            order.actual_page_count,
-            order.interior_pdf_url,
-            order.cover_pdf_url,
-            order.id,
-            userId,
-            shippingInfo
-        );
-        console.log('Lulu Print Job initiated:', luluJob);
-
-        const orderSqlUpdate = `UPDATE orders SET lulu_order_id = $1, status = $2, lulu_job_status = $3, updated_at = NOW(), lulu_job_id = $4 WHERE id = $5`;
-        await client.query(orderSqlUpdate, [luluJob.id, 'print_job_created', luluJob.status, luluJob.id, order.id]);
+        const luluJob = await createLuluPrintJob(luluOrderDetails, shippingInfo);
+        
+        const orderSqlUpdate = `UPDATE orders SET lulu_job_id = $1, status = $2, lulu_job_status = $3 WHERE id = $4`;
+        await client.query(orderSqlUpdate, [luluJob.id, 'processing', luluJob.status, order.id]);
 
         console.log('✅ Order record updated with Lulu Job ID and status. Order ID:', order.id);
 
@@ -131,8 +126,7 @@ export const stripeWebhook = (req, res) => {
     const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
     let event;
     try {
-        const rawBody = req.rawBody || req.body;
-        event = stripeClient.webhooks.constructEvent(rawBody, sig, endpointSecret);
+        event = stripeClient.webhooks.constructEvent(req.body, sig, endpointSecret);
     } catch (err) {
         console.error(`❌ Webhook signature verification failed.`, err.message);
         return res.status(400).send(`Webhook Error: ${err.message}`);
