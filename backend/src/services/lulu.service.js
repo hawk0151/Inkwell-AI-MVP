@@ -12,10 +12,8 @@ export const LULU_PRODUCT_CONFIGURATIONS = [
         luluType: 'PAPERBACK_PERFECT_BOUND',
         trimSize: '5.5x8.5',
         skuOptions: [
-            { pageRange: { min: 24, max: 48 }, sku: '0550X0850BWSTDCW060UC444GXX' },
-            { pageRange: { min: 49, max: 72 }, sku: '0550X0850BWSTDCW070UC444GXX' },
-            { pageRange: { min: 73, max: 96 }, sku: '0550X0850BWSTDCW090UC444GXX' },
-            { pageRange: { min: 97, max: 120 }, sku: '0550X0850BWSTDCW120UC444GXX' },
+            // UPDATED: Replaced multiple incorrect SKUs with the single correct one.
+            { pageRange: { min: 32, max: 800 }, sku: '0500X0800BWSTDPB060UC444GXX' }
         ]
     },
     {
@@ -122,7 +120,6 @@ async function getAccessToken() {
                 grant_type: 'client_credentials',
                 client_id: LULU_CLIENT_ID,
                 client_secret: LULU_CLIENT_SECRET
-                // REMOVED: scope: 'lulu.print_jobs'
             }),
             {
                 headers: {

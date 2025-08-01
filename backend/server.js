@@ -1,3 +1,5 @@
+// backend/src/server.js
+
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
@@ -54,11 +56,19 @@ const startServer = async () => {
 
     const app = express();
     const PORT = process.env.PORT || 5001;
+    
+    // --- CORS CONFIGURATION UPDATED ---
+    // We define an array of allowed origins.
+    const allowedOrigins = [
+        process.env.CORS_ORIGIN || 'http://localhost:5173', // Your local dev environment
+        'https://inkwell-ai-mvp-frontend.onrender.com'      // Your deployed production frontend
+    ];
 
     app.use(cors({
-        origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
+        origin: allowedOrigins, // Use the array of allowed origins
         credentials: true,
     }));
+    // --- END OF CORS UPDATE ---
 
     app.use(morgan('dev'));
     
