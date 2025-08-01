@@ -37,12 +37,6 @@ export const createPictureBook = async (req, res) => {
             return res.status(403).json({ message: "You have reached the maximum of 5 projects." });
         }
 
-        const printOptionsCache = await getPrintOptions();
-        const selectedProductConfig = printOptionsCache.find(p => p.id === luluProductId);
-        if (!selectedProductConfig) {
-            return res.status(404).json({ message: 'Selected product format (configuration) not found.' });
-        }
-
         const bookId = randomUUID();
         const currentDate = new Date().toISOString();
         const sql = `INSERT INTO picture_books (id, user_id, title, date_created, last_modified, lulu_product_id) VALUES ($1, $2, $3, $4, $5, $6)`;
@@ -65,12 +59,12 @@ export const getPictureBook = async (req, res) => {
 
         const { bookId } = req.params;
         const userId = req.userId;
-
+        
         const book = await getFullPictureBook(bookId, userId, client);
         if (!book) {
             return res.status(404).json({ message: 'Project not found.' });
         }
-
+        
         res.status(200).json({ book, timeline: book.timeline });
     } catch (err) {
         console.error("Error fetching project:", err.message);
@@ -88,22 +82,17 @@ export const getPictureBooks = async (req, res) => {
 
         const userId = req.userId;
         const sql = `
-            SELECT
-                pb.id, pb.title, pb.last_modified, pb.is_public, pb.cover_image_url, pb.lulu_product_id,
-                u.username as author_username,
-                u.avatar_url as author_avatar_url
+            SELECT pb.id, pb.title, pb.last_modified, pb.is_public, pb.cover_image_url, pb.lulu_product_id
             FROM picture_books pb
-            JOIN users u ON pb.user_id = u.id
             WHERE pb.user_id = $1
-            ORDER BY pb.last_modified DESC
-        `;
+            ORDER BY pb.last_modified DESC`;
         const booksResult = await client.query(sql, [userId]);
         const books = booksResult.rows;
 
         const printOptionsCache = await getPrintOptions();
         const booksWithType = books.map(book => {
             const productConfig = printOptionsCache.find(p => p.id === book.lulu_product_id);
-            return { ...book, productName: productConfig ? productConfig.name : 'Unknown Book', type: 'pictureBook', book_type: 'pictureBook' };
+            return { ...book, productName: productConfig ? productConfig.name : 'Unknown Book', type: 'pictureBook' };
         });
         res.status(200).json(booksWithType);
     } catch (err) {
@@ -154,51 +143,18 @@ export const addTimelineEvent = async (req, res) => {
     }
 };
 
-export const deletePictureBook = async (req, res) => {
-    let client;
-    try {
-        const pool = await getDb();
-        client = await pool.connect();
-        await client.query('BEGIN');
-
-        const { bookId } = req.params;
-        const userId = req.userId;
-
-        const bookResult = await client.query(`SELECT id FROM picture_books WHERE id = $1 AND user_id = $2`, [bookId, userId]);
-        const book = bookResult.rows[0];
-
-        if (!book) {
-            return res.status(404).json({ message: 'Project not found.' });
-        }
-
-        await client.query(`DELETE FROM timeline_events WHERE book_id = $1`, [bookId]);
-        await client.query(`DELETE FROM picture_books WHERE id = $1`, [bookId]);
-
-        await client.query('COMMIT');
-        res.status(200).json({ message: 'Project deleted successfully.' });
-    } catch (err) {
-        if (client) await client.query('ROLLBACK');
-        console.error("Error deleting project:", err.message);
-        res.status(500).json({ message: 'Failed to delete project.' });
-    } finally {
-        if (client) client.release();
-    }
-};
-
 export const createBookCheckoutSession = async (req, res) => {
+    const { bookId } = req.params;
     let client;
     let tempInteriorPdfPath = null;
     let tempCoverPdfPath = null;
     let initialTempPdfPath = null;
 
-    const { bookId } = req.params;
-    const userId = req.userId;
-
     try {
         const pool = await getDb();
         client = await pool.connect();
 
-        const book = await getFullPictureBook(bookId, userId, client);
+        const book = await getFullPictureBook(bookId, req.userId, client);
         if (!book) return res.status(404).json({ message: "Project not found." });
 
         const selectedProductConfig = LULU_PRODUCT_CONFIGURATIONS.find(p => p.id === book.lulu_product_id);
@@ -220,25 +176,35 @@ export const createBookCheckoutSession = async (req, res) => {
             initialTempPdfPath = null;
         }
 
-        const interiorPdfUrl = await uploadPdfFileToCloudinary(tempInteriorPdfPath, `inkwell-ai/user_${userId}/books`, `book_${bookId}_interior`);
+        const interiorPdfUrl = await uploadPdfFileToCloudinary(tempInteriorPdfPath, `inkwell-ai/user_${req.userId}/books`, `book_${bookId}_interior`);
 
         const luluSku = selectedProductConfig.luluSku;
-        const coverDimensions = await getCoverDimensionsFromApi(luluSku, finalPageCount);
+        let coverDimensions;
+        let isFallback = false;
+
+        try {
+            coverDimensions = await getCoverDimensionsFromApi(luluSku, finalPageCount);
+            console.log("✅ Successfully retrieved cover dimensions for picture book.");
+        } catch(error) {
+            console.warn("⚠️ Lulu API call for picture book cover dimensions failed. Proceeding with fallback dimensions.");
+            coverDimensions = { width: 446.53, height: 296.93, layout: 'landscape' }; // Fallback for A4 Hardcover
+            isFallback = true;
+        }
         
         tempCoverPdfPath = await generateCoverPdf(book, selectedProductConfig, coverDimensions);
-        const coverPdfUrl = await uploadPdfFileToCloudinary(tempCoverPdfPath, `inkwell-ai/user_${userId}/covers`, `book_${bookId}_cover`);
+        const coverPdfUrl = await uploadPdfFileToCloudinary(tempCoverPdfPath, `inkwell-ai/user_${req.userId}/covers`, `book_${bookId}_cover`);
 
         const orderId = randomUUID();
         await client.query(
-            `INSERT INTO orders (id, user_id, book_id, book_type, book_title, lulu_product_id, status, total_price, interior_pdf_url, cover_pdf_url, order_date, actual_page_count) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), $11)`,
-            [orderId, userId, bookId, 'pictureBook', book.title, luluSku, 'pending', selectedProductConfig.basePrice, interiorPdfUrl, coverPdfUrl, finalPageCount]
+            `INSERT INTO orders (id, user_id, book_id, book_type, book_title, lulu_product_id, status, total_price, interior_pdf_url, cover_pdf_url, order_date, actual_page_count, is_fallback) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), $11, $12)`,
+            [orderId, req.userId, bookId, 'pictureBook', book.title, luluSku, 'pending', selectedProductConfig.basePrice, interiorPdfUrl, coverPdfUrl, finalPageCount, isFallback]
         );
 
         const session = await createStripeCheckoutSession(
-            { id: orderId, name: book.title, price: selectedProductConfig.basePrice },
-            userId,
-            bookId,
-            'pictureBook'
+            { id: bookId, name: book.title, price: selectedProductConfig.basePrice, bookType: 'pictureBook' },
+            req.userId,
+            orderId,
+            bookId
         );
         
         await client.query('UPDATE orders SET stripe_session_id = $1 WHERE id = $2', [session.id, orderId]);
@@ -255,13 +221,38 @@ export const createBookCheckoutSession = async (req, res) => {
     }
 };
 
+export const deletePictureBook = async (req, res) => {
+    let client;
+    try {
+        const pool = await getDb();
+        client = await pool.connect();
+        await client.query('BEGIN');
+
+        const { bookId } = req.params;
+        const userId = req.userId;
+
+        const bookResult = await client.query(`SELECT id FROM picture_books WHERE id = $1 AND user_id = $2`, [bookId, userId]);
+        const book = bookResult.rows[0];
+        if (!book) return res.status(404).json({ message: 'Project not found.' });
+
+        await client.query(`DELETE FROM timeline_events WHERE book_id = $1`, [bookId]);
+        await client.query(`DELETE FROM picture_books WHERE id = $1`, [bookId]);
+
+        await client.query('COMMIT');
+        res.status(200).json({ message: 'Project deleted successfully.' });
+    } catch (err) {
+        if (client) await client.query('ROLLBACK');
+        console.error("Error deleting project:", err.message);
+        res.status(500).json({ message: 'Failed to delete project.' });
+    } finally {
+        if (client) client.release();
+    }
+};
+
 export const deleteTimelineEvent = async (req, res) => {
-    console.log("DEBUG BACKEND: deleteTimelineEvent controller hit!");
     let client;
     const { bookId, pageNumber } = req.params;
     const userId = req.userId;
-
-    console.log(`DEBUG BACKEND: Deleting for Book ID: ${bookId}, Page Number: ${pageNumber}, User ID: ${userId}`);
 
     try {
         const pool = await getDb();
@@ -270,36 +261,16 @@ export const deleteTimelineEvent = async (req, res) => {
         const bookResult = await client.query(`SELECT id FROM picture_books WHERE id = $1 AND user_id = $2`, [bookId, userId]);
         const book = bookResult.rows[0];
         if (!book) {
-            console.log(`DEBUG BACKEND: Book ${bookId} not found or not owned by user ${userId}.`);
             return res.status(404).json({ message: 'Project not found or you do not have permission to edit it.' });
         }
 
-        if (isNaN(parseInt(pageNumber)) || parseInt(pageNumber) <= 0) {
-            console.log(`DEBUG BACKEND: Invalid page number provided: ${pageNumber}`);
-            return res.status(400).json({ message: 'Invalid page number provided.' });
-        }
-
-        const eventToDeleteResult = await client.query(`SELECT * FROM timeline_events WHERE book_id = $1 AND page_number = $2`, [bookId, pageNumber]);
-        const eventToDelete = eventToDeleteResult.rows[0];
-        if (!eventToDelete) {
-            console.log(`DEBUG BACKEND: Page ${pageNumber} not found for book ${bookId}.`);
-            return res.status(404).json({ message: `Page ${pageNumber} not found for this book.` });
-        }
-        console.log(`DEBUG BACKEND: Found event to delete: Page ${pageNumber}`);
-
         await client.query(`DELETE FROM timeline_events WHERE book_id = $1 AND page_number = $2`, [bookId, pageNumber]);
-        console.log(`DEBUG BACKEND: Deleted timeline event for book ${bookId}, page ${pageNumber}.`);
-
         await client.query(`UPDATE timeline_events SET page_number = page_number - 1 WHERE book_id = $1 AND page_number > $2`, [bookId, pageNumber]);
-        console.log(`DEBUG BACKEND: Re-ordered subsequent pages for book ${bookId}.`);
-
         await client.query(`UPDATE picture_books SET last_modified = $1 WHERE id = $2`, [new Date().toISOString(), bookId]);
-        console.log(`DEBUG BACKEND: Updated last_modified for book ${bookId}.`);
 
         res.status(200).json({ message: `Page ${pageNumber} deleted successfully and subsequent pages re-ordered.` });
-
     } catch (err) {
-        console.error(`DEBUG BACKEND: Error in deleteTimelineEvent controller:`, err.message, err.stack);
+        console.error(`Error in deleteTimelineEvent controller:`, err.message);
         res.status(500).json({ message: 'Failed to delete the page.' });
     } finally {
         if (client) client.release();

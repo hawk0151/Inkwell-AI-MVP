@@ -7,7 +7,7 @@ import path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 import { dirname } from 'path';
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
-import { LULU_PRODUCT_CONFIGURATIONS, getCoverDimensionsFromApi } from './lulu.service.js';
+import { LULU_PRODUCT_CONFIGURATIONS } from './lulu.service.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -26,7 +26,7 @@ const getProductDimensions = (luluConfigId) => {
     let widthMm, heightMm, layout;
 
     switch (productConfig.trimSize) {
-        case '5.75x8.75': // Corrected Production Trim Size
+        case '5.75x8.75':
             widthMm = 146.05;
             heightMm = 222.25;
             layout = 'portrait';

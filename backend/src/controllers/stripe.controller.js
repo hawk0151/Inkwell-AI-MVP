@@ -48,6 +48,11 @@ const handleSuccessfulCheckout = async (session) => {
             phone_number: session.customer_details.phone || '000-000-0000',
         };
 
+        if (order.is_fallback) {
+            console.warn(`⚠️ Order ${order.id} was created with fallback dimensions. Submitting to Lulu, but cover may require manual adjustment later.`);
+            // You could add logic here to flag this order for manual review, e.g., send an email to yourself.
+        }
+
         const luluOrderDetails = {
             id: order.id,
             book_title: order.book_title,
@@ -86,9 +91,8 @@ export const stripeWebhook = (req, res) => {
     }
     
     if (event.type === 'checkout.session.completed') {
-        // FIXED: Removed the invalid `expand` parameter.
         stripeClient.checkout.sessions.retrieve(event.data.object.id, {
-            expand: ['customer'] // We can safely expand customer if needed
+            expand: ['customer'],
         }).then(session => {
             handleSuccessfulCheckout(session);
         }).catch(err => {
