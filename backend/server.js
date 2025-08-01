@@ -9,12 +9,30 @@ import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 import admin from 'firebase-admin';
 import morgan from 'morgan';
+import dns from 'dns/promises';
 import { setupDatabase } from './src/db/setupDatabase.js';
 import { stripeWebhook } from './src/controllers/stripe.controller.js';
-// NEW: Import the test controller
 import { createTestCheckout } from './src/controllers/test.controller.js';
 
+async function checkDnsResolution() {
+    const luluUrl = process.env.LULU_API_BASE_URL;
+    if (!luluUrl) {
+        console.error('❌ LULU_API_BASE_URL is not set. Cannot perform DNS check.');
+        return;
+    }
+    const hostname = new URL(luluUrl).hostname;
+    console.log(`Performing startup DNS check for: ${hostname}`);
+    try {
+        const { address } = await dns.lookup(hostname);
+        console.log(`✅ DNS resolution successful for ${hostname}. IP Address: ${address}`);
+    } catch (error) {
+        console.error(`❌ CRITICAL: DNS resolution failed for ${hostname}. The server may not be able to connect to the Lulu API.`);
+        console.error(`Error details: ${error.message}`);
+    }
+}
+
 const startServer = async () => {
+    await checkDnsResolution();
     await setupDatabase();
 
     const __filename = fileURLToPath(import.meta.url);
@@ -24,7 +42,6 @@ const startServer = async () => {
     if (process.env.FIREBASE_SERVICE_ACCOUNT_CONFIG) {
         try {
             serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_CONFIG);
-            // This line fixes the private key format by replacing '\\n' with actual newlines.
             serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n');
         } catch (e) {
             console.error('Error: FIREBASE_SERVICE_ACCOUNT_CONFIG environment variable is not valid JSON.', e);
@@ -47,8 +64,8 @@ const startServer = async () => {
     const pictureBookRoutes = (await import('./src/api/picturebook.routes.js')).default;
     const imageRoutes = (await import('./src/api/image.routes.js')).default;
     const textBookRoutes = (await import('./src/api/textbook.routes.js')).default;
-    const { router: userRoutes } = await import('./src/api/user.routes.js'); // Named export
-    const { router: analyticsRoutes } = await import('./src/api/analytics.routes.js'); // Named export
+    const { router: userRoutes } = await import('./src/api/user.routes.js');
+    const { router: analyticsRoutes } = await import('./src/api/analytics.routes.js');
     const profileRoutes = (await import('./src/api/profile.routes.js')).default;
     const socialBookRoutes = (await import('./src/api/social.book.routes.js')).default;
     const feedRoutes = (await import('./src/api/feed.routes.js')).default;
@@ -57,37 +74,23 @@ const startServer = async () => {
     const app = express();
     const PORT = process.env.PORT || 5001;
     
-    // --- CORS CONFIGURATION UPDATED ---
-    // We define an array of allowed origins.
     const allowedOrigins = [
-        process.env.CORS_ORIGIN || 'http://localhost:5173', // Your local dev environment
-        'https://inkwell-ai-mvp-frontend.onrender.com'      // Your deployed production frontend
+        process.env.CORS_ORIGIN || 'http://localhost:5173',
+        'https://inkwell-ai-mvp-frontend.onrender.com'
     ];
-
-    app.use(cors({
-        origin: allowedOrigins, // Use the array of allowed origins
-        credentials: true,
-    }));
-    // --- END OF CORS UPDATE ---
-
+    app.use(cors({ origin: allowedOrigins, credentials: true }));
     app.use(morgan('dev'));
     
-    // Webhook routes that need the raw body must come BEFORE express.json()
     app.post('/api/orders/webhook', express.raw({ type: 'application/json' }), handleWebhook);
     app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), stripeWebhook);
 
-    // Parsers for all other routes
     app.use(express.json());
     app.use(express.urlencoded({ extended: true }));
     app.use(cookieParser());
-
-    // Serve static files (e.g., uploaded images)
     app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
 
-    // --- Route Definitions ---
-    // NEW: Add the test route
+    // Route Definitions
     app.get('/api/test/create-checkout', createTestCheckout);
-
     app.use('/api/story', storyRoutes);
     app.use('/api/products', productRoutes);
     app.use('/api/orders', orderRoutes);
@@ -100,17 +103,14 @@ const startServer = async () => {
     app.use('/api/feed', feedRoutes);
     app.use('/api/v1/analytics', analyticsRoutes);
 
-    // Root route
     app.get('/', (req, res) => {
         res.send('Inkwell AI Backend is running successfully!');
     });
 
-    // Catch-all for 404 Not Found
     app.use((req, res, next) => {
         res.status(404).json({ message: 'Not Found' });
     });
 
-    // Global error handler
     app.use((err, req, res, next) => {
         console.error('Unhandled error:', err);
         res.status(500).json({ message: 'Internal Server Error', error: err.message });
