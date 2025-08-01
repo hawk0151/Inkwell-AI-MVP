@@ -79,7 +79,8 @@ export const stripeWebhook = (req, res) => {
     const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
     let event;
     try {
-        event = stripeClient.webhooks.constructEvent(req.rawBody, sig, endpointSecret);
+        // FIXED: The raw body from the middleware is in req.body, not req.rawBody
+        event = stripeClient.webhooks.constructEvent(req.body, sig, endpointSecret);
     } catch (err) {
         console.error(`❌ Webhook signature verification failed.`, err.message);
         return res.status(400).send(`Webhook Error: ${err.message}`);
