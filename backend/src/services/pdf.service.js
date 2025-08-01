@@ -29,10 +29,11 @@ const getProductDimensions = (luluConfigId) => {
     let widthMm, heightMm, layout;
 
     switch (productConfig.trimSize) {
-        case '5.5x8.5': // Novella
-            // FIXED: Dimensions updated to match the 5.25 x 8.25 inch product SKU.
-            widthMm = 133.35; // This is 5.25 inches
-            heightMm = 209.55; // This is 8.25 inches
+        // UPDATED: This case now matches the new '5.75x8.75' trimSize from the config
+        case '5.75x8.75':
+            // FIXED: Dimensions updated to match the 5.75 x 8.75 inch sandbox product
+            widthMm = 146.05; // 5.75 inches
+            heightMm = 222.25; // 8.75 inches
             layout = 'portrait';
             break;
         case '8.27x11.69':
@@ -46,6 +47,14 @@ const getProductDimensions = (luluConfigId) => {
             layout = 'portrait';
             break;
         default:
+            // ADDED FALLBACK for the old trim size to prevent crashes if not updated everywhere yet.
+            // You can remove this once you're sure '5.5x8.5' is no longer used.
+            case '5.5x8.5': 
+                console.warn("WARN: Using legacy '5.5x8.5' trim size. Please update to '5.75x8.75'. Correcting dimensions for sandbox.");
+                widthMm = 146.05; // 5.75 inches
+                heightMm = 222.25; // 8.75 inches
+                layout = 'portrait';
+                break;
             throw new Error(`Unknown trim size ${productConfig.trimSize} for interior PDF dimensions.`);
     }
 

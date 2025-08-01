@@ -5,15 +5,16 @@ import querystring from 'querystring';
 
 export const LULU_PRODUCT_CONFIGURATIONS = [
     {
-        id: 'NOVBOOK_BW_5.5x8.5', // A logical ID for our internal configuration/template
-        name: 'Novella (5.5 x 8.5")',
+        // NOTE: The ID is for our internal reference, so it doesn't need to change.
+        id: 'NOVBOOK_BW_5.5x8.5', 
+        name: 'Novella (5.75 x 8.75")', // Changed name to reflect sandbox product
         type: 'textBook',
         basePrice: 5.00,
         luluType: 'PAPERBACK_PERFECT_BOUND',
-        trimSize: '5.5x8.5',
+        trimSize: '5.75x8.75', // Changed trim size to match sandbox product
         skuOptions: [
-            // UPDATED: Replaced multiple incorrect SKUs with the single correct one.
-            { pageRange: { min: 32, max: 800 }, sku: '0500X0800BWSTDPB060UC444GXX' }
+            // UPDATED: Using the correct SANDBOX SKU for the entire page range
+            { pageRange: { min: 32, max: 800 }, sku: '0550X0850BWSTDPB060UC444MXX' }
         ]
     },
     {
