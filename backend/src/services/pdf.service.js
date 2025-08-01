@@ -77,13 +77,41 @@ async function streamToBuffer(doc) {
 }
 
 export const generateCoverPdf = async (book, productConfig, coverDimensions) => {
-    const docWidthPoints = mmToPoints(coverDimensions.width);
-    const docHeightPoints = mmToPoints(coverDimensions.height);
+    // --- TEMPORARY FIX START ---
+    // Hardcoding dimensions for the Novella (0550X0850BWSTDPB060UC444GXX) based on Lulu's rejection message.
+    // This bypasses the problematic getCoverDimensionsFromApi for now.
+    let actualCoverWidthMm;
+    let actualCoverHeightMm;
+    let actualLayout;
+
+    if (productConfig.luluSku === '0550X0850BWSTDPB060UC444GXX') {
+        // Lulu expects: 11.396"-11.521" x 8.688"-8.812"
+        // Let's pick a value within the range, converted to mm.
+        // Approx mid-point: 11.4585" x 8.75"
+        actualCoverWidthMm = 290.945; // Corresponds to 11.4585 inches
+        actualCoverHeightMm = 222.25; // Corresponds to 8.75 inches
+        actualLayout = 'portrait'; // Assuming portrait for a typical book cover
+        
+        console.warn(`⚠️ generateCoverPdf: Using hardcoded dimensions for SKU ${productConfig.luluSku} to bypass Lulu API issue.`);
+        console.warn(`   Hardcoded dimensions: ${actualCoverWidthMm}mm x ${actualCoverHeightMm}mm`);
+    } else {
+        // Fallback to the original logic if it's a different product.
+        // NOTE: This will still use the 'fallback dimensions' if getCoverDimensionsFromApi fails for other SKUs.
+        actualCoverWidthMm = coverDimensions.width;
+        actualCoverHeightMm = coverDimensions.height;
+        actualLayout = coverDimensions.layout;
+        console.warn(`⚠️ generateCoverPdf: Using dimensions from 'coverDimensions' for SKU ${productConfig.luluSku}.`);
+    }
+
+    const docWidthPoints = mmToPoints(actualCoverWidthMm);
+    const docHeightPoints = mmToPoints(actualCoverHeightMm);
+
     const doc = new PDFDocument({
         size: [docWidthPoints, docHeightPoints],
-        layout: coverDimensions.layout,
+        layout: actualLayout,
         margins: { top: 0, bottom: 0, left: 0, right: 0 }
     });
+    // --- TEMPORARY FIX END ---
     
     const tempPdfsDir = path.resolve(process.cwd(), 'tmp', 'pdfs');
     await fs.mkdir(tempPdfsDir, { recursive: true });
