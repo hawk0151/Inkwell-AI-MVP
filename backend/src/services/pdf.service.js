@@ -14,7 +14,6 @@ const __dirname = dirname(__filename);
 
 const workerPath = path.resolve(__dirname, '../../node_modules/pdfjs-dist/build/pdf.worker.mjs');
 pdfjsLib.GlobalWorkerOptions.workerSrc = pathToFileURL(workerPath).href;
-console.log("PDF.js Worker Source (as URL):", pdfjsLib.GlobalWorkerOptions.workerSrc);
 
 const mmToPoints = (mm) => mm * (72 / 25.4);
 
@@ -138,5 +137,68 @@ export const generateAndSaveTextBookPdf = async (book, productConfig, addFinalBl
     return new Promise((resolve, reject) => {
         stream.on('finish', () => resolve(tempFilePath));
         stream.on('error', reject);
+    });
+};
+
+export const generateAndSavePictureBookPdf = async (book, events, luluConfigId, tempDir) => {
+    return new Promise(async (resolve, reject) => {
+        try {
+            const { width, height, layout } = getProductDimensions(luluConfigId);
+            const doc = new PDFDocument({
+                size: [width, height],
+                layout: layout,
+                autoFirstPage: false,
+                margins: { top: 36, bottom: 36, left: 36, right: 36 }
+            });
+
+            const tempPdfsDir = path.resolve(process.cwd(), 'tmp', 'pdfs');
+            await fs.mkdir(tempPdfsDir, { recursive: true });
+            const tempFilePath = path.join(tempPdfsDir, `interior_picturebook_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.pdf`);
+            const stream = fs.createWriteStream(tempFilePath);
+            doc.pipe(stream);
+
+            doc.addPage();
+            if (book.cover_image_url) {
+                try {
+                    const coverImageBuffer = await getImageBuffer(book.cover_image_url);
+                    doc.image(coverImageBuffer, 0, 0, { width: doc.page.width, height: doc.page.height });
+                } catch (imgErr) {
+                    console.error(`Failed to load cover image for interior from ${book.cover_image_url}`, imgErr);
+                    doc.fontSize(40).font('Helvetica-Bold').text(book.title, { align: 'center' });
+                }
+            } else {
+                doc.fontSize(40).font('Helvetica-Bold').text(book.title, { align: 'center' });
+                doc.moveDown(2);
+                doc.fontSize(18).font('Helvetica').text('A Personalized Story from Inkwell AI', { align: 'center' });
+            }
+
+            for (const event of events) {
+                doc.addPage();
+                const imageUrl = event.uploaded_image_url || event.image_url;
+                if (imageUrl) {
+                    try {
+                        const imageBuffer = await getImageBuffer(imageUrl);
+                        doc.image(imageBuffer, { fit: [doc.page.width - 72, doc.page.height - 150], align: 'center', valign: 'top' });
+                    } catch (imgErr) {
+                        console.error(`Failed to load image from ${imageUrl}`, imgErr);
+                    }
+                }
+                if (event.overlay_text) {
+                    doc.fontSize(24).font('Helvetica-Bold').text(
+                        event.overlay_text,
+                        doc.page.margins.left,
+                        doc.page.height - doc.page.margins.bottom - 100,
+                        { align: 'center', width: doc.page.width - doc.page.margins.left * 2 }
+                    );
+                }
+            }
+            doc.end();
+
+            stream.on('finish', () => resolve(tempFilePath));
+            stream.on('error', reject);
+        } catch (error) {
+            console.error("Error generating and saving picture book PDF:", error);
+            reject(error);
+        }
     });
 };

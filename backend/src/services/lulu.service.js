@@ -9,33 +9,37 @@ export const LULU_PRODUCT_CONFIGURATIONS = [
         luluSku: '0550X0850BWSTDCW060UC444GXX',
         name: 'Novella (5.5 x 8.5")', 
         type: 'textBook',
-        trimSize: '5.5x8.5'
+        trimSize: '5.5x8.5',
+        basePrice: 5.00
     },
     { 
         id: 'A4STORY_FC_8.27x11.69',
         luluSku: '0827X1169BWPRELW060UC444GNG',
         name: 'A4 Story Book (8.27 x 11.69")',
         type: 'pictureBook',
-        trimSize: '8.27x11.69'
+        trimSize: '8.27x11.69',
+        basePrice: 7.50
     },
     { 
         id: 'ROYAL_HARDCOVER_6.14x9.21',
         luluSku: '0614X0921BWPRELW060UC444GNG',
         name: 'Royal Hardcover (6.14 x 9.21")',
         type: 'textBook',
-        trimSize: '6.14x9.21'
+        trimSize: '6.14x9.21',
+        basePrice: 12.00
     },
     { 
         id: 'A4PREMIUM_FC_8.27x11.69',
         luluSku: '0827X1169FCPRELW080CW444MNG',
         name: 'A4 Premium Picture Book (8.27 x 11.69")',
         type: 'pictureBook',
-        trimSize: '8.27x11.69'
+        trimSize: '8.27x11.69',
+        basePrice: 15.00
     }
 ];
 
 export const getPrintOptions = () => {
-    return LULU_PRODUCT_CONFIGURATIONS.map(p => ({ id: p.id, name: p.name, type: p.type }));
+    return LULU_PRODUCT_CONFIGURATIONS.map(p => ({ id: p.id, name: p.name, type: p.type, price: p.basePrice }));
 };
 
 let accessToken = null;
@@ -77,8 +81,8 @@ async function getLuluAuthToken() {
 
 const coverDimensionsCache = new Map();
 
-export async function getCoverDimensionsFromApi(podPackageId, pageCount, unit = 'mm') {
-    const cacheKey = `${podPackageId}-${pageCount}-${unit}`;
+export async function getCoverDimensionsFromApi(podPackageId, pageCount) {
+    const cacheKey = `${podPackageId}-${pageCount}-mm`;
     if (coverDimensionsCache.has(cacheKey)) {
         console.log(`Reusing cached cover dimensions for ${cacheKey}`);
         return coverDimensionsCache.get(cacheKey);
@@ -117,7 +121,6 @@ export async function getCoverDimensionsFromApi(podPackageId, pageCount, unit = 
     }
 }
 
-// --- FIXED: Restored the createLuluPrintJob function ---
 export const createLuluPrintJob = async (orderDetails, shippingInfo) => {
     try {
         const accessToken = await getLuluAuthToken();
@@ -150,14 +153,14 @@ export const createLuluPrintJob = async (orderDetails, shippingInfo) => {
             }],
         };
         
-        console.log("DEBUG: Submitting print job to Lulu with payload:", JSON.stringify(payload, null, 2));
+        console.log("DEBUG: Submitting print job to Lulu...");
 
         const response = await axios.post(printJobUrl, payload, {
             headers: { 
                 'Content-Type': 'application/json', 
                 'Authorization': `Bearer ${accessToken}` 
             },
-            timeout: 60000 // 60 second timeout
+            timeout: 60000
         });
 
         console.log("✅ Successfully created Lulu print job:", response.data.id);

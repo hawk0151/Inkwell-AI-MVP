@@ -38,12 +38,8 @@ export const createTextBook = async (req, res) => {
         if (!printOptionsCache) {
             printOptionsCache = await getPrintOptions();
         }
-        const selectedProductConfig = printOptionsCache.find(p => p.id === luluProductId);
-        if (!selectedProductConfig) {
-            return res.status(404).json({ message: 'Selected product format (configuration) not found.' });
-        }
-
-        const totalChaptersForBook = 6; // Example, adjust as needed
+        
+        const totalChaptersForBook = 6;
 
         const bookId = randomUUID();
         const currentDate = new Date().toISOString();
@@ -193,7 +189,7 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
             return res.status(400).json({ message: `Invalid lulu_product_id.` });
         }
         
-        console.log(`Generating PDFs for book ${bookId}...`);
+        console.log(`Checkout initiated for book ${bookId}. Generating PDFs...`);
         
         initialTempPdfPath = await generateAndSaveTextBookPdf(book, selectedProductConfig);
         const actualInteriorPageCount = await getPdfPageCount(initialTempPdfPath);
@@ -213,24 +209,32 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
         }
 
         const interiorPdfUrl = await uploadPdfFileToCloudinary(tempInteriorPdfPath, `inkwell-ai/user_${req.userId}/books`, `book_${bookId}_interior`);
-        console.log(`Uploaded interior PDF to Cloudinary.`);
-
+        
         const luluSku = selectedProductConfig.luluSku;
         const coverDimensions = await getCoverDimensionsFromApi(luluSku, finalPageCount);
         console.log("Successfully retrieved cover dimensions from legacy API.");
         
         tempCoverPdfPath = await generateCoverPdf(book, selectedProductConfig, coverDimensions);
-        
         const coverPdfUrl = await uploadPdfFileToCloudinary(tempCoverPdfPath, `inkwell-ai/user_${req.userId}/covers`, `book_${bookId}_cover`);
-        console.log(`Uploaded cover PDF to Cloudinary.`);
+        console.log(`PDFs uploaded to Cloudinary.`);
 
-        res.status(200).json({
-            message: "SUCCESS! PDFs created and cover dimensions retrieved.",
-            interiorPdfUrl,
-            coverPdfUrl,
-            luluSku: luluSku,
-            pageCount: finalPageCount
-        });
+        const orderId = randomUUID();
+        await client.query(
+            `INSERT INTO orders (id, user_id, book_id, book_type, book_title, lulu_product_id, status, total_price, interior_pdf_url, cover_pdf_url, order_date, actual_page_count) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), $11)`,
+            [orderId, req.userId, bookId, 'textBook', book.title, luluSku, 'pending', selectedProductConfig.basePrice, interiorPdfUrl, coverPdfUrl, finalPageCount]
+        );
+        console.log(`Created pending order record ${orderId}.`);
+
+        const session = await createStripeCheckoutSession(
+            { id: orderId, name: book.title, price: selectedProductConfig.basePrice },
+            req.userId,
+            bookId,
+            'textBook'
+        );
+        
+        await client.query('UPDATE orders SET stripe_session_id = $1 WHERE id = $2', [session.id, orderId]);
+        
+        res.status(200).json({ url: session.url });
 
     } catch (error) {
         console.error(`Failed to create checkout session: ${error.stack}`);
