@@ -112,10 +112,8 @@ async function getAccessToken() {
 
     console.log('Fetching new Lulu access token...');
     console.log('DEBUG: Using Lulu API Base URL for auth:', LULU_API_BASE_URL);
-    // --- NEW DEBUG LOGS ---
     console.log('DEBUG: LULU_CLIENT_ID being used:', LULU_CLIENT_ID);
     console.log('DEBUG: LULU_CLIENT_SECRET being used (first 5 chars):', LULU_CLIENT_SECRET ? LULU_CLIENT_SECRET.substring(0, 5) + '...' : 'NOT SET');
-    // --- END NEW DEBUG LOGS ---
 
     try {
         const response = await axios.post(
@@ -123,8 +121,8 @@ async function getAccessToken() {
             querystring.stringify({
                 grant_type: 'client_credentials',
                 client_id: LULU_CLIENT_ID,
-                client_secret: LULU_CLIENT_SECRET,
-                scope: 'lulu.print_jobs'
+                client_secret: LULU_CLIENT_SECRET
+                // REMOVED: scope: 'lulu.print_jobs'
             }),
             {
                 headers: {
@@ -143,7 +141,7 @@ async function getAccessToken() {
     }
 }
 
-const coverDimensionsCache = new Map(); // Key: pod_package_id-page_count-unit
+const coverDimensionsCache = new Map();
 
 export async function getCoverDimensionsFromApi(pod_package_id, page_count, unit = 'mm') {
     const cacheKey = `${pod_package_id}-${page_count}-${unit}`;
