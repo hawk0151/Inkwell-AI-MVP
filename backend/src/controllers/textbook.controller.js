@@ -171,25 +171,19 @@ export const getTextBookDetails = async (req, res) => {
 export const createCheckoutSessionForTextBook = async (req, res) => {
     const { bookId } = req.params;
     let client;
-    let tempInteriorPdfPath = null;
-    let tempCoverPdfPath = null;
-    let initialTempPdfPath = null;
+    let tempInteriorPdfPath = null, tempCoverPdfPath = null, initialTempPdfPath = null;
 
     try {
         const pool = await getDb();
         client = await pool.connect();
         
         const book = await getFullTextBook(bookId, req.userId, client);
-        if (!book) {
-            return res.status(404).json({ message: 'Text book not found or access denied.' });
-        }
+        if (!book) return res.status(404).json({ message: 'Text book not found.' });
         
         const selectedProductConfig = LULU_PRODUCT_CONFIGURATIONS.find(p => p.id === book.lulu_product_id);
-        if (!selectedProductConfig) {
-            return res.status(400).json({ message: `Invalid lulu_product_id.` });
-        }
+        if (!selectedProductConfig) return res.status(400).json({ message: 'Invalid product ID.' });
         
-        console.log(`Checkout initiated for book ${bookId}. Generating PDFs...`);
+        console.log(`Checkout for book ${bookId}. Generating PDFs...`);
         
         initialTempPdfPath = await generateAndSaveTextBookPdf(book, selectedProductConfig);
         const actualInteriorPageCount = await getPdfPageCount(initialTempPdfPath);
@@ -199,7 +193,6 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
 
         if (needsBlankPage) {
             finalPageCount++;
-            console.log(`WARN: Odd page count. Adjusting to ${finalPageCount} and regenerating PDF.`);
             await fs.unlink(initialTempPdfPath);
             initialTempPdfPath = null;
             tempInteriorPdfPath = await generateAndSaveTextBookPdf(book, selectedProductConfig, true);
@@ -211,25 +204,36 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
         const interiorPdfUrl = await uploadPdfFileToCloudinary(tempInteriorPdfPath, `inkwell-ai/user_${req.userId}/books`, `book_${bookId}_interior`);
         
         const luluSku = selectedProductConfig.luluSku;
-        const coverDimensions = await getCoverDimensionsFromApi(luluSku, finalPageCount);
-        console.log("Successfully retrieved cover dimensions from legacy API.");
+        let coverDimensions;
+        let isFallback = false;
+
+        // --- OVERRIDE LOGIC ---
+        try {
+            console.log(`Attempting to fetch cover dimensions for SKU ${luluSku} and ${finalPageCount} pages...`);
+            coverDimensions = await getCoverDimensionsFromApi(luluSku, finalPageCount);
+            console.log("✅ Successfully retrieved cover dimensions from Lulu API.");
+        } catch (error) {
+            console.warn("⚠️ Lulu API call for cover dimensions failed. Proceeding with fallback dimensions.");
+            // Plausible hardcoded dimensions for a ~70 page 5.75x8.75 book
+            coverDimensions = { width: 291.57, height: 222.25, layout: 'landscape' };
+            isFallback = true;
+        }
+        // --- END OVERRIDE LOGIC ---
         
         tempCoverPdfPath = await generateCoverPdf(book, selectedProductConfig, coverDimensions);
         const coverPdfUrl = await uploadPdfFileToCloudinary(tempCoverPdfPath, `inkwell-ai/user_${req.userId}/covers`, `book_${bookId}_cover`);
-        console.log(`PDFs uploaded to Cloudinary.`);
+        console.log(`PDFs uploaded to Cloudinary. Order is using ${isFallback ? 'FALLBACK' : 'REAL'} dimensions.`);
 
         const orderId = randomUUID();
         await client.query(
-            `INSERT INTO orders (id, user_id, book_id, book_type, book_title, lulu_product_id, status, total_price, interior_pdf_url, cover_pdf_url, order_date, actual_page_count) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), $11)`,
-            [orderId, req.userId, bookId, 'textBook', book.title, luluSku, 'pending', selectedProductConfig.basePrice, interiorPdfUrl, coverPdfUrl, finalPageCount]
+            `INSERT INTO orders (id, user_id, book_id, book_type, book_title, lulu_product_id, status, total_price, interior_pdf_url, cover_pdf_url, order_date, actual_page_count, is_fallback) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), $11, $12)`,
+            [orderId, req.userId, bookId, 'textBook', book.title, luluSku, 'pending', selectedProductConfig.basePrice, interiorPdfUrl, coverPdfUrl, finalPageCount, isFallback]
         );
-        console.log(`Created pending order record ${orderId}.`);
+        console.log(`Created pending order record ${orderId} with fallback status: ${isFallback}.`);
 
         const session = await createStripeCheckoutSession(
             { id: orderId, name: book.title, price: selectedProductConfig.basePrice },
-            req.userId,
-            bookId,
-            'textBook'
+            req.userId, bookId, 'textBook'
         );
         
         await client.query('UPDATE orders SET stripe_session_id = $1 WHERE id = $2', [session.id, orderId]);
