@@ -1,243 +1,238 @@
-import fetch from 'node-fetch';
-import { Buffer } from 'buffer';
+// backend/src/services/lulu.service.js
 
-const LULU_API_URL = 'https://api.sandbox.lulu.com';
+import axios from 'axios';
+import querystring from 'querystring';
 
-export const PRODUCTS_TO_OFFER = [
-    { id: '0550X0850BWSTDCW060UC444GXX', name: 'Novella', description: 'A short & sweet 24-page hardcover story.', pageCount: 24, icon: '📖', type: 'novel', pagesPerChapter: 4, wordsPerPage: 300, binding: 'hardcover' },
-    { id: '0827X1169BWPRELW060UC444GNG', name: 'A4 Story Book', description: 'A classic 48-page A4 text-based hardcover book.', pageCount: 48, icon: '📚', type: 'novel', pagesPerChapter: 4, wordsPerPage: 300, binding: 'hardcover' },
-    { id: '0614X0921BWPRELW060UC444GNG', name: 'Royal Hardcover', description: 'An epic 80-page premium hardcover novel.', pageCount: 80, icon: '📕', type: 'novel', pagesPerChapter: 4, wordsPerPage: 300, binding: 'hardcover' },
-    { id: '0827X1169FCPRELW080CW444MNG', name: 'A4 Premium Picture Book', description: 'A beautiful, full-color 24-page illustrated hardcover.', pageCount: 24, icon: '🎨', type: 'picturebook', binding: 'hardcover' }
+export const LULU_PRODUCT_CONFIGURATIONS = [
+    {
+        id: 'NOVBOOK_BW_5.5x8.5', // A logical ID for our internal configuration/template
+        name: 'Novella (5.5 x 8.5")',
+        type: 'textBook',
+        basePrice: 5.00,
+        luluType: 'PAPERBACK_PERFECT_BOUND',
+        trimSize: '5.5x8.5',
+        skuOptions: [
+            { pageRange: { min: 24, max: 48 }, sku: '0550X0850BWSTDCW060UC444GXX' },
+            { pageRange: { min: 49, max: 72 }, sku: '0550X0850BWSTDCW070UC444GXX' },
+            { pageRange: { min: 73, max: 96 }, sku: '0550X0850BWSTDCW090UC444GXX' },
+            { pageRange: { min: 97, max: 120 }, sku: '0550X0850BWSTDCW120UC444GXX' },
+        ]
+    },
+    {
+        id: 'A4STORY_FC_8.27x11.69',
+        name: 'A4 Story Book (8.27 x 11.69")',
+        type: 'pictureBook',
+        basePrice: 7.50,
+        luluType: 'HARDBACK_CASEWRAP',
+        trimSize: '8.27x11.69',
+        skuOptions: [
+            { pageRange: { min: 24, max: 48 }, sku: '0827X1169BWPRELW060UC444GNG' },
+            { pageRange: { min: 49, max: 72 }, sku: '0827X1169BWPRELW070UC444GNG' },
+        ]
+    },
+    {
+        id: 'ROYAL_HARDCOVER_6.14x9.21',
+        name: 'Royal Hardcover (6.14 x 9.21")',
+        type: 'textBook',
+        basePrice: 12.00,
+        luluType: 'HARDBACK_CASEWRAP',
+        trimSize: '6.14x9.21',
+        skuOptions: [
+            { pageRange: { min: 60, max: 120 }, sku: '0614X0921BWPRELW060UC444GNG' },
+            { pageRange: { min: 121, max: 180 }, sku: '0614X0921BWPRELW120UC444GNG' },
+        ]
+    },
+    {
+        id: 'A4PREMIUM_FC_8.27x11.69',
+        name: 'A4 Premium Picture Book (8.27 x 11.69")',
+        type: 'pictureBook',
+        basePrice: 15.00,
+        luluType: 'HARDBACK_CASEWRAP',
+        trimSize: '8.27x11.69',
+        skuOptions: [
+            { pageRange: { min: 24, max: 48 }, sku: '0827X1169FCPRELW080CW444MNG' },
+            { pageRange: { min: 49, max: 72 }, sku: '0827X1169FCPRELW080CW444MNG' },
+        ]
+    }
 ];
 
-export const getPrintOptions = async () => {
-    const pricedProducts = PRODUCTS_TO_OFFER.map(product => {
-        if (product.type === 'picturebook') return { ...product, price: 69.99 };
-        if (product.type === 'novel') {
-            const novellaPageCount = 24;
-            const novellaPrice = 39.99;
-            const pricePerNovellaPage = novellaPrice / novellaPageCount;
-            const calculatedPrice = product.pageCount * pricePerNovellaPage;
-            return { ...product, price: parseFloat(calculatedPrice.toFixed(2)) };
+export const getLuluSkuByConfigAndPageCount = (configId, actualPageCount) => {
+    const productConfig = LULU_PRODUCT_CONFIGURATIONS.find(config => config.id === configId);
+
+    if (!productConfig) {
+        throw new Error(`Lulu product configuration with ID '${configId}' not found.`);
+    }
+
+    const matchingSkuOption = productConfig.skuOptions.find(option =>
+        actualPageCount >= option.pageRange.min && actualPageCount <= option.pageRange.max
+    );
+
+    if (!matchingSkuOption) {
+        const fallbackSku = productConfig.skuOptions
+            .filter(option => actualPageCount <= option.pageRange.max)
+            .sort((a, b) => a.pageRange.min - b.pageRange.min)
+            [0];
+
+        if (fallbackSku) {
+            console.warn(`WARN: No exact SKU found for config '${configId}' with page count ${actualPageCount}. Falling back to SKU '${fallbackSku.sku}' (min: ${fallbackSku.pageRange.min}, max: ${fallbackSku.pageRange.max}).`);
+            return fallbackSku.sku;
         }
-        return product;
-    });
-    return pricedProducts;
+
+        throw new Error(`No suitable Lulu SKU found for configuration '${configId}' with actual page count ${actualPageCount}. Please check page count ranges in LULU_PRODUCT_CONFIGURATIONS.`);
+    }
+
+    console.log(`DEBUG: Determined dynamic SKU '${matchingSkuOption.sku}' for config '${configId}' and page count ${actualPageCount}.`);
+    return matchingSkuOption.sku;
 };
 
-// Helper function to convert inches to millimeters (already present)
-const inchesToMm = (inches) => inches * 25.4;
-const mmToInches = (mm) => mm / 25.4;
 
-// --- NEW HELPER: Convert from various units to mm ---
-const convertUnitToMm = (value, unit) => {
-    if (unit === 'mm') return value;
-    if (unit === 'in') return inchesToMm(value);
-    if (unit === 'pt') return value / (72 / 25.4); // Convert points to mm
-    console.warn(`[Lulu Service] Unknown unit for conversion: ${unit}. Returning original value.`);
-    return value;
-};
-// --- END NEW HELPER ---
-
-export const getHardcoverSpineWidthMm = (pageCount) => {
-    if (pageCount < 24) return 0;
-    if (pageCount <= 84) return 6;
-    if (pageCount <= 140) return 13;
-    if (pageCount <= 168) return 16;
-    if (pageCount <= 194) return 17;
-    if (pageCount <= 222) return 19;
-    if (pageCount <= 250) return 21;
-    if (pageCount <= 278) return 22;
-    if (pageCount <= 306) return 24;
-    if (pageCount <= 334) return 25;
-    if (pageCount <= 360) return 27;
-    if (pageCount <= 388) return 29;
-    if (pageCount <= 416) return 30;
-    if (pageCount <= 444) return 32;
-    if (pageCount <= 472) return 33;
-    if (pageCount <= 500) return 35;
-    if (pageCount <= 528) return 37;
-    if (pageCount <= 556) return 38;
-    if (pageCount <= 582) return 40;
-    if (pageCount <= 610) return 41;
-    if (pageCount <= 638) return 43;
-    if (pageCount <= 666) return 44;
-    if (pageCount <= 694) return 46;
-    if (pageCount <= 722) return 48;
-    if (pageCount <= 750) return 49;
-    if (pageCount <= 778) return 51;
-    if (pageCount <= 799) return 52;
-    if (pageCount === 800) return 54;
-
-    console.warn(`[Lulu Service] Page count ${pageCount} outside standard hardcover spine calculation range.`);
-    return 54;
+export const getPrintOptions = () => {
+    return LULU_PRODUCT_CONFIGURATIONS.map(config => ({
+        id: config.id,
+        name: config.name,
+        type: config.type,
+        price: config.basePrice,
+        minPages: config.skuOptions[0].pageRange.min,
+        maxPages: config.skuOptions[config.skuOptions.length - 1].pageRange.max,
+        luluType: config.luluType
+    }));
 };
 
-// Cache for cover dimensions to avoid repeated API calls
-const coverDimensionsCache = new Map();
+const LULU_CLIENT_ID = process.env.LULU_CLIENT_ID;
+const LULU_CLIENT_SECRET = process.env.LULU_CLIENT_SECRET;
+const LULU_API_BASE_URL = process.env.LULU_API_BASE_URL;
 
-// --- NEW: getCoverDimensionsFromApi with Caching and Retry Logic ---
-export const getCoverDimensionsFromApi = async (podPackageId, interiorPageCount, unit = 'mm', retries = 2) => {
-    const cacheKey = `${podPackageId}-${interiorPageCount}-${unit}`;
+let accessToken = null;
+let tokenExpiry = 0;
+
+async function getAccessToken() {
+    if (accessToken && Date.now() < tokenExpiry) {
+        return accessToken;
+    }
+
+    console.log('Fetching new Lulu access token...');
+    console.log('DEBUG: Using Lulu API Base URL for auth:', LULU_API_BASE_URL);
+    // --- NEW DEBUG LOGS ---
+    console.log('DEBUG: LULU_CLIENT_ID being used:', LULU_CLIENT_ID);
+    console.log('DEBUG: LULU_CLIENT_SECRET being used (first 5 chars):', LULU_CLIENT_SECRET ? LULU_CLIENT_SECRET.substring(0, 5) + '...' : 'NOT SET');
+    // --- END NEW DEBUG LOGS ---
+
+    try {
+        const response = await axios.post(
+            `${LULU_API_BASE_URL}/auth/realms/glasstree/protocol/openid-connect/token`,
+            querystring.stringify({
+                grant_type: 'client_credentials',
+                client_id: LULU_CLIENT_ID,
+                client_secret: LULU_CLIENT_SECRET,
+                scope: 'lulu.print_jobs'
+            }),
+            {
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded'
+                }
+            }
+        );
+
+        accessToken = response.data.access_token;
+        tokenExpiry = Date.now() + (response.data.expires_in * 1000) - 5000;
+        console.log('Lulu access token obtained.');
+        return accessToken;
+    } catch (error) {
+        console.error('Error fetching Lulu access token:', error.response ? error.response.data : error.message);
+        throw new Error('Failed to obtain Lulu access token.');
+    }
+}
+
+const coverDimensionsCache = new Map(); // Key: pod_package_id-page_count-unit
+
+export async function getCoverDimensionsFromApi(pod_package_id, page_count, unit = 'mm') {
+    const cacheKey = `${pod_package_id}-${page_count}-${unit}`;
     if (coverDimensionsCache.has(cacheKey)) {
-        console.log(`DEBUG: Reusing cached cover dimensions for ${cacheKey}`);
+        console.log(`G: Reusing cached cover dimensions for ${cacheKey}`);
         return coverDimensionsCache.get(cacheKey);
     }
 
-    const accessToken = await getLuluAuthToken();
-    const coverDimensionsUrl = `${LULU_API_URL}/cover-dimensions/`;
-    const payload = {
-        pod_package_id: podPackageId,
-        interior_page_count: interiorPageCount,
-        unit: unit
-    };
-
-    for (let i = 0; i <= retries; i++) {
-        try {
-            console.log(`DEBUG: Calling Lulu Cover Dimensions API for ${podPackageId}, pages: ${interiorPageCount}, unit: ${unit} (Attempt ${i + 1}/${retries + 1})`);
-
-            const response = await fetch(coverDimensionsUrl, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${accessToken}` },
-                body: JSON.stringify(payload)
-            });
-
-            if (!response.ok) {
-                const errorBody = await response.text();
-                const errorMessage = `[LULU_ERROR] Failed to get cover dimensions from API. Status: ${response.status}. Body: ${errorBody}`;
-                console.error(errorMessage);
-
-                if (i < retries && response.status >= 500) { // Retry on server errors
-                    const delay = Math.pow(2, i) * 1000; // Exponential backoff
-                    console.log(`Retrying in ${delay / 1000} seconds...`);
-                    await new Promise(resolve => setTimeout(resolve, delay));
-                    continue; // Go to next retry attempt
-                }
-                // Fallback and Error Visibility: If API fails permanently
-                throw new Error(`Cover dimensions could not be retrieved from Lulu API for product ID ${podPackageId} and page count ${interiorPageCount}. HTTP Status: ${response.status}. Body: ${errorBody}. Suggestion: “Cover dimensions could not be retrieved; aborting PDF generation to avoid invalid cover upload.”`);
-            }
-
-            const data = await response.json();
-            console.log(`✅ Lulu Cover Dimensions API Response: Width: ${data.width}${data.unit}, Height: ${data.height}${data.unit}`);
-
-            const widthInMm = convertUnitToMm(parseFloat(data.width), data.unit);
-            const heightInMm = convertUnitToMm(parseFloat(data.height), data.unit);
-
-            if (isNaN(widthInMm) || isNaN(heightInMm) || widthInMm <= 0 || heightInMm <= 0) {
-                console.error(`❌ Lulu Cover Dimensions API returned invalid dimensions: Width: ${data.width}, Height: ${data.height}. Aborting.`);
-                throw new Error('Lulu Cover Dimensions API returned invalid or non-positive dimensions. Aborting PDF generation.');
-            }
-
-            // Lulu API returns width > height for landscape, so use it directly
-            const layout = (widthInMm > heightInMm) ? 'landscape' : 'portrait';
-
-            const result = {
-                width: widthInMm,
-                height: heightInMm,
-                unit: 'mm', // Standardize to mm
-                layout: layout
-            };
-            coverDimensionsCache.set(cacheKey, result); // Cache the successful result
-            return result;
-
-        } catch (error) {
-            if (i === retries) { // If this was the last retry
-                console.error(`Final attempt failed for getCoverDimensionsFromApi: ${error.message}`);
-                throw error; // Re-throw the error if all retries fail
-            }
-            // For non-retryable errors (e.g., 4xx), re-throw immediately
-            if (!error.message.includes('HTTP Status: 5') && !error.message.includes('timed out')) {
-                 throw error;
-            }
-        }
-    }
-};
-
-
-const getLuluAuthToken = async () => {
-    // This function can be enhanced with token caching as well if needed.
-    const clientKey = process.env.LULU_CLIENT_KEY;
-    const clientSecret = process.env.LULU_CLIENT_SECRET;
-    if (!clientKey || !clientSecret) throw new Error('Lulu API credentials are not configured in .env file.');
-
-    const authUrl = `${LULU_API_URL}/auth/realms/glasstree/protocol/openid-connect/token`;
-    const basicAuth = Buffer.from(`${clientKey}:${clientSecret}`).toString('base64');
-
-    const response = await fetch(authUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Authorization': `Basic ${basicAuth}` },
-        body: 'grant_type=client_credentials'
-    });
-
-    if (!response.ok) {
-        const errorBody = await response.text();
-        console.error(`[LULU_ERROR] Failed to get auth token. Status: ${response.status}. Body: ${errorBody}`);
-        throw new Error('Failed to authenticate with Lulu API.');
-    }
-    const data = await response.json();
-    return data.access_token;
-};
-
-
-export const createLuluPrintJob = async (orderDetails, shippingInfo) => {
-    const accessToken = await getLuluAuthToken();
-    const printJobUrl = `${LULU_API_URL}/print-jobs/`;
-
-    const payload = {
-        contact_email: shippingInfo.email,
-        external_id: `inkwell-order-${orderDetails.id}`,
-        shipping_level: "MAIL",
-        shipping_address: {
-            name: shippingInfo.name,
-            street1: shippingInfo.street1,
-            city: shippingInfo.city,
-            postcode: shippingInfo.postcode,
-            country_code: shippingInfo.country_code,
-            state_code: shippingInfo.state_code,
-            phone_number: shippingInfo.phone_number,
-            email: shippingInfo.email
-        },
-        line_items: [{
-            title: orderDetails.product_name,
-            quantity: 1,
-            printable_normalization: {
-                pod_package_id: orderDetails.lulu_product_id,
-                cover: { source_url: orderDetails.cover_pdf_url },
-                interior: { source_url: orderDetails.interior_pdf_url }
-            }
-        }],
-    };
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 60000);
-
     try {
-        console.log(`DEBUG: Making Lulu API call to ${printJobUrl} with payload...`);
-        const response = await fetch(printJobUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${accessToken}` },
-            body: JSON.stringify(payload),
-            signal: controller.signal
-        });
-        clearTimeout(timeoutId);
+        const token = await getAccessToken();
+        const response = await axios.get(
+            `${LULU_API_BASE_URL}/print-jobs/covers`,
+            {
+                params: {
+                    pod_package_id: pod_package_id,
+                    page_count: page_count,
+                    unit: unit
+                },
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            }
+        );
+        const dimensions = response.data;
 
-        if (!response.ok) {
-            const errorText = await response.text();
-            console.error("Lulu Print Job Raw Error Text:", errorText);
-            throw new Error(`Failed to create Lulu print job. Status: ${response.status}. Message: ${errorText}`);
-        }
+        const layout = dimensions.width > dimensions.height ? 'landscape' : 'portrait';
 
-        const data = await response.json();
-        console.log("✅ Successfully created Lulu print job:", data.id);
-        return data;
+        const result = {
+            width: dimensions.width,
+            height: dimensions.height,
+            bleed: dimensions.bleed,
+            page_count: dimensions.page_count,
+            cover_type: dimensions.cover_type,
+            layout: layout
+        };
+
+        coverDimensionsCache.set(cacheKey, result);
+        return result;
+
     } catch (error) {
-        clearTimeout(timeoutId);
-        if (error.name === 'AbortError') {
-            console.error("❌ Lulu API call timed out after 60 seconds.");
-            throw new Error('Lulu API call timed out.');
-        } else {
-            console.error("❌ Error during Lulu API call:", error);
-            throw error;
-        }
+        console.error('Error getting cover dimensions from Lulu API:', error.response ? JSON.stringify(error.response.data) : error.message);
+        throw new Error(`Failed to get cover dimensions for SKU ${pod_package_id} with ${page_count} pages.`);
     }
-};
+}
+
+export async function createLuluPrintJob(pod_package_id, page_count, interior_pdf_url, cover_pdf_url, external_id, userId, shippingInfo) {
+    try {
+        const token = await getAccessToken();
+
+        const payload = {
+            external_id: external_id,
+            interior_file: {
+                url: interior_pdf_url
+            },
+            cover_file: {
+                url: cover_pdf_url
+            },
+            print_job_metadata: {
+                pod_package_id: pod_package_id,
+                page_count: page_count,
+            },
+            shipping_address: {
+                name: shippingInfo.name,
+                street1: shippingInfo.street1,
+                street2: shippingInfo.street2 || null,
+                city: shippingInfo.city,
+                state_code: shippingInfo.state_code,
+                postcode: shippingInfo.postcode,
+                country_code: shippingInfo.country_code,
+            },
+            contact_email: shippingInfo.email,
+            shipping_level: 'MAIL_STANDARD',
+        };
+
+        const response = await axios.post(
+            `${LULU_API_BASE_URL}/print-jobs/`,
+            payload,
+            {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            }
+        );
+        console.log('Lulu Print Job created successfully:', response.data);
+        return response.data;
+    } catch (error) {
+        console.error('Error creating Lulu Print Job:', error.response ? JSON.stringify(error.response.data) : error.message);
+        throw new Error('Failed to create Lulu Print Job.');
+    }
+}
