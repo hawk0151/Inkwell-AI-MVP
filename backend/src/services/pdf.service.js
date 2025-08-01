@@ -26,9 +26,9 @@ const getProductDimensions = (luluConfigId) => {
     let widthMm, heightMm, layout;
 
     switch (productConfig.trimSize) {
-        case '5.5x8.5':
-            widthMm = 139.7;
-            heightMm = 215.9;
+        case '5.75x8.75': // Corrected Production Trim Size
+            widthMm = 146.05;
+            heightMm = 222.25;
             layout = 'portrait';
             break;
         case '8.27x11.69':
@@ -67,7 +67,6 @@ export async function getPdfPageCount(pdfFilePath) {
     }
 }
 
-// Helper function to convert a PDFDocument stream to a Buffer
 async function streamToBuffer(doc) {
     return new Promise((resolve, reject) => {
         const buffers = [];

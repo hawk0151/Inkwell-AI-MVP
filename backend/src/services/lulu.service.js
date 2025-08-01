@@ -6,12 +6,12 @@ import dns from 'dns/promises';
 
 export const LULU_PRODUCT_CONFIGURATIONS = [
     {
-        id: 'NOVBOOK_BW_5.5x8.5',
-        luluSku: '0550X0850BWSTDCW060UC444GXX',
-        name: 'Novella (5.5 x 8.5")',
+        id: 'NOVBOOK_BW_5.5x8.5', // Internal ID, can remain the same for db consistency
+        luluSku: '0550X0850BWSTDPB060UC444GXX', // The correct Production SKU
+        name: 'Novella (5.75 x 8.75")', // Correct Production Name
         type: 'textBook',
-        trimSize: '5.5x8.5',
-        basePrice: 5.0
+        trimSize: '5.75x8.75', // Correct Production Trim Size
+        basePrice: 5.49 // Correct Production Price
     },
     {
         id: 'A4STORY_FC_8.27x11.69',
