@@ -147,12 +147,9 @@ export async function getCoverDimensionsFromApi(podPackageId, pageCount) {
         return coverDimensionsCache.get(cacheKey);
     }
 
-    const baseUrl = process.env.LULU_API_BASE_URL;
-    if (!baseUrl) {
-        throw new Error('LULU_API_BASE_URL is not configured.');
-    }
-
-    const endpoint = `${baseUrl.replace(/\/$/, '')}/cover-templates/`;
+    // FIX: Use the exact endpoint provided by Lulu Support
+    const endpoint = 'https://api.lulu.com/print-jobs/printable_normalization'; 
+    // The previous line was: const endpoint = `${baseUrl.replace(/\/$/, '')}/cover-templates/`;
 
     try {
         await ensureHostnameResolvable(endpoint);
@@ -168,8 +165,10 @@ export async function getCoverDimensionsFromApi(podPackageId, pageCount) {
             return await axios.post(
                 endpoint,
                 {
-                    pod_package_id: podPackageId,
-                    page_count: pageCount
+                    printable_normalization: { // Note: Lulu's example for validate-cover uses this nested structure
+                        product_id: podPackageId,
+                        page_count: pageCount
+                    }
                 },
                 {
                     headers: {
@@ -182,12 +181,24 @@ export async function getCoverDimensionsFromApi(podPackageId, pageCount) {
         }, 3, 300);
 
         const dimensions = response.data;
-        const layout = dimensions.pdf_width_mm > dimensions.pdf_height_mm ? 'landscape' : 'portrait';
+        // Updated logic to extract width, height, and bleed based on Lulu's typical 'printable_normalization' response
+        // The original response structure assumed a direct width/height. Lulu's 'printable_normalization' returns
+        // { cover: { width_mm, height_mm, bleed_mm }, interior: { ... } }
+        
+        if (!dimensions || !dimensions.cover || typeof dimensions.cover.width_mm === 'undefined' || typeof dimensions.cover.height_mm === 'undefined' || typeof dimensions.cover.bleed_mm === 'undefined') {
+            console.error('Unexpected Lulu API response structure for cover dimensions:', JSON.stringify(dimensions, null, 2));
+            throw new Error('Unexpected Lulu API response for cover dimensions. Missing expected fields (width_mm, height_mm, bleed_mm).');
+        }
+
+        const width = dimensions.cover.width_mm + (dimensions.cover.bleed_mm * 2);
+        const height = dimensions.cover.height_mm + (dimensions.cover.bleed_mm * 2);
+        const layout = width > height ? 'landscape' : 'portrait';
 
         const result = {
-            width: dimensions.pdf_width_mm,
-            height: dimensions.pdf_height_mm,
-            layout: layout
+            width: width,
+            height: height,
+            layout: layout,
+            bleed: dimensions.cover.bleed_mm // Storing bleed as it's often useful
         };
 
         coverDimensionsCache.set(cacheKey, result);
@@ -195,6 +206,10 @@ export async function getCoverDimensionsFromApi(podPackageId, pageCount) {
     } catch (error) {
         console.error('Error getting cover dimensions from Lulu API (Legacy):',
             error.response ? JSON.stringify(error.response.data) : error.message);
+        // Specifically check for Lulu's common 'printable_normalization' error response
+        if (error.response && error.response.data && error.response.data.printable_normalization && error.response.data.printable_normalization.interior) {
+            console.error('Lulu API Error Details (printable_normalization.interior):', error.response.data.printable_normalization.interior);
+        }
         throw new Error(`Failed to get cover dimensions for SKU ${podPackageId} with ${pageCount} pages.`);
     }
 }

@@ -1,0 +1,74 @@
+[33m3ed35ff5c628c59b00391533cf152f609ea2f6b0[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m)[m fix: SET SKU TO TEST MODE
+[33m0ee27f2b6b72d6f0478aabb64de60dea0824e1e8[m fix: Align PDF dimensions with SKU and resolve crash
+[33m390d9c182ac18dadcd369233679515e48e33b4ad[m fix: Implement even page count logic for Lulu PDFs
+[33mbc32ccfc4a214a3e206c05f90a432faff584d6fb[m refine server.js and lulu.service.js compatability
+[33m42988194c91ce11d0ff15f938c4c720c70909a0f[m removed getAccessToken in lulu.service.js - hopefully preventing a bug
+[33me386285439436b759d16fbfbb1730cdbf8d746aa[m feat: Complete Lulu POD integration steps and fix pdfjs-dist dependency for Render deploy
+[33m17240047507068a14d7799d8e00f072a492e6567[m feat: Implement dynamic Lulu API endpoints and improve auth debugging
+[33m1b1f5762b840e7dea17c94a247b9bdf0cf3f914d[m feat: Implement dynamic Lulu API endpoints and improve auth debugging
+[33m6c4b6651e5cae6d44b0da2b07c6a215c0409e9f4[m attempt to fix luluservice pdf sizing error
+[33m0f3e43f9f5515f83a3d16c5bbac569925e4c3277[m fix: Integrate Lulu Cover Dimensions API for precise cover PDF sizing and fix PRODUCTS_TO_OFFER typo v2
+[33m1e919f40ac5b868c003da0ec71a8c016e09bb6f5[m fix: Integrate Lulu Cover Dimensions API for precise cover PDF sizing and fix PRODUCTS_TO_OFFER typo v2
+[33m3f23bda9f59ad1867a9ff4da657760539fa0dc69[m fix: Integrate Lulu Cover Dimensions API for precise cover PDF sizing and fix PRODUCTS_TO_OFFER typo v2
+[33m2deadeb4294ef6717507e90f5d0812d1d8c6b835[m fix: Integrate Lulu Cover Dimensions API for precise cover PDF sizing and fix PRODUCTS_TO_OFFER typo
+[33mb42929c78ff2f31741b423f1798f4f47a25fc8d1[m fix: Generate cover PDF with correct landscape dimensions directly for Lulu
+[33m7e2c79296ecef5dacef3a336c22efebbfeb60e96[m fix: Generate cover PDF with correct landscape dimensions directly for Lulu
+[33mbceeaec48919040fed552d4f579e7165a8f040a2[m fix: Generate cover PDF with correct landscape dimensions directly for Lulu
+[33mb4f3826af70b58ce30799c06be2eeae7ed1be302[m fix: Add timeout to Lulu API call and fix typo in getCoverDimensionsMm
+[33ma639a04cb7cc82535207021c10ce366c20129367[m fix: Declare cover dimensions variables in lulu.service.js to resolve ReferenceError
+[33m9ecfee97b3bc59e22c7caf0a3960ab13df2b7d78[m fix: Counteract Lulu's PDF orientation swap for cover dimensions
+[33m5181ecac7a3022c0c7b97caa18cf9a5e87f05255[m fix: Hardcode Novella cover dimensions to match Lulu's explicit rejection requirements
+[33md5f04b290939f6e770cd50aac2811851d9737044[m feat: Implement dynamic cover PDF generation using Lulu template specs and spine calculations
+[33m8c48c889020cf00bedf523f2b8e62a18fb061f95[m feat: Implement dynamic cover PDF generation using Lulu template specs and spine calculations
+[33me5c3426017d7404b7101653b1a842b96c9ae0881[m fix: Refine PDFKit page generation for Lulu strictness by setting margins once (correct path)
+[33mec24602f381ba4f978fe141f1ff17fe40e7abadc[m fix: Implement frontend success/cancel pages and configure Render SPA fallback
+[33m2bb5b7b15f2a462cc4e6d04f0bf1c0f4b79c400e[m feat: Implement Stripe success and cancel redirect pages on frontend
+[33ma83405e93ba18fbb26d10e1f509363be16184fec[m feat: Make Stripe clientDomain dynamic via CLIENT_URL env variable
+[33m8ef3999dfbce3a1171c64e303dc7b9301a214739[m fix: Resolve ReferenceError in stripe.controller.js webhook
+[33m060df65e566da5a77f0de35e5eeb77a9f8e2fac5[m test update - includes new logs for stripe checkout failure
+[33mab13136d24438a4f67e1d20219cd51d4c711f57c[m Fix: Pass actual book.lulu_product_id to PDF generation functions in controllers. - Resolved 'Product with ID undefined' error by correctly referencing lulu_product_id from the book object.
+[33m534906fce8f679dc1c1c7a7d9cc532108ff17b10[m Fix: Calibrate PDF dimensions to PRECISE Lulu template specifications using MM-to-Points conversion. - Updated getProductDimensions to use exact MM from Lulu templates (e.g., 139.7x215.9mm for 5.5x8.5in).
+[33mc66b2f8225b2e1a6ba2fca084af043509b70e111[m Fix: Dynamically set PDF dimensions based on luluProductId for precise matching. - Added getProductDimensions helper using mmToPoints. - Updated generateTextBookPdf and generatePictureBookPdf to use dynamic dimensions. - Passed luluProductId to PDF generation calls in stripe.controller.js.
+[33m10993715f7722f2e0171ecd1f357df0e08b91cd6[m Fix: Adjust PDF generation to exact Lulu product dimensions (5.5x8.5 inches for text books, A4 landscape for picture books). - Updated PDFKit size property in generateTextBookPdf and generatePictureBookPdf.
+[33mf26f05130ba757b80c0a7279099b059cb12e41af[m Fix: Adjust PDF generation to exact Lulu product dimensions (5.5x8.5 inches for text books, A4 landscape for picture books). - Updated PDFKit size property in generateTextBookPdf and generatePictureBookPdf.
+[33macf4983e2da0f0264c7f3725e0b05e8527fa3810[m Fix: Force Cloudinary PDF uploads as 'raw' resource_type to ensure public access
+[33m12fd9b810ba1ec38677bde27dcc3e352046c732b[m Fix: Add missing 'updated_at' column to 'orders' table. - Updated database schema in setupDatabase.js. - Confirmed stripe.controller.js now aligns with updated schema.
+[33m4a89cfcc67e526c88ae42bc6d1436db1dae7bd91[m Fix: Add lulu_job_id and lulu_job_status columns to orders table and update webhook processing query. - Corrected database schema in setupDatabase.js. - Modified UPDATE query in stripe.controller.js to track Lulu job ID and status.
+[33mbe0b1dd21227ec56d81f03f7d847a7455f8dea9d[m Fix: Ensure luluOrderDetails is assigned; add debug logs for PDF buffer and Cloudinary upload
+[33mcd968711ca3f774af57eeb03c1e91822e522c22b[m Fix: Correctly pass bookType to Stripe metadata for webhook processing. - Refactored createStripeCheckoutSession in stripe.service.js to accept productDetails, userId, orderId, and bookId. - Updated calls to createStripeCheckoutSession in textbook.controller.js and picturebook.controller.js to pass bookType in productDetails object.
+[33m738cffcf7b212523a4a920ffffef74d259f5de34[m Fix: Pass bookType in Stripe metadata from controllers; align DB schema for orders
+[33m4fcf1bd2c5c719fd621c8c5eff038ea94d96525c[m Final Fix: Explicitly handle raw body for Stripe webhook signature verification
+[33m4ed2429f301daec3ebe32d80bd0ed7e613c11dee[m Fix: Ensure raw body is used for Stripe webhook signature verification
+[33m8988337feb6356e7959c04f361d165213427823d[m Fix: Correct bookType matching in Stripe webhook handler; refine orderId retrieval for update
+[33m82f914690cd72b8807e441ee41cfd4ed5d3f7941[m Re-enable: Database insert/update for orders in checkout controllers
+[33m188dee633f180f7ac963fe16267b0a45104103fb[m Debug: Add Cloudinary env var logging in image.service.js
+[33m6aa76f1ee2545ed834cf8bc5fbfcd4c8d3cd1636[m Temp: Bypass order DB insert in checkout sessions for Stripe initialization debugging
+[33mf67d4cbe61d701228ed314dac3ffcb234e340ce4[m Fix: Resolve checkout session error by aligning order creation with DB schema - Generated orderId in controllers. - Updated orders table INSERT queries to match all schema columns. - Added interior_pdf_url and cover_pdf_url to orders table definition in setupDatabase.
+[33m2c039c673c3e28b2a72259e0eee9ffa4df055f53[m Fix: Resolve 'orderId undefined' error in checkout sessions and ensure order creation
+[33m9871041e230c737556ef559d97a549daea4f9341[m feat(payments): implement end-to-end stripe to lulu order flow
+[33mae6c4b7f6234f8c13c92144c3c28ec3e35076a2b[m fix(firebase): correctly parse private key from env variable
+[33mad69ee41836a3a75baf1c294bf32af5cece6807b[m feat(stripe): finalize webhook logic for lulu integration
+[33m190cc3018b8b7923c3cc880707f673741905f1aa[m feat(stripe): add stripe webhook endpoint and controller
+[33ma7cfcb23b63a2c31621e01c825bc8a048b320219[m refactor(ui): replace navbar links with profile dropdown
+[33mb62acddb2ce3c2701998f031b97f96ad5cf10404[m TOS update
+[33mf27699dcd52c58d8579f2242ad7cacab593d57ab[m feat(novel): implement collapsible chapter accordion
+[33mc78f34fcf6282c6b218c3f74d2e63ed18bba6efd[m fix(profile): Resolve crash on profile page when user has no books
+[33m11ca53dea8ba1ecb1fd7e140ddbf3c8f5e81a119[m Fix: Comprehensive update to pg.Pool client queries and string concatenation across all controllers
+[33m3b94c485bfb2a80557205514ca6502ef1ced0290[m Fix: auth.middleware.js uses native pg.Pool client queries
+[33m49ea6f55e36107e7b1bf82d122eb038ec603f153[m Fix: Used string concatenation for SQL queries to resolve syntax error
+[33m791662224c31387aa14dd1398c3e22c4a8993875[m Fix: setupDatabase TypeError, and ensure all controllers use native pg.Pool client queries
+[33mef633b0a93e634b82c90cc6a80d4c6abe5e0a23e[m Fix: setupDatabase.js uses pg.Pool client.query for PostgreSQL
+[33mef3f62ab1a8b154807a196bbcbf3c09ca28af0ff[m Fix: Typo in database.js import statement
+[33mf148c8625978964777c929a92c38e3a2ff12ca1c[m Debug: Forced single-line SQL queries and added parameter logging
+[33m94a8d82a0227ceb8bb552ef54691582ef0e2bdaa[m Debug: Temporarily simplified booksQuery and allPublicBooksQuery
+[33m367f08b4db8916f7f1cd47bf3b2324e631ccc925[m Fix: PostgreSQL placeholders () in auth.middleware.js
+[33med121e39953eb687c9385c656ba6ef53ab840029[m Fix: Removed parentheses around SELECT statements in UNION ALL queries
+[33ma7e829eb6c9f8eefa4ea39f5290f13be0ecb9d88[m Fix: Retyped SQL queries in controllers to eliminate hidden characters
+[33m4450f3f7737457c215c1e8c8a3c56a6c6612bb66[m Fix: Wrap SELECT statements in parentheses for UNION ALL queries in controllers
+[33m59c933a7683b2f448854ac3e0711e536d02ab9b3[m Debug: Log booksQuery in profile controller to diagnose syntax error
+[33mb037647abce0770ac58bf808a84d6ae91f25c3aa[m Fix: PostgreSQL boolean comparison to TRUE in profile and feed controllers
+[33mc4d3df30f83295d36b050898d4fd124d463d1db3[m Fix: PostgreSQL boolean comparison to 1 in profile and feed controllers
+[33m3307736183c05b8c4fa221bae18c28df687e996d[m Fix: Cleaned up feed and profile controllers, fixed PostgreSQL parameterization
+[33me6122e7c5788f5e6509c1e661fc97dbcf5f1ea19[m Fix: Configure frontend apiClient to use VITE_APP_BACKEND_URL
+[33mda6b9dbd0406854afb0f4476f1fcaf70b054204e[m Fix: Enable SSL for PostgreSQL connection on Render
+[33mcb03e581c283a11f8e33bc7679359813430661fb[m Initial commit of Inkwell AI MVP project (frontend and backend)
