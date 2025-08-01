@@ -247,6 +247,39 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
     }
 };
 
+export const toggleTextBookPrivacy = async (req, res) => {
+    let client;
+    const { bookId } = req.params;
+    const userId = req.userId;
+    const { is_public } = req.body;
+    if (typeof is_public !== 'boolean') {
+        return res.status(400).json({ message: 'is_public must be a boolean value.' });
+    }
+    try {
+        const pool = await getDb();
+        client = await pool.connect();
+
+        const bookResult = await client.query(`SELECT id, user_id FROM text_books WHERE id = $1`, [bookId]);
+        const book = bookResult.rows[0];
+        if (!book) {
+            return res.status(404).json({ message: 'Project not found.' });
+        }
+        if (book.user_id !== userId) {
+            return res.status(403).json({ message: 'You are not authorized to edit this project.' });
+        }
+        await client.query(`UPDATE text_books SET is_public = $1 WHERE id = $2`, [is_public, bookId]);
+        res.status(200).json({
+            message: `Book status successfully set to ${is_public ? 'public' : 'private'}.`,
+            is_public: is_public
+        });
+    } catch (err) {
+        console.error("Error toggling book privacy:", err.message);
+        res.status(500).json({ message: 'Failed to update project status.' });
+    } finally {
+        if (client) client.release();
+    }
+};
+
 export const deleteTextBook = async (req, res) => {
     let client;
     const { bookId } = req.params;
