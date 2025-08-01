@@ -171,23 +171,17 @@ export const getTextBookDetails = async (req, res) => {
 export const createCheckoutSessionForTextBook = async (req, res) => {
     const { bookId } = req.params;
     let client;
-    let tempInteriorPdfPath = null;
-    let tempCoverPdfPath = null;
-    let initialTempPdfPath = null;
+    let tempInteriorPdfPath = null, tempCoverPdfPath = null, initialTempPdfPath = null;
 
     try {
         const pool = await getDb();
         client = await pool.connect();
         
         const book = await getFullTextBook(bookId, req.userId, client);
-        if (!book) {
-            return res.status(404).json({ message: 'Text book not found or access denied.' });
-        }
+        if (!book) return res.status(404).json({ message: 'Text book not found.' });
         
         const selectedProductConfig = LULU_PRODUCT_CONFIGURATIONS.find(p => p.id === book.lulu_product_id);
-        if (!selectedProductConfig) {
-            return res.status(400).json({ message: `Invalid lulu_product_id.` });
-        }
+        if (!selectedProductConfig) return res.status(400).json({ message: 'Invalid product ID.' });
         
         console.log(`Checkout for book ${bookId}. Generating PDFs...`);
         
@@ -199,7 +193,6 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
 
         if (needsBlankPage) {
             finalPageCount++;
-            console.log(`WARN: Odd page count. Adjusting to ${finalPageCount} and regenerating PDF.`);
             await fs.unlink(initialTempPdfPath);
             initialTempPdfPath = null;
             tempInteriorPdfPath = await generateAndSaveTextBookPdf(book, selectedProductConfig, true);
@@ -235,11 +228,13 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
         );
         console.log(`Created pending order record ${orderId} with fallback status: ${isFallback}.`);
 
+        // FIXED: The call now passes all required arguments: productDetails, userId, orderId, bookId, bookType
         const session = await createStripeCheckoutSession(
-            { id: bookId, name: book.title, price: selectedProductConfig.basePrice, bookType: 'textBook' },
+            { name: book.title, description: `Inkwell AI Custom Book`, price: selectedProductConfig.basePrice },
             req.userId,
             orderId,
-            bookId
+            bookId,
+            'textBook'
         );
         
         await client.query('UPDATE orders SET stripe_session_id = $1 WHERE id = $2', [session.id, orderId]);

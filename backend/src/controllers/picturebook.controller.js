@@ -187,7 +187,7 @@ export const createBookCheckoutSession = async (req, res) => {
             console.log("✅ Successfully retrieved cover dimensions for picture book.");
         } catch(error) {
             console.warn("⚠️ Lulu API call for picture book cover dimensions failed. Proceeding with fallback dimensions.");
-            coverDimensions = { width: 446.53, height: 296.93, layout: 'landscape' }; // Fallback for A4 Hardcover
+            coverDimensions = { width: 446.53, height: 296.93, layout: 'landscape' };
             isFallback = true;
         }
         
@@ -200,11 +200,13 @@ export const createBookCheckoutSession = async (req, res) => {
             [orderId, req.userId, bookId, 'pictureBook', book.title, luluSku, 'pending', selectedProductConfig.basePrice, interiorPdfUrl, coverPdfUrl, finalPageCount, isFallback]
         );
 
+        // FIXED: The call now passes all required arguments: productDetails, userId, orderId, bookId, bookType
         const session = await createStripeCheckoutSession(
-            { id: bookId, name: book.title, price: selectedProductConfig.basePrice, bookType: 'pictureBook' },
+            { name: book.title, description: `Inkwell AI Custom Book`, price: selectedProductConfig.basePrice },
             req.userId,
             orderId,
-            bookId
+            bookId,
+            'pictureBook'
         );
         
         await client.query('UPDATE orders SET stripe_session_id = $1 WHERE id = $2', [session.id, orderId]);

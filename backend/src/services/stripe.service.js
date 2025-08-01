@@ -7,16 +7,14 @@ import { randomUUID } from 'crypto';
 
 const stripeClient = stripe(process.env.STRIPE_SECRET_KEY);
 
-export const createStripeCheckoutSession = async (productDetails, userId, orderId, bookType) => {
+// FIXED: Added bookId as a parameter to the function signature
+export const createStripeCheckoutSession = async (productDetails, userId, orderId, bookId, bookType) => {
     try {
         const session = await stripeClient.checkout.sessions.create({
             payment_method_types: ['card'],
-
-            // FIXED: This block tells Stripe that a shipping address is required for this purchase.
             shipping_address_collection: {
-                allowed_countries: ['AU', 'US', 'CA', 'GB', 'NZ'], // You can customize this list
+                allowed_countries: ['AU', 'US', 'CA', 'GB', 'NZ'],
             },
-
             line_items: [
                 {
                     price_data: {
@@ -25,18 +23,18 @@ export const createStripeCheckoutSession = async (productDetails, userId, orderI
                             name: productDetails.name,
                             description: productDetails.description,
                         },
-                        unit_amount: Math.round(productDetails.price * 100), // Price in cents
+                        unit_amount: Math.round(productDetails.price * 100),
                     },
                     quantity: 1,
                 },
             ],
             mode: 'payment',
             success_url: `${process.env.CLIENT_URL}/checkout-success?session_id={CHECKOUT_SESSION_ID}`,
-            cancel_url: `${process.env.CLIENT_URL}/`, // Changed to root, as checkout-cancel may not exist
+            cancel_url: `${process.env.CLIENT_URL}/`,
             metadata: {
                 userId: userId,
                 orderId: orderId,
-                bookId: bookId, 
+                bookId: bookId, // This variable is now correctly defined
                 bookType: bookType
             },
         });
@@ -47,8 +45,6 @@ export const createStripeCheckoutSession = async (productDetails, userId, orderI
     }
 };
 
-// NOTE: The two functions below belong in stripe.controller.js, but I am keeping them
-// here as per your provided file structure to avoid breaking changes.
 const handleSuccessfulCheckout = async (session) => {
     console.log("✅ Webhook received for Session ID:", session.id);
 
