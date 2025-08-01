@@ -44,7 +44,7 @@ const startServer = async () => {
             serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_CONFIG);
             serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n');
         } catch (e) {
-            console.error('Error: FIREBASE_SERVICE_ACCOUNT_CONFIG environment variable is not valid JSON.', e);
+            console.error('Error: FIREBASE_SERVICE_ACCOUNT_CONFIG is not valid JSON.', e);
             process.exit(1);
         }
     } else {
@@ -74,11 +74,15 @@ const startServer = async () => {
     const app = express();
     const PORT = process.env.PORT || 5001;
     
+    // --- CORS CONFIGURATION UPDATED ---
     const allowedOrigins = [
         process.env.CORS_ORIGIN || 'http://localhost:5173',
-        'https://inkwell-ai-mvp-frontend.onrender.com'
+        'https://inkwell-ai-mvp-frontend.onrender.com',
+        'https://inkwell-ai-mvp-frontend.onrender.com/' // Added with trailing slash for flexibility
     ];
     app.use(cors({ origin: allowedOrigins, credentials: true }));
+    // --- END OF CORS UPDATE ---
+
     app.use(morgan('dev'));
     
     app.post('/api/orders/webhook', express.raw({ type: 'application/json' }), handleWebhook);

@@ -120,13 +120,14 @@ export const uploadPdfFileToCloudinary = (filePath, folder, publicIdPrefix) => {
         const uploadOptions = {
             upload_preset: process.env.CLOUDINARY_UPLOAD_PRESET,
             folder: folder,
-            resource_type: 'raw',       // CRITICAL: Treat as raw file for Lulu POD
-            format: 'pdf',              // CRITICAL: Ensure .pdf extension and correct MIME type
-            public_id: finalPublicId,   // Use our constructed public ID
-            use_filename: false,        // We control the public_id
-            unique_filename: true,     // Cloudinary generates unique if public_id already exists (safer)
-            overwrite: true,            // Overwrite if a file with this public_id (and format) exists
-            type: 'upload'
+            resource_type: 'raw',    // CRITICAL: Treat as raw file for Lulu POD
+            format: 'pdf',           // CRITICAL: Ensure .pdf extension and correct MIME type
+            public_id: finalPublicId, // Use our constructed public ID
+            use_filename: false,     // We control the public_id
+            unique_filename: true,   // Cloudinary generates unique if public_id already exists (safer)
+            overwrite: true,         // Overwrite if a file with this public_id (and format) exists
+            type: 'upload',
+            access_mode: 'public' // <--- ADDED THIS LINE!
         };
 
         cloudinary.uploader.upload(filePath, uploadOptions, (error, result) => {
