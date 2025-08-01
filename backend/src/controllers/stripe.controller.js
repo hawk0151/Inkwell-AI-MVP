@@ -79,7 +79,6 @@ export const stripeWebhook = (req, res) => {
     const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
     let event;
     try {
-        // FIXED: The raw body from the middleware is in req.body, not req.rawBody
         event = stripeClient.webhooks.constructEvent(req.body, sig, endpointSecret);
     } catch (err) {
         console.error(`❌ Webhook signature verification failed.`, err.message);
@@ -87,8 +86,9 @@ export const stripeWebhook = (req, res) => {
     }
     
     if (event.type === 'checkout.session.completed') {
+        // FIXED: Removed the invalid `expand` parameter.
         stripeClient.checkout.sessions.retrieve(event.data.object.id, {
-            expand: ['shipping_details'],
+            expand: ['customer'] // We can safely expand customer if needed
         }).then(session => {
             handleSuccessfulCheckout(session);
         }).catch(err => {
