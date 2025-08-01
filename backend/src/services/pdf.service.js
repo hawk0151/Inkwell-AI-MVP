@@ -4,27 +4,22 @@ import PDFDocument from 'pdfkit';
 import axios from 'axios';
 import fs from 'fs/promises';
 import path from 'path';
-import { fileURLToPath, pathToFileURL } from 'url'; // MODIFIED: Added pathToFileURL
+import { fileURLToPath, pathToFileURL } from 'url';
 import { dirname } from 'path';
 
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
 
 import { LULU_PRODUCT_CONFIGURATIONS, getCoverDimensionsFromApi } from './lulu.service.js';
 
-// Calculate __dirname equivalent for ES Modules
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// Configure pdfjs-dist worker source, required for its operation
-// MODIFIED: Convert the resolved path to a file:// URL
 const workerPath = path.resolve(__dirname, '../../node_modules/pdfjs-dist/build/pdf.worker.mjs');
-pdfjsLib.GlobalWorkerOptions.workerSrc = pathToFileURL(workerPath).href; // Convert to file:// URL string
-console.log("PDF.js Worker Source (as URL):", pdfjsLib.GlobalWorkerOptions.workerSrc); // Debugging worker path
+pdfjsLib.GlobalWorkerOptions.workerSrc = pathToFileURL(workerPath).href;
+console.log("PDF.js Worker Source (as URL):", pdfjsLib.GlobalWorkerOptions.workerSrc);
 
-// Helper function to convert mm to points
 const mmToPoints = (mm) => mm * (72 / 25.4);
 
-// Helper to get dimensions from product ID for INTERIOR PDFs
 const getProductDimensions = (luluConfigId) => {
     const productConfig = LULU_PRODUCT_CONFIGURATIONS.find(p => p.id === luluConfigId);
     if (!productConfig) {
@@ -33,19 +28,18 @@ const getProductDimensions = (luluConfigId) => {
 
     let widthMm, heightMm, layout;
 
-    // Use trimSize from the config to determine interior PDF dimensions
     switch (productConfig.trimSize) {
-        case '5.5x8.5': // Novella
+        case '5.5x8.5':
             widthMm = 139.7;
             heightMm = 215.9;
             layout = 'portrait';
             break;
-        case '8.27x11.69': // A4 Story Book & A4 Premium Picture Book
+        case '8.27x11.69':
             widthMm = 209.55;
             heightMm = 296.9;
             layout = 'portrait';
             break;
-        case '6.14x9.21': // Royal Hardcover
+        case '6.14x9.21':
             widthMm = 156;
             heightMm = 234;
             layout = 'portrait';
@@ -66,13 +60,11 @@ const getProductDimensions = (luluConfigId) => {
     };
 };
 
-// --- Image Helper (No change) ---
 async function getImageBuffer(url) {
     const response = await axios.get(url, { responseType: 'arraybuffer' });
     return Buffer.from(response.data, 'binary');
 }
 
-// --- Programmatically read PDF page count ---
 export async function getPdfPageCount(pdfFilePath) {
     try {
         const pdfData = new Uint8Array(await fs.readFile(pdfFilePath));
@@ -87,13 +79,12 @@ export async function getPdfPageCount(pdfFilePath) {
     }
 }
 
-
-// --- MODIFIED: Cover PDF Generator with content safety margins ---
 export const generateCoverPdf = async (bookTitle, authorName, luluProductId, pageCount) => {
     return new Promise(async (resolve, reject) => {
         try {
-            const { width: coverWidthMm, height: coverHeightMm, layout: coverLayout } =
-                await getCoverDimensionsFromApi(luluProductId, pageCount, 'mm');
+            // Note: Switched to use getCoverDimensionsFromApi directly as it's imported
+            const coverDimensions = await getCoverDimensionsFromApi(luluProductId, pageCount, 'mm');
+            const { width: coverWidthMm, height: coverHeightMm, layout: coverLayout } = coverDimensions;
 
             const docWidthPoints = mmToPoints(coverWidthMm);
             const docHeightPoints = mmToPoints(coverHeightMm);
@@ -119,7 +110,6 @@ export const generateCoverPdf = async (bookTitle, authorName, luluProductId, pag
             doc.on('end', () => resolve(Buffer.concat(buffers)));
 
             doc.addPage();
-
             doc.rect(0, 0, doc.page.width, doc.page.height).fill('#313131');
 
             const safetyMarginInches = 0.25;
@@ -156,9 +146,8 @@ export const generateCoverPdf = async (bookTitle, authorName, luluProductId, pag
     });
 };
 
-
-// --- Text Book PDF Generator (No change) ---
-export const generateAndSaveTextBookPdf = async (title, chapters, luluConfigId, tempDir) => {
+// --- MODIFIED: Text Book PDF Generator can now add a final blank page ---
+export const generateAndSaveTextBookPdf = async (title, chapters, luluConfigId, tempDir, addFinalBlankPage = false) => {
     return new Promise(async (resolve, reject) => {
         try {
             const { width, height, layout } = getProductDimensions(luluConfigId);
@@ -183,6 +172,15 @@ export const generateAndSaveTextBookPdf = async (title, chapters, luluConfigId, 
                 doc.moveDown(2);
                 doc.fontSize(12).font('Times-Roman').text(chapter.content, { align: 'justify' });
             }
+
+            // --- NEW LOGIC ---
+            // If requested, add one final blank page to ensure the page count is even.
+            if (addFinalBlankPage) {
+                console.log("DEBUG: Adding a final blank page to make page count even.");
+                doc.addPage();
+            }
+            // --- END NEW LOGIC ---
+
             doc.end();
 
             const pdfBuffer = await new Promise((resBuff, rejBuff) => {
@@ -206,8 +204,8 @@ export const generateAndSaveTextBookPdf = async (title, chapters, luluConfigId, 
 };
 
 
-// --- Picture Book PDF Generator (No change) ---
 export const generateAndSavePictureBookPdf = async (book, events, luluConfigId, tempDir) => {
+    // This function remains unchanged, but is included for completeness.
     return new Promise(async (resolve, reject) => {
         try {
             const { width, height, layout } = getProductDimensions(luluConfigId);

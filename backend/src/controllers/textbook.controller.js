@@ -3,7 +3,8 @@
 import { getDb } from '../db/database.js';
 import { randomUUID } from 'crypto';
 import { generateStoryFromApi } from '../services/gemini.service.js';
-import { getPrintOptions, getLuluSkuByConfigAndPageCount } from '../services/lulu.service.js';
+// MODIFIED: LULU_PRODUCT_CONFIGURATIONS is not used here directly anymore, removed from import
+import { getPrintOptions, getLuluSkuByConfigAndPageCount, getCoverDimensionsFromApi } from '../services/lulu.service.js';
 import { generateAndSaveTextBookPdf, generateCoverPdf, getPdfPageCount } from '../services/pdf.service.js';
 import { uploadPdfFileToCloudinary } from '../services/image.service.js';
 import { createStripeCheckoutSession } from '../services/stripe.service.js';
@@ -11,6 +12,10 @@ import path from 'path';
 import fs from 'fs/promises';
 
 let printOptionsCache = null;
+
+// The functions createTextBook, generateNextChapter, getTextBooks, getTextBookDetails,
+// toggleTextBookPrivacy, and deleteTextBook remain unchanged.
+// They are omitted here for brevity but should remain in your file.
 
 export const createTextBook = async (req, res) => {
     let client;
@@ -191,10 +196,12 @@ export const getTextBookDetails = async (req, res) => {
     }
 };
 
+// --- THIS ENTIRE FUNCTION IS REPLACED WITH THE CORRECTED LOGIC ---
 export const createTextBookCheckoutSession = async (req, res) => {
     let client;
-    let interiorPdfPath = null;
-    let coverPdfPath = null;
+    let tempInteriorPdfPath = null;
+    let tempCoverPdfPath = null;
+    let initialTempPdfPath = null; // Path for the first-pass PDF
 
     const { bookId } = req.params;
     const userId = req.userId;
@@ -222,107 +229,96 @@ export const createTextBookCheckoutSession = async (req, res) => {
         if (!selectedProductConfig) return res.status(500).json({ message: "Book product configuration not found." });
 
         console.log(`Generating PDFs for book ${bookId}...`);
-
         const tempPdfsDir = path.resolve(process.cwd(), 'tmp', 'pdfs');
-
+        
         const userResult = await client.query(`SELECT username FROM users WHERE id = $1`, [userId]);
         const authorUsername = userResult.rows[0]?.username || 'Inkwell AI';
 
-        // Step 1: Generate Interior PDF and save locally
-        interiorPdfPath = await generateAndSaveTextBookPdf(book.title, chapters, selectedProductConfig.id, tempPdfsDir);
-        console.log(`Interior PDF saved temporarily at: ${interiorPdfPath}`);
+        // --- NEW LOGIC TO ENSURE EVEN PAGE COUNT ---
 
-        // Step 2: Programmatically Read and Confirm Interior PDF Page Count
-        const actualInteriorPageCount = await getPdfPageCount(interiorPdfPath);
-        console.log(`Actual interior PDF page count: ${actualInteriorPageCount}`);
+        // 1. Generate an initial PDF to get the page count without adding extra pages yet.
+        initialTempPdfPath = await generateAndSaveTextBookPdf(book.title, chapters, selectedProductConfig.id, tempPdfsDir, false);
+        const actualInteriorPageCount = await getPdfPageCount(initialTempPdfPath);
+        console.log(`Initial interior PDF has ${actualInteriorPageCount} pages.`);
+        
+        // 2. Determine final page count and if a blank page is needed.
+        let finalPageCount = actualInteriorPageCount;
+        const needsBlankPage = actualInteriorPageCount % 2 !== 0;
 
-        // Step 3: Dynamically Determine SKU based on actual page count
-        const dynamicLuluSku = getLuluSkuByConfigAndPageCount(selectedProductConfig.id, actualInteriorPageCount);
-        console.log(`Determined dynamic Lulu SKU: ${dynamicLuluSku} for actual page count: ${actualInteriorPageCount}`);
+        if (needsBlankPage) {
+            finalPageCount++;
+            console.log(`WARN: Odd page count detected. Adjusting to ${finalPageCount} and will regenerate PDF with a final blank page.`);
+            // Regenerate the PDF, this time telling it to add the blank page.
+            // First, clean up the initial PDF.
+            await fs.unlink(initialTempPdfPath);
+            initialTempPdfPath = null; // Nullify to prevent double cleanup in finally block
+            // Now create the final version.
+            tempInteriorPdfPath = await generateAndSaveTextBookPdf(book.title, chapters, selectedProductConfig.id, tempPdfsDir, true);
+        } else {
+            console.log("Page count is even. Using initial PDF as final version.");
+            tempInteriorPdfPath = initialTempPdfPath;
+            initialTempPdfPath = null; // Nullify to prevent double cleanup
+        }
 
-        // Step 6: Upload Both PDFs to Cloudinary Correctly
+        // 3. Use the final, EVEN page count for all Lulu interactions.
+        const dynamicLuluSku = getLuluSkuByConfigAndPageCount(selectedProductConfig.id, finalPageCount);
+        console.log(`Determined dynamic Lulu SKU: ${dynamicLuluSku} for final page count: ${finalPageCount}`);
+        
+        // --- END OF NEW LOGIC ---
+
         const interiorPdfUrl = await uploadPdfFileToCloudinary(
-            interiorPdfPath,
+            tempInteriorPdfPath,
             `inkwell-ai/user_${userId}/books`,
             `book_${bookId}_interior`
         );
         console.log(`Uploaded interior PDF to Cloudinary: ${interiorPdfUrl}`);
 
+        const coverPdfBuffer = await generateCoverPdf(book.title, authorUsername, dynamicLuluSku, finalPageCount);
+        tempCoverPdfPath = path.join(tempPdfsDir, `cover_${Date.now()}_${randomUUID().substring(0,8)}.pdf`);
+        await fs.writeFile(tempCoverPdfPath, coverPdfBuffer);
+        console.log(`Cover PDF saved temporarily at: ${tempCoverPdfPath}`);
 
-        // Generate Cover PDF - Pass the ACTUAL interior page count and the DYNAMIC SKU
-        const coverPdfBuffer = await generateCoverPdf(book.title, authorUsername, dynamicLuluSku, actualInteriorPageCount);
-        coverPdfPath = path.join(tempPdfsDir, `cover_${Date.now()}_${randomUUID().substring(0,8)}.pdf`);
-        await fs.writeFile(coverPdfPath, coverPdfBuffer);
-        console.log(`Cover PDF saved temporarily at: ${coverPdfPath}`);
-
-        // Step 6: Upload Both PDFs to Cloudinary Correctly
         const coverPdfUrl = await uploadPdfFileToCloudinary(
-            coverPdfPath,
+            tempCoverPdfPath,
             `inkwell-ai/user_${userId}/covers`,
             `book_${bookId}_cover`
         );
         console.log(`Uploaded cover PDF to Cloudinary: ${coverPdfUrl}`);
 
         console.log(`Creating Stripe session for text book ${bookId}...`);
-
         const orderId = randomUUID();
 
         await client.query(
             `INSERT INTO orders (id, user_id, book_id, book_type, book_title, lulu_product_id, status, total_price, interior_pdf_url, cover_pdf_url, order_date, actual_page_count) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
             [
-                orderId,
-                userId,
-                bookId,
-                'textBook',
-                book.title,
-                dynamicLuluSku,
-                'pending',
-                selectedProductConfig.basePrice,
-                interiorPdfUrl,
-                coverPdfUrl,
-                new Date().toISOString(),
-                actualInteriorPageCount
+                orderId, userId, bookId, 'textBook', book.title, dynamicLuluSku, 'pending',
+                selectedProductConfig.basePrice, interiorPdfUrl, coverPdfUrl,
+                new Date().toISOString(), finalPageCount
             ]
         );
 
         const session = await createStripeCheckoutSession(
             {
-                id: dynamicLuluSku,
-                name: selectedProductConfig.name,
-                description: book.title,
-                price: selectedProductConfig.basePrice,
-                bookType: 'textBook',
-                pageCount: actualInteriorPageCount
+                id: dynamicLuluSku, name: selectedProductConfig.name, description: book.title,
+                price: selectedProductConfig.basePrice, bookType: 'textBook', pageCount: finalPageCount
             },
-            userId,
-            orderId,
-            bookId
+            userId, orderId, bookId
         );
 
         await client.query('UPDATE orders SET stripe_session_id = $1 WHERE id = $2', [session.id, orderId]);
 
         res.status(200).json({ url: session.url });
     } catch (error) {
-        console.error("Failed to create checkout session for text book:", error);
-        res.status(500).json({ message: "Failed to create checkout session." });
+        console.error("Failed to create checkout session for text book:", error.stack);
+        res.status(500).json({ message: "Failed to create checkout session.", error: error.message });
     } finally {
         if (client) client.release();
-        if (interiorPdfPath) {
-            try {
-                await fs.unlink(interiorPdfPath);
-                console.log(`Cleaned up temporary interior PDF: ${interiorPdfPath}`);
-            } catch (unlinkError) {
-                console.error(`Error cleaning up temporary interior PDF ${interiorPdfPath}:`, unlinkError);
-            }
-        }
-        if (coverPdfPath) {
-            try {
-                await fs.unlink(coverPdfPath);
-                console.log(`Cleaned up temporary cover PDF: ${coverPdfPath}`);
-            } catch (unlinkError) {
-                console.error(`Error cleaning up temporary cover PDF ${coverPdfPath}:`, unlinkError);
-            }
-        }
+        // Combined cleanup logic for all temp files
+        const cleanupPromises = [];
+        if (interiorPdfPath) cleanupPromises.push(fs.unlink(interiorPdfPath).catch(err => console.error(`Error cleaning up final interior PDF:`, err)));
+        if (coverPdfPath) cleanupPromises.push(fs.unlink(coverPdfPath).catch(err => console.error(`Error cleaning up cover PDF:`, err)));
+        if (initialTempPdfPath) cleanupPromises.push(fs.unlink(initialTempPdfPath).catch(err => console.error(`Error cleaning up initial temp PDF:`, err)));
+        await Promise.all(cleanupPromises);
     }
 };
 
