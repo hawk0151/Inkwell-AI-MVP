@@ -207,18 +207,15 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
         let coverDimensions;
         let isFallback = false;
 
-        // --- OVERRIDE LOGIC ---
         try {
             console.log(`Attempting to fetch cover dimensions for SKU ${luluSku} and ${finalPageCount} pages...`);
             coverDimensions = await getCoverDimensionsFromApi(luluSku, finalPageCount);
             console.log("✅ Successfully retrieved cover dimensions from Lulu API.");
         } catch (error) {
             console.warn("⚠️ Lulu API call for cover dimensions failed. Proceeding with fallback dimensions.");
-            // Plausible hardcoded dimensions for a ~70 page 5.75x8.75 book
             coverDimensions = { width: 291.57, height: 222.25, layout: 'landscape' };
             isFallback = true;
         }
-        // --- END OVERRIDE LOGIC ---
         
         tempCoverPdfPath = await generateCoverPdf(book, selectedProductConfig, coverDimensions);
         const coverPdfUrl = await uploadPdfFileToCloudinary(tempCoverPdfPath, `inkwell-ai/user_${req.userId}/covers`, `book_${bookId}_cover`);
@@ -233,7 +230,10 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
 
         const session = await createStripeCheckoutSession(
             { id: orderId, name: book.title, price: selectedProductConfig.basePrice },
-            req.userId, bookId, 'textBook'
+            req.userId,
+            // FIXED: Pass the correct orderId to the Stripe metadata
+            orderId,
+            'textBook'
         );
         
         await client.query('UPDATE orders SET stripe_session_id = $1 WHERE id = $2', [session.id, orderId]);
