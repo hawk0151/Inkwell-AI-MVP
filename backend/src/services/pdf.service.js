@@ -29,9 +29,10 @@ const getProductDimensions = (luluConfigId) => {
     let widthMm, heightMm, layout;
 
     switch (productConfig.trimSize) {
-        case '5.5x8.5':
-            widthMm = 139.7;
-            heightMm = 215.9;
+        case '5.5x8.5': // Novella
+            // FIXED: Dimensions updated to match the 5.25 x 8.25 inch product SKU.
+            widthMm = 133.35; // This is 5.25 inches
+            heightMm = 209.55; // This is 8.25 inches
             layout = 'portrait';
             break;
         case '8.27x11.69':
@@ -82,7 +83,6 @@ export async function getPdfPageCount(pdfFilePath) {
 export const generateCoverPdf = async (bookTitle, authorName, luluProductId, pageCount) => {
     return new Promise(async (resolve, reject) => {
         try {
-            // Note: Switched to use getCoverDimensionsFromApi directly as it's imported
             const coverDimensions = await getCoverDimensionsFromApi(luluProductId, pageCount, 'mm');
             const { width: coverWidthMm, height: coverHeightMm, layout: coverLayout } = coverDimensions;
 
@@ -146,7 +146,6 @@ export const generateCoverPdf = async (bookTitle, authorName, luluProductId, pag
     });
 };
 
-// --- MODIFIED: Text Book PDF Generator can now add a final blank page ---
 export const generateAndSaveTextBookPdf = async (title, chapters, luluConfigId, tempDir, addFinalBlankPage = false) => {
     return new Promise(async (resolve, reject) => {
         try {
@@ -172,14 +171,11 @@ export const generateAndSaveTextBookPdf = async (title, chapters, luluConfigId, 
                 doc.moveDown(2);
                 doc.fontSize(12).font('Times-Roman').text(chapter.content, { align: 'justify' });
             }
-
-            // --- NEW LOGIC ---
-            // If requested, add one final blank page to ensure the page count is even.
+            
             if (addFinalBlankPage) {
                 console.log("DEBUG: Adding a final blank page to make page count even.");
                 doc.addPage();
             }
-            // --- END NEW LOGIC ---
 
             doc.end();
 
@@ -205,7 +201,6 @@ export const generateAndSaveTextBookPdf = async (title, chapters, luluConfigId, 
 
 
 export const generateAndSavePictureBookPdf = async (book, events, luluConfigId, tempDir) => {
-    // This function remains unchanged, but is included for completeness.
     return new Promise(async (resolve, reject) => {
         try {
             const { width, height, layout } = getProductDimensions(luluConfigId);
