@@ -67,6 +67,16 @@ export async function getPdfPageCount(pdfFilePath) {
     }
 }
 
+// Helper function to convert a PDFDocument stream to a Buffer
+async function streamToBuffer(doc) {
+    return new Promise((resolve, reject) => {
+        const buffers = [];
+        doc.on('data', buffers.push.bind(buffers));
+        doc.on('end', () => resolve(Buffer.concat(buffers)));
+        doc.on('error', reject);
+    });
+}
+
 export const generateCoverPdf = async (book, productConfig, coverDimensions) => {
     const docWidthPoints = mmToPoints(coverDimensions.width);
     const docHeightPoints = mmToPoints(coverDimensions.height);
@@ -79,8 +89,6 @@ export const generateCoverPdf = async (book, productConfig, coverDimensions) => 
     const tempPdfsDir = path.resolve(process.cwd(), 'tmp', 'pdfs');
     await fs.mkdir(tempPdfsDir, { recursive: true });
     const tempFilePath = path.join(tempPdfsDir, `cover_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.pdf`);
-    const stream = fs.createWriteStream(tempFilePath);
-    doc.pipe(stream);
 
     doc.rect(0, 0, doc.page.width, doc.page.height).fill('#313131');
     const safetyMarginPoints = 0.25 * 72;
@@ -97,10 +105,11 @@ export const generateCoverPdf = async (book, productConfig, coverDimensions) => 
        });
 
     doc.end();
-    return new Promise((resolve, reject) => {
-        stream.on('finish', () => resolve(tempFilePath));
-        stream.on('error', reject);
-    });
+
+    const pdfBuffer = await streamToBuffer(doc);
+    await fs.writeFile(tempFilePath, pdfBuffer);
+    
+    return tempFilePath;
 };
 
 export const generateAndSaveTextBookPdf = async (book, productConfig, addFinalBlankPage = false) => {
@@ -114,8 +123,6 @@ export const generateAndSaveTextBookPdf = async (book, productConfig, addFinalBl
     const tempPdfsDir = path.resolve(process.cwd(), 'tmp', 'pdfs');
     await fs.mkdir(tempPdfsDir, { recursive: true });
     const tempFilePath = path.join(tempPdfsDir, `interior_textbook_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.pdf`);
-    const stream = fs.createWriteStream(tempFilePath);
-    doc.pipe(stream);
 
     doc.fontSize(28).font('Times-Roman').text(book.title, { align: 'center' });
     doc.moveDown(4);
@@ -134,10 +141,10 @@ export const generateAndSaveTextBookPdf = async (book, productConfig, addFinalBl
     }
     doc.end();
 
-    return new Promise((resolve, reject) => {
-        stream.on('finish', () => resolve(tempFilePath));
-        stream.on('error', reject);
-    });
+    const pdfBuffer = await streamToBuffer(doc);
+    await fs.writeFile(tempFilePath, pdfBuffer);
+
+    return tempFilePath;
 };
 
 export const generateAndSavePictureBookPdf = async (book, events, productConfig, addFinalBlankPage = false) => {
@@ -152,8 +159,6 @@ export const generateAndSavePictureBookPdf = async (book, events, productConfig,
     const tempPdfsDir = path.resolve(process.cwd(), 'tmp', 'pdfs');
     await fs.mkdir(tempPdfsDir, { recursive: true });
     const tempFilePath = path.join(tempPdfsDir, `interior_picturebook_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.pdf`);
-    const stream = fs.createWriteStream(tempFilePath);
-    doc.pipe(stream);
 
     doc.addPage();
     if (book.cover_image_url) {
@@ -197,8 +202,8 @@ export const generateAndSavePictureBookPdf = async (book, events, productConfig,
     }
     doc.end();
 
-    return new Promise((resolve, reject) => {
-        stream.on('finish', () => resolve(tempFilePath));
-        stream.on('error', reject);
-    });
+    const pdfBuffer = await streamToBuffer(doc);
+    await fs.writeFile(tempFilePath, pdfBuffer);
+
+    return tempFilePath;
 };
