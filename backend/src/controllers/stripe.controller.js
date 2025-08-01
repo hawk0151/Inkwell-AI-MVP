@@ -9,7 +9,6 @@ const stripeClient = stripe(process.env.STRIPE_SECRET_KEY);
 const handleSuccessfulCheckout = async (session) => {
     console.log("✅ Stripe Webhook received for Session ID:", session.id);
 
-    // Metadata now primarily contains the orderId, which is the source of truth.
     const { orderId } = session.metadata;
 
     if (!orderId) {
@@ -52,7 +51,7 @@ const handleSuccessfulCheckout = async (session) => {
         const luluOrderDetails = {
             id: order.id,
             book_title: order.book_title,
-            lulu_product_id: order.lulu_product_id, // This is the SKU
+            lulu_product_id: order.lulu_product_id,
             cover_pdf_url: order.cover_pdf_url,
             interior_pdf_url: order.interior_pdf_url
         };
@@ -80,7 +79,6 @@ export const stripeWebhook = (req, res) => {
     const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
     let event;
     try {
-        // Use req.rawBody which should be populated by a middleware in your server setup
         event = stripeClient.webhooks.constructEvent(req.rawBody, sig, endpointSecret);
     } catch (err) {
         console.error(`❌ Webhook signature verification failed.`, err.message);
