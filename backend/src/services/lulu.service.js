@@ -116,3 +116,54 @@ export async function getCoverDimensionsFromApi(podPackageId, pageCount, unit = 
         throw new Error(`Failed to get cover dimensions for SKU ${podPackageId} with ${pageCount} pages.`);
     }
 }
+
+// --- FIXED: Restored the createLuluPrintJob function ---
+export const createLuluPrintJob = async (orderDetails, shippingInfo) => {
+    try {
+        const accessToken = await getLuluAuthToken();
+        const printJobUrl = `${process.env.LULU_API_BASE_URL}/print-jobs/`;
+
+        const payload = {
+            contact_email: shippingInfo.email,
+            external_id: `inkwell-order-${orderDetails.id}`,
+            shipping_level: "MAIL",
+            shipping_address: {
+                name: shippingInfo.name,
+                street1: shippingInfo.street1,
+                city: shippingInfo.city,
+                postcode: shippingInfo.postcode,
+                country_code: shippingInfo.country_code,
+                state_code: shippingInfo.state_code,
+                phone_number: shippingInfo.phone_number,
+                email: shippingInfo.email
+            },
+            line_items: [{
+                title: orderDetails.book_title,
+                quantity: 1,
+                pod_package_id: orderDetails.lulu_product_id,
+                cover: {
+                    source_url: orderDetails.cover_pdf_url
+                },
+                interior: {
+                    source_url: orderDetails.interior_pdf_url
+                }
+            }],
+        };
+        
+        console.log("DEBUG: Submitting print job to Lulu with payload:", JSON.stringify(payload, null, 2));
+
+        const response = await axios.post(printJobUrl, payload, {
+            headers: { 
+                'Content-Type': 'application/json', 
+                'Authorization': `Bearer ${accessToken}` 
+            },
+            timeout: 60000 // 60 second timeout
+        });
+
+        console.log("✅ Successfully created Lulu print job:", response.data.id);
+        return response.data;
+    } catch (error) {
+        console.error("❌ Error creating Lulu Print Job:", error.response ? JSON.stringify(error.response.data) : error.message);
+        throw new Error('Failed to create Lulu Print Job.');
+    }
+};
