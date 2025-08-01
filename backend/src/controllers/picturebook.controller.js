@@ -1,19 +1,24 @@
+// backend/src/controllers/picturebook.controller.js
+
 import { getDb } from '../db/database.js';
 import { randomUUID } from 'crypto';
-import { generatePictureBookPdf } from '../services/pdf.service.js';
-import { getPrintOptions } from '../services/lulu.service.js';
+import { generateAndSavePictureBookPdf, generateCoverPdf, getPdfPageCount } from '../services/pdf.service.js';
+import { getPrintOptions, getLuluSkuByConfigAndPageCount } from '../services/lulu.service.js';
 import { createStripeCheckoutSession } from '../services/stripe.service.js';
-import { uploadImageToCloudinary } from '../services/image.service.js';
+import { uploadPdfFileToCloudinary } from '../services/image.service.js';
+import path from 'path';
+import fs from 'fs/promises';
+
 
 export const createPictureBook = async (req, res) => {
     let client;
     try {
         const pool = await getDb();
         client = await pool.connect();
-        
-        const { title } = req.body;
+
+        const { title, luluProductId } = req.body;
         const userId = req.userId;
-        
+
         const countSql = `SELECT COUNT(*) as count FROM picture_books WHERE user_id = $1`;
         const countResult = await client.query(countSql, [userId]);
         const { count } = countResult.rows[0];
@@ -21,12 +26,19 @@ export const createPictureBook = async (req, res) => {
         if (count >= 5) {
             return res.status(403).json({ message: "You have reached the maximum of 5 projects." });
         }
-        
+
+        const printOptionsCache = await getPrintOptions();
+        const selectedProductConfig = printOptionsCache.find(p => p.id === luluProductId);
+        if (!selectedProductConfig) {
+            return res.status(404).json({ message: 'Selected product format (configuration) not found.' });
+        }
+
+
         const bookId = randomUUID();
         const currentDate = new Date().toISOString();
-        const sql = `INSERT INTO picture_books (id, user_id, title, date_created, last_modified) VALUES ($1, $2, $3, $4, $5)`;
-        await client.query(sql, [bookId, userId, title, currentDate, currentDate]);
-        
+        const sql = `INSERT INTO picture_books (id, user_id, title, date_created, last_modified, lulu_product_id) VALUES ($1, $2, $3, $4, $5, $6)`;
+        await client.query(sql, [bookId, userId, title, currentDate, currentDate, luluProductId]);
+
         res.status(201).json({ bookId: bookId });
     } catch (err) {
         console.error("Error creating picture book:", err.message);
@@ -41,22 +53,22 @@ export const getPictureBook = async (req, res) => {
     try {
         const pool = await getDb();
         client = await pool.connect();
-        
+
         const { bookId } = req.params;
         const userId = req.userId;
-        
+
         const bookSql = `SELECT * FROM picture_books WHERE id = $1 AND user_id = $2`;
         const bookResult = await client.query(bookSql, [bookId, userId]);
         const book = bookResult.rows[0];
-        
+
         if (!book) {
             return res.status(404).json({ message: 'Project not found.' });
         }
-        
+
         const eventsSql = `SELECT *, uploaded_image_url, overlay_text FROM timeline_events WHERE book_id = $1 ORDER BY page_number ASC`;
         const timelineResult = await client.query(eventsSql, [bookId]);
         const timeline = timelineResult.rows;
-        
+
         res.status(200).json({ book, timeline });
     } catch (err) {
         console.error("Error fetching project:", err.message);
@@ -71,11 +83,11 @@ export const getPictureBooks = async (req, res) => {
     try {
         const pool = await getDb();
         client = await pool.connect();
-        
+
         const userId = req.userId;
         const sql = `
             SELECT
-                pb.id, pb.title, pb.last_modified, pb.is_public, pb.cover_image_url,
+                pb.id, pb.title, pb.last_modified, pb.is_public, pb.cover_image_url, pb.lulu_product_id,
                 u.username as author_username,
                 u.avatar_url as author_avatar_url
             FROM picture_books pb
@@ -85,8 +97,12 @@ export const getPictureBooks = async (req, res) => {
         `;
         const booksResult = await client.query(sql, [userId]);
         const books = booksResult.rows;
-        
-        const booksWithType = books.map(b => ({ ...b, type: 'pictureBook', book_type: 'pictureBook' }));
+
+        const printOptionsCache = await getPrintOptions();
+        const booksWithType = books.map(book => {
+            const productConfig = printOptionsCache.find(p => p.id === book.lulu_product_id);
+            return { ...book, productName: productConfig ? productConfig.name : 'Unknown Book', type: 'pictureBook', book_type: 'pictureBook' };
+        });
         res.status(200).json(booksWithType);
     } catch (err) {
         console.error("Error fetching projects:", err.message);
@@ -101,7 +117,7 @@ export const addTimelineEvent = async (req, res) => {
     try {
         const pool = await getDb();
         client = await pool.connect();
-        
+
         const { bookId } = req.params;
         const { page_number, event_date = null, description = null, image_url = null, image_style = null, uploaded_image_url = null, overlay_text = null } = req.body;
 
@@ -111,7 +127,6 @@ export const addTimelineEvent = async (req, res) => {
 
         const finalImageUrl = uploaded_image_url || image_url;
 
-        // PostgreSQL ON CONFLICT syntax
         const sql = `
             INSERT INTO timeline_events (book_id, page_number, event_date, description, image_url, image_style, uploaded_image_url, overlay_text)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -122,13 +137,12 @@ export const addTimelineEvent = async (req, res) => {
             image_style = EXCLUDED.image_style,
             uploaded_image_url = EXCLUDED.uploaded_image_url,
             overlay_text = EXCLUDED.overlay_text,
-            last_modified = CURRENT_TIMESTAMP; -- Added last_modified update on conflict
+            last_modified = CURRENT_TIMESTAMP;
         `;
         await client.query(sql, [bookId, page_number, event_date, description, finalImageUrl, image_style, uploaded_image_url, overlay_text]);
-        
-        // Update picture_books last_modified directly
+
         await client.query(`UPDATE picture_books SET last_modified = $1 WHERE id = $2`, [new Date().toISOString(), bookId]);
-        
+
         res.status(201).json({ message: 'Event saved.' });
     } catch (err) {
         console.error("Error in addTimelineEvent:", err.message);
@@ -143,25 +157,25 @@ export const deletePictureBook = async (req, res) => {
     try {
         const pool = await getDb();
         client = await pool.connect();
-        await client.query('BEGIN'); // Start transaction for multiple deletes
-        
+        await client.query('BEGIN');
+
         const { bookId } = req.params;
         const userId = req.userId;
-        
+
         const bookResult = await client.query(`SELECT id FROM picture_books WHERE id = $1 AND user_id = $2`, [bookId, userId]);
         const book = bookResult.rows[0];
-        
+
         if (!book) {
             return res.status(404).json({ message: 'Project not found.' });
         }
-        
+
         await client.query(`DELETE FROM timeline_events WHERE book_id = $1`, [bookId]);
         await client.query(`DELETE FROM picture_books WHERE id = $1`, [bookId]);
-        
-        await client.query('COMMIT'); // Commit transaction
+
+        await client.query('COMMIT');
         res.status(200).json({ message: 'Project deleted successfully.' });
     } catch (err) {
-        if (client) await client.query('ROLLBACK'); // Rollback on error
+        if (client) await client.query('ROLLBACK');
         console.error("Error deleting project:", err.message);
         res.status(500).json({ message: 'Failed to delete project.' });
     } finally {
@@ -171,86 +185,110 @@ export const deletePictureBook = async (req, res) => {
 
 export const createBookCheckoutSession = async (req, res) => {
     let client;
+    let interiorPdfPath = null;
+    let coverPdfPath = null;
+
     const { bookId } = req.params;
     const userId = req.userId;
-    const minPageCount = 24; // Assuming a minimum number of pages for a publishable picture book
+    const minPageCountForPictureBook = 24;
 
     try {
         const pool = await getDb();
         client = await pool.connect();
-        
+
         const bookResult = await client.query(`SELECT * FROM picture_books WHERE id = $1 AND user_id = $2`, [bookId, userId]);
         const book = bookResult.rows[0];
         if (!book) return res.status(404).json({ message: "Project not found." });
-        
-        const timelineResult = await client.query(`SELECT * FROM timeline_events WHERE book_id = $1`, [bookId]);
+
+        const timelineResult = await client.query(`SELECT * FROM timeline_events WHERE book_id = $1 ORDER BY page_number ASC`, [bookId]);
         const timeline = timelineResult.rows;
-        if (timeline.length < minPageCount) {
-            return res.status(400).json({ message: `Project must have at least ${minPageCount} pages.` });
+        if (timeline.length < minPageCountForPictureBook) {
+            return res.status(400).json({ message: `Project must have at least ${minPageCountForPictureBook} pages.` });
         }
-        
-        const products = await getPrintOptions();
-        const productInfo = products.find(p => p.type === 'picturebook');
-        if (!productInfo) return res.status(500).json({ message: "Picture book product definition not found." });
 
-        console.log(`Generating PDF for book ${bookId}...`);
-        
-        // --- MODIFICATION START ---
-        console.log(`DEBUG: book.lulu_product_id being passed to PDF generator: ${book.lulu_product_id}`);
-        pdfBuffer = await generatePictureBookPdf(book, timeline, book.lulu_product_id); 
-        // --- MODIFICATION END ---
-        
-        console.log(`Uploading PDF to Cloudinary for book ${bookId}...`);
-        const folder = `inkwell-ai/user_${userId}/books`;
-        const interiorPdfUrl = await uploadImageToCloudinary(pdfBuffer, folder);
-        const coverPdfUrl = "https://www.dropbox.com/s/7bv6mg2tj0h3l0r/lulu_trade_perfect_template.pdf?dl=1&raw=1";
+        const printOptions = await getPrintOptions();
+        const selectedProductConfig = printOptions.find(p => p.id === book.lulu_product_id);
+        if (!selectedProductConfig) return res.status(500).json({ message: "Picture book product configuration not found." });
 
-        // await client.query(`UPDATE picture_books SET lulu_product_id = $1, interior_pdf_url = $2, cover_pdf_url = $3 WHERE id = $4`, [productInfo.id, interiorPdfUrl, coverPdfUrl, bookId]); // This line is not needed if storing in orders table
-        
+        console.log(`Generating PDFs for picture book ${bookId}...`);
+
+        const tempPdfsDir = path.resolve(process.cwd(), 'tmp', 'pdfs');
+
+        const userResult = await client.query(`SELECT username FROM users WHERE id = $1`, [userId]);
+        const authorUsername = userResult.rows[0]?.username || 'Inkwell AI';
+
+        // Step 1: Generate Interior PDF and save locally
+        interiorPdfPath = await generateAndSavePictureBookPdf(book, timeline, selectedProductConfig.id, tempPdfsDir);
+        console.log(`Interior PDF saved temporarily at: ${interiorPdfPath}`);
+
+        // Step 2: Programmatically Read and Confirm Interior PDF Page Count
+        const actualInteriorPageCount = await getPdfPageCount(interiorPdfPath);
+        console.log(`Actual interior PDF page count: ${actualInteriorPageCount}`);
+
+        // Step 3: Dynamically Determine SKU based on actual page count
+        const dynamicLuluSku = getLuluSkuByConfigAndPageCount(selectedProductConfig.id, actualInteriorPageCount);
+        console.log(`Determined dynamic Lulu SKU: ${dynamicLuluSku} for actual page count: ${actualInteriorPageCount}`);
+
+
+        // Step 6: Upload Both PDFs to Cloudinary Correctly
+        const interiorPdfUrl = await uploadPdfFileToCloudinary(
+            interiorPdfPath,
+            `inkwell-ai/user_${userId}/books`,
+            `book_${bookId}_interior`
+        );
+        console.log(`Uploaded interior PDF to Cloudinary: ${interiorPdfUrl}`);
+
+        // Generate Cover PDF - Pass the ACTUAL interior page count and the DYNAMIC SKU
+        const coverPdfBuffer = await generateCoverPdf(book.title, authorUsername, dynamicLuluSku, actualInteriorPageCount);
+        coverPdfPath = path.join(tempPdfsDir, `cover_${Date.now()}_${randomUUID().substring(0,8)}.pdf`);
+        await fs.writeFile(coverPdfPath, coverPdfBuffer);
+        console.log(`Cover PDF saved temporarily at: ${coverPdfPath}`);
+
+        // Step 6: Upload Both PDFs to Cloudinary Correctly
+        const coverPdfUrl = await uploadPdfFileToCloudinary(
+            coverPdfPath,
+            `inkwell-ai/user_${userId}/covers`,
+            `book_${bookId}_cover`
+        );
+        console.log(`Uploaded cover PDF to Cloudinary: ${coverPdfUrl}`);
+
         console.log(`Creating Stripe session for book ${bookId}...`);
 
-        const orderDetails = {
-            selections: {
-                id: productInfo.id,
-                name: productInfo.name,
-                description: book.title,
-            },
-            totalPrice: productInfo.price
-        };
-
-        const orderId = randomUUID(); // Generate a unique orderId
+        const orderId = randomUUID();
 
         await client.query(
-            `INSERT INTO orders (id, user_id, book_id, book_type, book_title, lulu_order_id, status, total_price, interior_pdf_url, cover_pdf_url, order_date) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+            `INSERT INTO orders (id, user_id, book_id, book_type, book_title, lulu_product_id, status, total_price, interior_pdf_url, cover_pdf_url, order_date, actual_page_count) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
             [
-                orderId, 
-                userId, 
-                bookId, 
-                'pictureBook', // book_type
-                book.title, // book_title
-                productInfo.id, // lulu_order_id (using productInfo.id as luluProductId/SKU for now)
-                'pending', 
-                productInfo.price, 
-                interiorPdfUrl, 
-                coverPdfUrl, 
-                new Date().toISOString()
+                orderId,
+                userId,
+                bookId,
+                'pictureBook',
+                book.title,
+                dynamicLuluSku,
+                'pending',
+                selectedProductConfig.basePrice,
+                interiorPdfUrl,
+                coverPdfUrl,
+                new Date().toISOString(),
+                actualInteriorPageCount
             ]
         );
 
         const session = await createStripeCheckoutSession(
-            { // productDetails object
-                id: productInfo.id,
-                name: productInfo.name,
+            {
+                id: dynamicLuluSku,
+                name: selectedProductConfig.name,
                 description: book.title,
-                price: productInfo.price, // Include price here too
-                bookType: 'pictureBook' // Explicitly pass bookType
-            }, 
-            userId, 
-            orderId, // This is the orderId
-            bookId // This is the actual book project ID
+                price: selectedProductConfig.basePrice,
+                bookType: 'pictureBook',
+                pageCount: actualInteriorPageCount
+            },
+            userId,
+            orderId,
+            bookId
         );
-        
-        await client.query('UPDATE orders SET stripe_session_id = $1 WHERE id = $2', [session.id, orderId]); // orderId is now defined
+
+        await client.query('UPDATE orders SET stripe_session_id = $1 WHERE id = $2', [session.id, orderId]);
 
         res.status(200).json({ url: session.url });
     } catch (error) {
@@ -258,6 +296,22 @@ export const createBookCheckoutSession = async (req, res) => {
         res.status(500).json({ message: "Failed to create checkout session." });
     } finally {
         if (client) client.release();
+        if (interiorPdfPath) {
+            try {
+                await fs.unlink(interiorPdfPath);
+                console.log(`Cleaned up temporary interior PDF: ${interiorPdfPath}`);
+            } catch (unlinkError) {
+                console.error(`Error cleaning up temporary interior PDF ${interiorPdfPath}:`, unlinkError);
+            }
+        }
+        if (coverPdfPath) {
+            try {
+                await fs.unlink(coverPdfPath);
+                console.log(`Cleaned up temporary cover PDF: ${coverPdfPath}`);
+            } catch (unlinkError) {
+                console.error(`Error cleaning up temporary cover PDF ${coverPdfPath}:`, unlinkError);
+            }
+        }
     }
 };
 
@@ -272,7 +326,7 @@ export const deleteTimelineEvent = async (req, res) => {
     try {
         const pool = await getDb();
         client = await pool.connect();
-        
+
         const bookResult = await client.query(`SELECT id FROM picture_books WHERE id = $1 AND user_id = $2`, [bookId, userId]);
         const book = bookResult.rows[0];
         if (!book) {
@@ -323,7 +377,7 @@ export const togglePictureBookPrivacy = async (req, res) => {
     try {
         const pool = await getDb();
         client = await pool.connect();
-        
+
         const bookResult = await client.query(`SELECT id FROM picture_books WHERE id = $1`, [bookId]);
         const book = bookResult.rows[0];
         if (!book) {

@@ -1,16 +1,31 @@
+// backend/src/controllers/order.controller.js
+
 import { getDb } from '../db/database.js';
 import Stripe from 'stripe';
-import { PRODUCTS_TO_OFFER } from '../services/lulu.service.js';
-import { createLuluPrintJob } from '../services/lulu.service.js';
+import { LULU_PRODUCT_CONFIGURATIONS, getPrintOptions, createLuluPrintJob } from '../services/lulu.service.js';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
-const calculateOrderAmount = (items) => {
+let printOptionsCache = null;
+
+const getProductConfig = async (configId) => {
+    if (!printOptionsCache) {
+        printOptionsCache = await getPrintOptions();
+    }
+    const config = printOptionsCache.find(p => p.id === configId);
+    if (!config) {
+        throw new Error(`Product configuration with ID ${configId} not found.`);
+    }
+    return config;
+};
+
+
+const calculateOrderAmount = async (items) => {
     let total = 0;
     for (const item of items) {
-        const productInfo = PRODUCTS_TO_OFFER.find(p => p.id === item.productId);
-        if (productInfo) {
-            total += productInfo.price;
+        const productConfig = await getProductConfig(item.productId);
+        if (productConfig) {
+            total += productConfig.price * item.quantity;
         }
     }
     return total;
@@ -26,22 +41,22 @@ export const createCheckoutSession = async (req, res) => {
     }
 
     try {
-        const line_items = items.map(item => {
-            const productInfo = PRODUCTS_TO_OFFER.find(p => p.id === item.productId);
-            if (!productInfo) {
-                throw new Error(`Product with ID ${item.productId} not found.`);
+        const line_items = await Promise.all(items.map(async (item) => {
+            const productConfig = await getProductConfig(item.productId);
+            if (!productConfig) {
+                throw new Error(`Product configuration with ID ${item.productId} not found.`);
             }
             return {
                 price_data: {
                     currency: 'aud',
                     product_data: {
-                        name: productInfo.name,
+                        name: productConfig.name,
                     },
-                    unit_amount: productInfo.price,
+                    unit_amount: Math.round(productConfig.price * 100),
                 },
                 quantity: item.quantity,
             };
-        });
+        }));
 
         const session = await stripe.checkout.sessions.create({
             payment_method_types: ['card'],
@@ -55,7 +70,6 @@ export const createCheckoutSession = async (req, res) => {
             },
         });
 
-        // Store the Stripe session ID with your order in the database for later reconciliation
         const pool = await getDb();
         client = await pool.connect();
         await client.query('UPDATE orders SET stripe_session_id = $1 WHERE id = $2', [session.id, orderId]);
@@ -65,7 +79,7 @@ export const createCheckoutSession = async (req, res) => {
         console.error("Error creating checkout session:", error);
         res.status(500).json({ message: "Failed to create checkout session." });
     } finally {
-        if (client) client.release(); // Release client for this specific DB operation
+        if (client) client.release();
     }
 };
 
@@ -83,7 +97,7 @@ export const handleWebhook = async (req, res) => {
 
     try {
         const pool = await getDb();
-        client = await pool.connect(); // Acquire client once for the webhook logic
+        client = await pool.connect();
 
         switch (event.type) {
             case 'checkout.session.completed':
@@ -98,24 +112,47 @@ export const handleWebhook = async (req, res) => {
                         ['completed', customerEmail, 'paid', orderId, userId]);
                     console.log(`Order ${orderId} marked as completed in DB.`);
 
-                    const orderDetailsResult = await client.query('SELECT * FROM orders WHERE id = $1', [orderId]);
+                    const orderDetailsResult = await client.query('SELECT interior_pdf_url, cover_pdf_url, actual_page_count, lulu_product_id, book_id, user_id FROM orders WHERE id = $1', [orderId]);
                     const orderDetails = orderDetailsResult.rows[0];
 
-                    if (orderDetails && orderDetails.lulu_order_data) {
+                    if (orderDetails && orderDetails.interior_pdf_url && orderDetails.cover_pdf_url && orderDetails.actual_page_count && orderDetails.lulu_product_id) {
+                        const fullStripeSession = await stripe.checkout.sessions.retrieve(session.id, {
+                            expand: ['shipping_details', 'customer_details'],
+                        });
+                        const shippingInfo = {
+                            name: fullStripeSession.shipping_details.name,
+                            street1: fullStripeSession.shipping_details.address.line1,
+                            city: fullStripeSession.shipping_details.address.city,
+                            postcode: fullStripeSession.shipping_details.address.postal_code,
+                            country_code: fullStripeSession.shipping_details.address.country,
+                            state_code: fullStripeSession.shipping_details.address.state,
+                            email: fullStripeSession.customer_details.email,
+                            phone_number: fullStripeSession.customer_details.phone || '000-000-0000',
+                        };
+
                         try {
-                            const luluOrderData = JSON.parse(orderDetails.lulu_order_data);
-                            const printJobResult = await createLuluPrintJob(luluOrderData);
+                            const printJobResult = await createLuluPrintJob(
+                                orderDetails.lulu_product_id,
+                                orderDetails.actual_page_count,
+                                orderDetails.interior_pdf_url,
+                                orderDetails.cover_pdf_url,
+                                orderId,
+                                userId,
+                                shippingInfo
+                            );
                             await client.query('UPDATE orders SET lulu_job_id = $1, lulu_job_status = $2 WHERE id = $3',
                                 [printJobResult.id, printJobResult.status, orderId]);
                             console.log(`Lulu print job created for order ${orderId}:`, printJobResult.id);
                         } catch (luluError) {
                             console.error(`Error creating Lulu print job for order ${orderId}:`, luluError);
                         }
+                    } else {
+                        console.log(`Order ${orderId} does not contain all necessary data for Lulu print job (missing PDFs, page count, or SKU).`);
                     }
 
                 } catch (dbError) {
-                    console.error(`Database update error for session ${session.id}:`, dbError);
-                    return res.status(500).send('Database update failed');
+                    console.error(`Database update/fetch error for session ${session.id}:`, dbError);
+                    return res.status(500).send('Database update/fetch failed');
                 }
                 break;
             case 'payment_intent.succeeded':
@@ -123,13 +160,13 @@ export const handleWebhook = async (req, res) => {
                 break;
             case 'payment_intent.payment_failed':
                 console.log(`PaymentIntent ${event.data.object.id} failed.`);
-                const failedSessionId = event.data.object.id;
+                const failedPaymentIntentId = event.data.object.id;
                 try {
-                    await client.query('UPDATE orders SET status = $1, payment_status = $2 WHERE stripe_session_id = $3',
-                        ['failed', 'failed', failedSessionId]);
-                    console.log(`Order associated with session ${failedSessionId} marked as failed.`);
+                    await client.query('UPDATE orders SET status = $1, payment_status = $2 WHERE stripe_payment_intent_id = $3',
+                        ['failed', 'failed', failedPaymentIntentId]);
+                    console.log(`Order associated with payment intent ${failedPaymentIntentId} marked as failed.`);
                 } catch (dbError) {
-                    console.error(`Database update error for failed session ${failedSessionId}:`, dbError);
+                    console.error(`Database update error for failed payment intent ${failedPaymentIntentId}:`, dbError);
                 }
                 break;
             default:
@@ -141,7 +178,7 @@ export const handleWebhook = async (req, res) => {
         console.error("Error in webhook handler:", error);
         res.status(500).json({ message: "Server error in webhook handler." });
     } finally {
-        if (client) client.release(); // Release client for the webhook logic
+        if (client) client.release();
     }
 };
 

@@ -1,12 +1,16 @@
+// backend/src/controllers/textbook.controller.js
+
 import { getDb } from '../db/database.js';
 import { randomUUID } from 'crypto';
 import { generateStoryFromApi } from '../services/gemini.service.js';
-import { getPrintOptions } from '../services/lulu.service.js';
-import { generateTextBookPdf } from '../services/pdf.service.js';
-import { uploadImageToCloudinary } from '../services/image.service.js';
+import { getPrintOptions, getLuluSkuByConfigAndPageCount } from '../services/lulu.service.js';
+import { generateAndSaveTextBookPdf, generateCoverPdf, getPdfPageCount } from '../services/pdf.service.js';
+import { uploadPdfFileToCloudinary } from '../services/image.service.js';
 import { createStripeCheckoutSession } from '../services/stripe.service.js';
+import path from 'path';
+import fs from 'fs/promises';
 
-let printOptionsCache = null; // Cache for print options
+let printOptionsCache = null;
 
 export const createTextBook = async (req, res) => {
     let client;
@@ -24,12 +28,12 @@ export const createTextBook = async (req, res) => {
         if (!printOptionsCache) {
             printOptionsCache = await getPrintOptions();
         }
-        const selectedProduct = printOptionsCache.find(p => p.id === luluProductId);
-        if (!selectedProduct) {
-            return res.status(404).json({ message: 'Selected product format not found.' });
+        const selectedProductConfig = printOptionsCache.find(p => p.id === luluProductId);
+        if (!selectedProductConfig) {
+            return res.status(404).json({ message: 'Selected product format (configuration) not found.' });
         }
 
-        const totalChaptersForBook = Math.ceil(selectedProduct.pageCount / (selectedProduct.pagesPerChapter || 1));
+        const totalChaptersForBook = Math.ceil(selectedProductConfig.minPages / (selectedProductConfig.pagesPerChapter || 10));
 
         const bookId = randomUUID();
         const currentDate = new Date().toISOString();
@@ -39,8 +43,8 @@ export const createTextBook = async (req, res) => {
 
         const firstChapterText = await generateStoryFromApi({
             ...promptDetails,
-            pageCount: selectedProduct.pageCount,
-            wordsPerPage: selectedProduct.wordsPerPage,
+            pageCount: selectedProductConfig.minPages,
+            wordsPerPage: selectedProductConfig.wordsPerPage || 250,
             previousChaptersText: '',
             chapterNumber: 1,
             totalChapters: totalChaptersForBook,
@@ -78,8 +82,8 @@ export const generateNextChapter = async (req, res) => {
         if (!printOptionsCache) {
             printOptionsCache = await getPrintOptions();
         }
-        const selectedProduct = printOptionsCache.find(p => p.id === book.lulu_product_id);
-        if (!selectedProduct) return res.status(404).json({ message: 'Product format for this book not found.' });
+        const selectedProductConfig = printOptionsCache.find(p => p.id === book.lulu_product_id);
+        if (!selectedProductConfig) return res.status(404).json({ message: 'Product format for this book not found.' });
 
         const chaptersResult = await client.query(`SELECT * FROM chapters WHERE book_id = $1 ORDER BY chapter_number ASC`, [bookId]);
         const chapters = chaptersResult.rows;
@@ -92,8 +96,8 @@ export const generateNextChapter = async (req, res) => {
 
         const newChapterText = await generateStoryFromApi({
             ...promptDetails,
-            pageCount: selectedProduct.pageCount,
-            wordsPerPage: selectedProduct.wordsPerPage,
+            pageCount: selectedProductConfig.minPages,
+            wordsPerPage: selectedProductConfig.wordsPerPage || 250,
             previousChaptersText: previousChaptersText,
             chapterNumber: nextChapterNumber,
             totalChapters: book.total_chapters,
@@ -142,8 +146,8 @@ export const getTextBooks = async (req, res) => {
             printOptionsCache = await getPrintOptions();
         }
         const booksWithData = books.map(book => {
-            const product = printOptionsCache.find(p => p.id === book.lulu_product_id);
-            return { ...book, productName: product ? product.name : 'Unknown Book', type: 'textBook', book_type: 'textBook' };
+            const productConfig = printOptionsCache.find(p => p.id === book.lulu_product_id);
+            return { ...book, productName: productConfig ? productConfig.name : 'Unknown Book', type: 'textBook', book_type: 'textBook' };
         });
         res.status(200).json(booksWithData);
     } catch (error) {
@@ -189,6 +193,9 @@ export const getTextBookDetails = async (req, res) => {
 
 export const createTextBookCheckoutSession = async (req, res) => {
     let client;
+    let interiorPdfPath = null;
+    let coverPdfPath = null;
+
     const { bookId } = req.params;
     const userId = req.userId;
     try {
@@ -199,11 +206,9 @@ export const createTextBookCheckoutSession = async (req, res) => {
         const book = bookResult.rows[0];
         if (!book) return res.status(404).json({ message: "Project not found." });
 
-        // --- NEW DEBUG LOG (Added to see the full book object) ---
         console.log('DEBUG: Full book object from DB for checkout:', book);
-        // --- END NEW DEBUG LOG ---
 
-        const chaptersResult = await client.query(`SELECT * FROM chapters WHERE book_id = $1`, [bookId]);
+        const chaptersResult = await client.query(`SELECT * FROM chapters WHERE book_id = $1 ORDER BY chapter_number ASC`, [bookId]);
         const chapters = chaptersResult.rows;
 
         if (chapters.length < book.total_chapters) {
@@ -213,53 +218,85 @@ export const createTextBookCheckoutSession = async (req, res) => {
         if (!printOptionsCache) {
             printOptionsCache = await getPrintOptions();
         }
-        const productInfo = printOptionsCache.find(p => p.id === book.lulu_product_id);
-        if (!productInfo) return res.status(500).json({ message: "Book product definition not found." });
+        const selectedProductConfig = printOptionsCache.find(p => p.id === book.lulu_product_id);
+        if (!selectedProductConfig) return res.status(500).json({ message: "Book product configuration not found." });
 
-        console.log(`Generating text PDF for book ${bookId}...`);
+        console.log(`Generating PDFs for book ${bookId}...`);
 
-        // This log will now be hit AFTER the above productInfo lookup, but it's still good to keep for a second level of verification
-        console.log(`DEBUG: book.lulu_product_id passed to PDF generation: ${book.lulu_product_id}`);
-        let pdfBuffer = await generateTextBookPdf(book.title, chapters, book.lulu_product_id);
+        const tempPdfsDir = path.resolve(process.cwd(), 'tmp', 'pdfs');
 
-        console.log(`Uploading text PDF to Cloudinary for book ${bookId}...`);
-        const folder = `inkwell-ai/user_${userId}/books`;
-        const interiorPdfUrl = await uploadImageToCloudinary(pdfBuffer, folder);
-        const coverPdfUrl = "https://www.dropbox.com/s/7bv6mg2tj0h3l0r/lulu_trade_perfect_template.pdf?dl=1&raw=1";
-        // await client.query(`UPDATE text_books SET interior_pdf_url = $1, cover_pdf_url = $2 WHERE id = $3`, [interiorPdfUrl, coverPdfUrl, bookId]); // This line is not needed if storing in orders table
+        const userResult = await client.query(`SELECT username FROM users WHERE id = $1`, [userId]);
+        const authorUsername = userResult.rows[0]?.username || 'Inkwell AI';
+
+        // Step 1: Generate Interior PDF and save locally
+        interiorPdfPath = await generateAndSaveTextBookPdf(book.title, chapters, selectedProductConfig.id, tempPdfsDir);
+        console.log(`Interior PDF saved temporarily at: ${interiorPdfPath}`);
+
+        // Step 2: Programmatically Read and Confirm Interior PDF Page Count
+        const actualInteriorPageCount = await getPdfPageCount(interiorPdfPath);
+        console.log(`Actual interior PDF page count: ${actualInteriorPageCount}`);
+
+        // Step 3: Dynamically Determine SKU based on actual page count
+        const dynamicLuluSku = getLuluSkuByConfigAndPageCount(selectedProductConfig.id, actualInteriorPageCount);
+        console.log(`Determined dynamic Lulu SKU: ${dynamicLuluSku} for actual page count: ${actualInteriorPageCount}`);
+
+        // Step 6: Upload Both PDFs to Cloudinary Correctly
+        const interiorPdfUrl = await uploadPdfFileToCloudinary(
+            interiorPdfPath,
+            `inkwell-ai/user_${userId}/books`,
+            `book_${bookId}_interior`
+        );
+        console.log(`Uploaded interior PDF to Cloudinary: ${interiorPdfUrl}`);
+
+
+        // Generate Cover PDF - Pass the ACTUAL interior page count and the DYNAMIC SKU
+        const coverPdfBuffer = await generateCoverPdf(book.title, authorUsername, dynamicLuluSku, actualInteriorPageCount);
+        coverPdfPath = path.join(tempPdfsDir, `cover_${Date.now()}_${randomUUID().substring(0,8)}.pdf`);
+        await fs.writeFile(coverPdfPath, coverPdfBuffer);
+        console.log(`Cover PDF saved temporarily at: ${coverPdfPath}`);
+
+        // Step 6: Upload Both PDFs to Cloudinary Correctly
+        const coverPdfUrl = await uploadPdfFileToCloudinary(
+            coverPdfPath,
+            `inkwell-ai/user_${userId}/covers`,
+            `book_${bookId}_cover`
+        );
+        console.log(`Uploaded cover PDF to Cloudinary: ${coverPdfUrl}`);
 
         console.log(`Creating Stripe session for text book ${bookId}...`);
 
-        const orderId = randomUUID(); // Generate a unique orderId
+        const orderId = randomUUID();
 
         await client.query(
-            `INSERT INTO orders (id, user_id, book_id, book_type, book_title, lulu_order_id, status, total_price, interior_pdf_url, cover_pdf_url, order_date) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+            `INSERT INTO orders (id, user_id, book_id, book_type, book_title, lulu_product_id, status, total_price, interior_pdf_url, cover_pdf_url, order_date, actual_page_count) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
             [
                 orderId,
                 userId,
                 bookId,
-                'textBook', // book_type
-                book.title, // book_title
-                productInfo.id, // lulu_order_id (using productInfo.id as luluProductId/SKU for now)
+                'textBook',
+                book.title,
+                dynamicLuluSku,
                 'pending',
-                productInfo.price,
+                selectedProductConfig.basePrice,
                 interiorPdfUrl,
                 coverPdfUrl,
-                new Date().toISOString()
+                new Date().toISOString(),
+                actualInteriorPageCount
             ]
         );
 
         const session = await createStripeCheckoutSession(
-            { // productDetails object
-                id: productInfo.id,
-                name: productInfo.name,
+            {
+                id: dynamicLuluSku,
+                name: selectedProductConfig.name,
                 description: book.title,
-                price: productInfo.price, // Include price here too
-                bookType: 'textBook' // Explicitly pass bookType
+                price: selectedProductConfig.basePrice,
+                bookType: 'textBook',
+                pageCount: actualInteriorPageCount
             },
             userId,
-            orderId, // This is the orderId
-            bookId // This is the actual book project ID
+            orderId,
+            bookId
         );
 
         await client.query('UPDATE orders SET stripe_session_id = $1 WHERE id = $2', [session.id, orderId]);
@@ -270,6 +307,22 @@ export const createTextBookCheckoutSession = async (req, res) => {
         res.status(500).json({ message: "Failed to create checkout session." });
     } finally {
         if (client) client.release();
+        if (interiorPdfPath) {
+            try {
+                await fs.unlink(interiorPdfPath);
+                console.log(`Cleaned up temporary interior PDF: ${interiorPdfPath}`);
+            } catch (unlinkError) {
+                console.error(`Error cleaning up temporary interior PDF ${interiorPdfPath}:`, unlinkError);
+            }
+        }
+        if (coverPdfPath) {
+            try {
+                await fs.unlink(coverPdfPath);
+                console.log(`Cleaned up temporary cover PDF: ${coverPdfPath}`);
+            } catch (unlinkError) {
+                console.error(`Error cleaning up temporary cover PDF ${coverPdfPath}:`, unlinkError);
+            }
+        }
     }
 };
 
@@ -313,7 +366,7 @@ export const deleteTextBook = async (req, res) => {
     try {
         const pool = await getDb();
         client = await pool.connect();
-        await client.query('BEGIN'); // Start transaction
+        await client.query('BEGIN');
 
         const bookResult = await client.query(`SELECT id FROM text_books WHERE id = $1 AND user_id = $2`, [bookId, userId]);
         const book = bookResult.rows[0];
@@ -323,10 +376,10 @@ export const deleteTextBook = async (req, res) => {
         await client.query(`DELETE FROM chapters WHERE book_id = $1`, [bookId]);
         await client.query(`DELETE FROM text_books WHERE id = $1`, [bookId]);
 
-        await client.query('COMMIT'); // Commit transaction
+        await client.query('COMMIT');
         res.status(200).json({ message: 'Text book project and all its chapters have been deleted.' });
     } catch (error) {
-        if (client) await client.query('ROLLBACK'); // Rollback on error
+        if (client) await client.query('ROLLBACK');
         console.error(`Error deleting text book ${bookId}:`, error);
         res.status(500).json({ message: 'Failed to delete project.' });
     } finally {

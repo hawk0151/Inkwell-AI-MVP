@@ -1,12 +1,14 @@
+// backend/src/controllers/stripe.controller.js
+
 import stripe from 'stripe';
 import { getDb } from '../db/database.js';
-// MODIFIED: Import generateCoverPdf
-import { generateTextBookPdf, generatePictureBookPdf, generateCoverPdf } from '../services/pdf.service.js';
+// MODIFIED: Import the NEW file-saving PDF generation functions
+import { generateAndSaveTextBookPdf, generateAndSavePictureBookPdf, generateCoverPdf } from '../services/pdf.service.js';
 import { uploadImageToCloudinary } from '../services/image.service.js';
 import { createLuluPrintJob } from '../services/lulu.service.js';
 import { randomUUID } from 'crypto';
-import fs from 'fs/promises';
-import path from 'path';
+import fs from 'fs/promises'; // Import fs.promises for async file operations
+import path from 'path';     // Import path for handling file paths
 
 const stripeClient = stripe(process.env.STRIPE_SECRET_KEY);
 
@@ -49,10 +51,12 @@ const handleSuccessfulCheckout = async (session) => {
 
         let bookTitle;
         let interiorPdfUrl;
-        let coverPdfUrl; // This will now be dynamically generated
-        let pdfBuffer;
+        let coverPdfUrl;
         let luluOrderDetails = null;
         let pageCountForCover = 0; // To fetch page count for spine calculation
+
+        // Define a temporary directory for PDFs
+        const tempPdfsDir = path.resolve(process.cwd(), 'tmp', 'pdfs'); // Creates a 'tmp/pdfs' directory at your project root
 
         if (bookType === 'textBook') {
             const bookResult = await client.query(`SELECT * FROM text_books WHERE id = $1`, [bookId]);
@@ -60,26 +64,25 @@ const handleSuccessfulCheckout = async (session) => {
             if (!book) throw new Error(`Text book with ID ${bookId} not found in DB.`);
 
             bookTitle = book.title;
-            pageCountForCover = book.total_chapters * (book.pagesPerChapter || 1); // Assuming avg pages per chapter to get total pages
-            // If total_chapters already means total pages, use that directly.
-            // Otherwise, we need to know how many pages each chapter translates to.
-            // Let's assume total_chapters * selectedProduct.pagesPerChapter from lulu.service.js gives us the actual page count.
-            // Or, more robustly, fetch actual chapter content and count pages using PDFKit's methods if you need extremely accurate total pages.
-            // For now, let's try getting it from the product info itself
             
-            // Re-fetch product info to get pageCount accurately
-            const product = (await import('../services/lulu.service.js')).PRODUCTS_TO_OFFER.find(p => p.id === luluProductId);
+            // Re-fetch product info to get pageCount accurately as per blueprint
+            const luluService = await import('../services/lulu.service.js');
+            const product = luluService.PRODUCTS_TO_OFFER.find(p => p.id === luluProductId);
             if (!product) throw new Error(`Lulu product ${luluProductId} not found for cover page count.`);
-            pageCountForCover = product.pageCount;
-
+            pageCountForCover = product.pageCount; // Use the product's defined pageCount
 
             const chaptersResult = await client.query(`SELECT chapter_number, content FROM chapters WHERE book_id = $1 ORDER BY chapter_number ASC`, [bookId]);
             console.log(`DEBUG: Generating PDF for text book: ${book.title}. Chapters count: ${chaptersResult.rows.length}`);
 
-            pdfBuffer = await generateTextBookPdf(book.title, chaptersResult.rows, luluProductId);
+            // MODIFIED: Call the new file-saving function and get the file path
+            const interiorPdfPath = await generateAndSaveTextBookPdf(book.title, chaptersResult.rows, luluProductId, tempPdfsDir);
+            console.log(`Interior PDF saved temporarily at: ${interiorPdfPath}`);
 
-            console.log(`DEBUG: Uploading Interior PDF to Cloudinary for book: ${bookId}. PDF Buffer length: ${pdfBuffer ? pdfBuffer.length : 'null'}`);
-            interiorPdfUrl = await uploadImageToCloudinary(pdfBuffer, `inkwell-ai/user_${userId}/books`);
+            // TEMPORARY: Read the PDF back into a buffer for Cloudinary upload.
+            // This will be refactored in a later step to directly upload the file path.
+            const interiorPdfBuffer = await fs.readFile(interiorPdfPath);
+            console.log(`DEBUG: Uploading Interior PDF to Cloudinary for book: ${bookId}. PDF Buffer length: ${interiorPdfBuffer ? interiorPdfBuffer.length : 'null'}`);
+            interiorPdfUrl = await uploadImageToCloudinary(interiorPdfBuffer, `inkwell-ai/user_${userId}/books`);
 
             // --- MODIFICATION START: Generate dynamic cover PDF ---
             console.log(`DEBUG: Generating Cover PDF for text book: ${book.title} with product ID ${luluProductId} and page count ${pageCountForCover}.`);
@@ -103,19 +106,24 @@ const handleSuccessfulCheckout = async (session) => {
             if (!book) throw new Error(`Picture book with ID ${bookId} not found in DB.`);
 
             bookTitle = book.title;
-            // Re-fetch product info to get pageCount accurately
-            const product = (await import('../services/lulu.service.js')).PRODUCTS_TO_OFFER.find(p => p.id === luluProductId);
+            // Re-fetch product info to get pageCount accurately as per blueprint
+            const luluService = await import('../services/lulu.service.js');
+            const product = luluService.PRODUCTS_TO_OFFER.find(p => p.id === luluProductId);
             if (!product) throw new Error(`Lulu product ${luluProductId} not found for cover page count.`);
-            pageCountForCover = product.pageCount;
-
+            pageCountForCover = product.pageCount; // Use the product's defined pageCount
 
             const timelineResult = await client.query(`SELECT * FROM timeline_events WHERE book_id = $1 ORDER BY page_number ASC`, [bookId]);
 
             console.log(`DEBUG: Generating Interior PDF for picture book: ${book.title}`);
-            pdfBuffer = await generatePictureBookPdf(book, timelineResult.rows, luluProductId);
+            // MODIFIED: Call the new file-saving function and get the file path
+            const interiorPdfPath = await generateAndSavePictureBookPdf(book, timelineResult.rows, luluProductId, tempPdfsDir);
+            console.log(`Interior PDF saved temporarily at: ${interiorPdfPath}`);
 
-            console.log(`DEBUG: Uploading Interior PDF to Cloudinary for book: ${bookId}. PDF Buffer length: ${pdfBuffer ? pdfBuffer.length : 'null'}`);
-            interiorPdfUrl = await uploadImageToCloudinary(pdfBuffer, `inkwell-ai/user_${userId}/books`);
+            // TEMPORARY: Read the PDF back into a buffer for Cloudinary upload.
+            // This will be refactored in a later step to directly upload the file path.
+            const interiorPdfBuffer = await fs.readFile(interiorPdfPath);
+            console.log(`DEBUG: Uploading Interior PDF to Cloudinary for book: ${bookId}. PDF Buffer length: ${interiorPdfBuffer ? interiorPdfBuffer.length : 'null'}`);
+            interiorPdfUrl = await uploadImageToCloudinary(interiorPdfBuffer, `inkwell-ai/user_${userId}/books`);
 
             // --- MODIFICATION START: Generate dynamic cover PDF ---
             console.log(`DEBUG: Generating Cover PDF for picture book: ${book.title} with product ID ${luluProductId} and page count ${pageCountForCover}.`);
@@ -151,7 +159,21 @@ const handleSuccessfulCheckout = async (session) => {
         console.log("--------------------------------------------------");
 
         console.log('Submitting print job to Lulu...');
-        const luluJob = await createLuluPrintJob(luluOrderDetails, shippingInfo);
+        // The `createLuluPrintJob` function in lulu.service.js needs to be updated
+        // to accept the new structure. We will do this in a later step.
+        // For now, `pageCountForCover` is still being passed for the `lulu.service.js` function.
+        // The blueprint states that `createLuluPrintJob` will take the `verified page count`.
+        // This `pageCountForCover` will eventually be the *actual* page count extracted from the PDF.
+        const luluJob = await createLuluPrintJob(
+            luluOrderDetails.lulu_product_id, // SKU
+            pageCountForCover, // Placeholder: This will be replaced with actual page count from PDF
+            luluOrderDetails.interior_pdf_url,
+            luluOrderDetails.cover_pdf_url,
+            luluOrderDetails.id, // bookId as external_id
+            userId, // for customer details lookup if needed inside createLuluPrintJob
+            shippingInfo // Pass the full shipping info
+        );
+
 
         const orderRecordResult = await client.query('SELECT id FROM orders WHERE stripe_session_id = $1', [fullSession.id]);
         const orderIdFromDB = orderRecordResult.rows[0]?.id;
