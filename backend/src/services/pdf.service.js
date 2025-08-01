@@ -1,51 +1,63 @@
+// backend/src/services/pdf.service.js
+
 import PDFDocument from 'pdfkit';
 import axios from 'axios';
-// MODIFIED: Import getCoverDimensionsFromApi
-import { PRODUCTS_TO_OFFER, getCoverDimensionsFromApi } from './lulu.service.js';
+import fs from 'fs/promises';
+import path from 'path';
+import { fileURLToPath, pathToFileURL } from 'url'; // MODIFIED: Added pathToFileURL
+import { dirname } from 'path';
+
+import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
+
+import { LULU_PRODUCT_CONFIGURATIONS, getCoverDimensionsFromApi } from './lulu.service.js';
+
+// Calculate __dirname equivalent for ES Modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+// Configure pdfjs-dist worker source, required for its operation
+// MODIFIED: Convert the resolved path to a file:// URL
+const workerPath = path.resolve(__dirname, '../../node_modules/pdfjs-dist/build/pdf.worker.mjs');
+pdfjsLib.GlobalWorkerOptions.workerSrc = pathToFileURL(workerPath).href; // Convert to file:// URL string
+console.log("PDF.js Worker Source (as URL):", pdfjsLib.GlobalWorkerOptions.workerSrc); // Debugging worker path
 
 // Helper function to convert mm to points
 const mmToPoints = (mm) => mm * (72 / 25.4);
 
 // Helper to get dimensions from product ID for INTERIOR PDFs
-const getProductDimensions = (luluProductId) => {
-    const product = PRODUCTS_TO_OFFER.find(p => p.id === luluProductId);
-    if (!product) {
-        throw new Error(`Product with ID ${luluProductId} not found in PRODUCTS_TO_OFFER.`);
+const getProductDimensions = (luluConfigId) => {
+    const productConfig = LULU_PRODUCT_CONFIGURATIONS.find(p => p.id === luluConfigId);
+    if (!productConfig) {
+        throw new Error(`Product configuration with ID ${luluConfigId} not found in LULU_PRODUCT_CONFIGURATIONS.`);
     }
 
     let widthMm, heightMm, layout;
 
-    // These are interior dimensions, which remain fixed based on Lulu's templates
-    switch (product.id) {
-        case '0550X0850BWSTDCW060UC444GXX': // Novella (5.5 x 8.5" / 139.7 x 215.9 mm)
+    // Use trimSize from the config to determine interior PDF dimensions
+    switch (productConfig.trimSize) {
+        case '5.5x8.5': // Novella
             widthMm = 139.7;
             heightMm = 215.9;
             layout = 'portrait';
             break;
-        case '0827X1169BWPRELW060UC444GNG': // A4 Story Book (8.27 x 11.69" / 209.55 x 296.9 mm)
+        case '8.27x11.69': // A4 Story Book & A4 Premium Picture Book
             widthMm = 209.55;
             heightMm = 296.9;
             layout = 'portrait';
             break;
-        case '0614X0921BWPRELW060UC444GNG': // Royal Hardcover (6.14 x 9.21" / 156 x 234 mm)
+        case '6.14x9.21': // Royal Hardcover
             widthMm = 156;
             heightMm = 234;
             layout = 'portrait';
             break;
-        case '0827X1169FCPRELW080CW444MNG': // A4 Premium Picture Book (8.27 x 11.69" / 209.55 x 296.9 mm - portrait internal dimensions for a landscape book)
-            // Interior PDF for a landscape book is still generated in portrait
-            widthMm = 209.55;
-            heightMm = 296.9;
-            layout = 'portrait'; // Interior content for landscape book still uses portrait pages
-            break;
         default:
-            throw new Error(`Unknown product ID ${luluProductId} for interior PDF dimensions.`);
+            throw new Error(`Unknown trim size ${productConfig.trimSize} for interior PDF dimensions.`);
     }
 
     const widthPoints = mmToPoints(widthMm);
     const heightPoints = mmToPoints(heightMm);
 
-    console.log(`DEBUG: Product ${luluProductId} interior dimensions in MM: ${widthMm}x${heightMm}. In Points: ${widthPoints.toFixed(2)}x${heightPoints.toFixed(2)}. Layout: ${layout}.`);
+    console.log(`DEBUG: Product config ${luluConfigId} interior dimensions in MM: ${widthMm}x${heightMm}. In Points: ${widthPoints.toFixed(2)}x${heightPoints.toFixed(2)}. Layout: ${layout}.`);
 
     return {
         width: widthPoints,
@@ -54,48 +66,41 @@ const getProductDimensions = (luluProductId) => {
     };
 };
 
-// --- Image Helper ---
+// --- Image Helper (No change) ---
 async function getImageBuffer(url) {
     const response = await axios.get(url, { responseType: 'arraybuffer' });
     return Buffer.from(response.data, 'binary');
 }
 
-// --- MODIFIED: Cover PDF Generator with aggressive dimension normalization for Lulu ---
+// --- Programmatically read PDF page count ---
+export async function getPdfPageCount(pdfFilePath) {
+    try {
+        const pdfData = new Uint8Array(await fs.readFile(pdfFilePath));
+        const loadingTask = pdfjsLib.getDocument({ data: pdfData });
+        const pdfDocument = await loadingTask.promise;
+        const pageCount = pdfDocument.numPages;
+        console.log(`Successfully extracted ${pageCount} pages from ${pdfFilePath}`);
+        return pageCount;
+    } catch (error) {
+        console.error(`Error reading PDF page count from ${pdfFilePath}:`, error);
+        throw new Error(`Failed to get PDF page count from ${pdfFilePath}.`);
+    }
+}
+
+
+// --- MODIFIED: Cover PDF Generator with content safety margins ---
 export const generateCoverPdf = async (bookTitle, authorName, luluProductId, pageCount) => {
     return new Promise(async (resolve, reject) => {
         try {
-            // Get dimensions directly from Lulu API
             const { width: coverWidthMm, height: coverHeightMm, layout: coverLayout } =
                 await getCoverDimensionsFromApi(luluProductId, pageCount, 'mm');
 
-            // --- CRITICAL FIX ATTEMPT: Normalize PDFKit size to always be portrait-shaped,
-            // and apply rotation manually if Lulu expects landscape ---
-            let docBaseWidthMm, docBaseHeightMm;
-            let needsRotation = false;
+            const docWidthPoints = mmToPoints(coverWidthMm);
+            const docHeightPoints = mmToPoints(coverHeightMm);
 
-            // Determine the "portrait" dimensions of the PDF document itself
-            docBaseWidthMm = Math.min(coverWidthMm, coverHeightMm);
-            docBaseHeightMm = Math.max(coverWidthMm, coverHeightMm);
+            console.log(`DEBUG: Cover PDF for ${luluProductId} (Pages: ${pageCount}) will be generated.`);
+            console.log(`DEBUG: Lulu API MM: ${coverWidthMm.toFixed(2)}x${coverHeightMm.toFixed(2)}. Final PDFKit size in Points: ${docWidthPoints.toFixed(2)}x${docHeightPoints.toFixed(2)}. PDFKit Layout: '${coverLayout}'.`);
 
-            // If Lulu's *intended* layout is landscape, but our base PDF is portrait,
-            // we will need to rotate the content.
-            if (coverLayout === 'landscape' && coverWidthMm > coverHeightMm) {
-                // If Lulu's width is greater than its height (landscape),
-                // and we set the PDF base dimensions as portrait (short side first),
-                // then the PDF needs content rotation.
-                // Our PDF base will be [260.35mm_pts, 330.20mm_pts] for Novella
-                needsRotation = true;
-                console.log(`DEBUG: Lulu API suggested landscape (${coverWidthMm}x${coverHeightMm}). Setting PDFKit base size as portrait (${docBaseWidthMm}x${docBaseHeightMm}) and preparing for manual content rotation.`);
-            } else {
-                 console.log(`DEBUG: Lulu API suggested portrait (${coverWidthMm}x${coverHeightMm}). Setting PDFKit base size as portrait (${docBaseWidthMm}x${docBaseHeightMm}). No content rotation needed.`);
-            }
-
-            const docWidthPoints = mmToPoints(docBaseWidthMm);
-            const docHeightPoints = mmToPoints(docBaseHeightMm);
-
-            console.log(`DEBUG: Cover PDF for ${luluProductId} (Pages: ${pageCount}) will be generated. Lulu API MM: ${coverWidthMm.toFixed(2)}x${coverHeightMm.toFixed(2)}. Final PDFKit base size in Points: ${docWidthPoints.toFixed(2)}x${docHeightPoints.toFixed(2)}. Intended Layout: ${coverLayout}. Needs Rotation: ${needsRotation}`);
-
-            // Validate the dimensions before generating
             if (docWidthPoints <= 0 || docHeightPoints <= 0 || docWidthPoints > 10000 || docHeightPoints > 10000) {
                 const errorMessage = `Invalid or extreme cover dimensions for PDFKit: Width: ${docWidthPoints.toFixed(2)}pt, Height: ${docHeightPoints.toFixed(2)}pt. Aborting PDF generation.`;
                 console.error(`❌ ${errorMessage}`);
@@ -103,10 +108,10 @@ export const generateCoverPdf = async (bookTitle, authorName, luluProductId, pag
             }
 
             const doc = new PDFDocument({
-                size: [docWidthPoints, docHeightPoints], // ALWAYS portrait-shaped based on min/max dimensions
-                layout: 'portrait', // ALWAYS 'portrait' for PDFKit itself
+                size: [docWidthPoints, docHeightPoints],
+                layout: coverLayout,
                 autoFirstPage: false,
-                margins: { top: 0, bottom: 0, left: 0, right: 0 } // Covers usually have full bleed, no internal margins needed
+                margins: { top: 0, bottom: 0, left: 0, right: 0 }
             });
 
             const buffers = [];
@@ -115,61 +120,33 @@ export const generateCoverPdf = async (bookTitle, authorName, luluProductId, pag
 
             doc.addPage();
 
-            // Apply rotation if needed to match Lulu's expected landscape orientation
-            if (needsRotation) {
-                // Rotate the canvas by 90 degrees clockwise (for landscape)
-                // Need to translate origin after rotation.
-                // New origin (0,0) will be at what was (old_height, 0).
-                doc.rotate(90, { origin: [0, 0] });
-                doc.translate(0, -docWidthPoints); // Shift origin after rotation
-                
-                // After rotation, doc.page.width and doc.page.height are swapped from the original size parameter.
-                // So now, doc.page.width is actually the original height, and doc.page.height is the original width.
-                // Use original coverWidthMm and coverHeightMm for content positioning.
-                // Convert original Lulu dimensions to points for content placement
-                const originalCoverWidthPoints = mmToPoints(coverWidthMm);
-                const originalCoverHeightPoints = mmToPoints(coverHeightMm);
+            doc.rect(0, 0, doc.page.width, doc.page.height).fill('#313131');
 
-                // Fill background
-                doc.rect(0, 0, originalCoverWidthPoints, originalCoverHeightPoints).fill('#313131');
+            const safetyMarginInches = 0.25;
+            const safetyMarginPoints = safetyMarginInches * 72;
 
-                // Content positioning adjusted for the rotated canvas
-                doc.fontSize(48)
-                    .fillColor('#FFFFFF')
-                    .font('Helvetica-Bold')
-                    .text(bookTitle, 0, originalCoverHeightPoints / 3, { // Center vertically in upper third of original height
-                        align: 'center',
-                        width: originalCoverWidthPoints // Center across original width
-                    });
-                doc.moveDown(1);
-                doc.fontSize(24)
-                    .fillColor('#CCCCCC')
-                    .font('Helvetica')
-                    .text(authorName || 'Inkwell AI', {
-                        align: 'center',
-                        width: originalCoverWidthPoints // Center across original width
-                    });
+            const contentAreaX = safetyMarginPoints;
+            const contentAreaY = safetyMarginPoints;
+            const contentAreaWidth = doc.page.width - (2 * safetyMarginPoints);
+            const contentAreaHeight = doc.page.height - (2 * safetyMarginPoints);
 
-            } else {
-                // No rotation needed, use standard positioning
-                doc.rect(0, 0, doc.page.width, doc.page.height).fill('#313131'); // Dark background
-
-                doc.fontSize(48)
-                    .fillColor('#FFFFFF')
-                    .font('Helvetica-Bold')
-                    .text(bookTitle, 0, doc.page.height / 3, { // Centered vertically in the upper third
-                        align: 'center',
-                        width: doc.page.width // Center across the full spread
-                    });
-                doc.moveDown(1);
-                doc.fontSize(24)
-                    .fillColor('#CCCCCC')
-                    .font('Helvetica')
-                    .text(authorName || 'Inkwell AI', {
-                        align: 'center',
-                        width: doc.page.width // Center across the full spread
-                    });
-            }
+            doc.fontSize(48)
+                .fillColor('#FFFFFF')
+                .font('Helvetica-Bold')
+                .text(bookTitle, contentAreaX, contentAreaY + contentAreaHeight / 4, {
+                    align: 'center',
+                    width: contentAreaWidth
+                });
+            doc.moveDown(1);
+            doc.fontSize(24)
+                .fillColor('#CCCCCC')
+                .font('Helvetica')
+                .text(authorName || 'Inkwell AI', {
+                    align: 'center',
+                    width: contentAreaWidth,
+                    x: contentAreaX,
+                    y: doc.y
+                });
 
             doc.end();
         } catch (error) {
@@ -180,11 +157,60 @@ export const generateCoverPdf = async (bookTitle, authorName, luluProductId, pag
 };
 
 
-// --- Picture Book PDF Generator (MODIFIED to accept luluProductId) ---
-export const generatePictureBookPdf = async (book, events, luluProductId) => {
+// --- Text Book PDF Generator (No change) ---
+export const generateAndSaveTextBookPdf = async (title, chapters, luluConfigId, tempDir) => {
     return new Promise(async (resolve, reject) => {
         try {
-            const { width, height, layout } = getProductDimensions(luluProductId);
+            const { width, height, layout } = getProductDimensions(luluConfigId);
+
+            const doc = new PDFDocument({
+                size: [width, height],
+                layout: layout,
+                margins: { top: 72, bottom: 72, left: 72, right: 72 }
+            });
+
+            const buffers = [];
+            doc.on('data', buffers.push.bind(buffers));
+
+            doc.addPage();
+            doc.fontSize(28).font('Times-Roman').text(title, { align: 'center' });
+            doc.moveDown(4);
+            doc.fontSize(16).text('A Story by Inkwell AI', { align: 'center' });
+
+            for (const chapter of chapters) {
+                doc.addPage();
+                doc.fontSize(18).font('Times-Bold').text(`Chapter ${chapter.chapter_number}`, { align: 'center' });
+                doc.moveDown(2);
+                doc.fontSize(12).font('Times-Roman').text(chapter.content, { align: 'justify' });
+            }
+            doc.end();
+
+            const pdfBuffer = await new Promise((resBuff, rejBuff) => {
+                doc.on('end', () => resBuff(Buffer.concat(buffers)));
+                doc.on('error', rejBuff);
+            });
+
+            const fileName = `interior_textbook_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.pdf`;
+            const tempFilePath = path.join(tempDir, fileName);
+
+            await fs.mkdir(tempDir, { recursive: true });
+            await fs.writeFile(tempFilePath, pdfBuffer);
+            console.log(`Interior Text Book PDF saved temporarily at: ${tempFilePath}`);
+
+            resolve(tempFilePath);
+        } catch (error) {
+            console.error("Error generating and saving text book PDF:", error);
+            reject(error);
+        }
+    });
+};
+
+
+// --- Picture Book PDF Generator (No change) ---
+export const generateAndSavePictureBookPdf = async (book, events, luluConfigId, tempDir) => {
+    return new Promise(async (resolve, reject) => {
+        try {
+            const { width, height, layout } = getProductDimensions(luluConfigId);
 
             const doc = new PDFDocument({
                 size: [width, height],
@@ -195,7 +221,6 @@ export const generatePictureBookPdf = async (book, events, luluProductId) => {
 
             const buffers = [];
             doc.on('data', buffers.push.bind(buffers));
-            doc.on('end', () => resolve(Buffer.concat(buffers)));
 
             doc.addPage();
             if (book.cover_image_url) {
@@ -212,7 +237,6 @@ export const generatePictureBookPdf = async (book, events, luluProductId) => {
                 doc.fontSize(18).font('Helvetica').text('A Personalized Story from Inkwell AI', { align: 'center' });
             }
 
-            // --- Timeline Pages ---
             for (const event of events) {
                 doc.addPage();
                 const imageUrl = event.uploaded_image_url || event.image_url;
@@ -235,41 +259,23 @@ export const generatePictureBookPdf = async (book, events, luluProductId) => {
                 }
             }
             doc.end();
+
+            const pdfBuffer = await new Promise((resBuff, rejBuff) => {
+                doc.on('end', () => resBuff(Buffer.concat(buffers)));
+                doc.on('error', rejBuff);
+            });
+
+            const fileName = `interior_picturebook_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.pdf`;
+            const tempFilePath = path.join(tempDir, fileName);
+
+            await fs.mkdir(tempDir, { recursive: true });
+            await fs.writeFile(tempFilePath, pdfBuffer);
+            console.log(`Interior Picture Book PDF saved temporarily at: ${tempFilePath}`);
+
+            resolve(tempFilePath);
         } catch (error) {
+            console.error("Error generating and saving picture book PDF:", error);
             reject(error);
         }
-    });
-};
-
-
-// --- Text Book PDF Generator (MODIFIED to accept luluProductId) ---
-export const generateTextBookPdf = (title, chapters, luluProductId) => {
-    return new Promise((resolve) => {
-        const { width, height, layout } = getProductDimensions(luluProductId);
-
-        const doc = new PDFDocument({
-            size: [width, height],
-            layout: layout,
-            margins: { top: 72, bottom: 72, left: 72, right: 72 }
-        });
-
-        const buffers = [];
-        doc.on('data', buffers.push.bind(buffers));
-        doc.on('end', () => {
-            resolve(Buffer.concat(buffers));
-        });
-
-        doc.addPage();
-        doc.fontSize(28).font('Times-Roman').text(title, { align: 'center' });
-        doc.moveDown(4);
-        doc.fontSize(16).text('A Story by Inkwell AI', { align: 'center' });
-
-        for (const chapter of chapters) {
-            doc.addPage();
-            doc.fontSize(18).font('Times-Bold').text(`Chapter ${chapter.chapter_number}`, { align: 'center' });
-            doc.moveDown(2);
-            doc.fontSize(12).font('Times-Roman').text(chapter.content, { align: 'justify' });
-        }
-        doc.end();
     });
 };
