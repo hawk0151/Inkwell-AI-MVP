@@ -1,7 +1,8 @@
 import { getDb } from '../db/database.js';
 import { randomUUID } from 'crypto';
 import { generateStoryFromApi } from '../services/gemini.service.js';
-import { LULU_PRODUCT_CONFIGURATIONS, getCoverDimensionsFromApi, getPrintOptions } from '../services/lulu.service.js';
+// MODIFIED: Import the new getPrintJobCosts function
+import { LULU_PRODUCT_CONFIGURATIONS, getCoverDimensionsFromApi, getPrintOptions, getPrintJobCosts } from '../services/lulu.service.js';
 import { generateAndSaveTextBookPdf, generateCoverPdf, getPdfPageCount } from '../services/pdf.service.js';
 import { uploadPdfFileToCloudinary } from '../services/image.service.js';
 import { createStripeCheckoutSession } from '../services/stripe.service.js';
@@ -9,6 +10,9 @@ import path from 'path';
 import fs from 'fs/promises';
 
 let printOptionsCache = null;
+// ADDED: A configurable profit margin
+const PROFIT_MARGIN_USD = 10.00;
+
 
 async function getFullTextBook(bookId, userId, client) {
     const bookResult = await client.query(`SELECT * FROM text_books WHERE id = $1 AND user_id = $2`, [bookId, userId]);
@@ -22,46 +26,38 @@ async function getFullTextBook(bookId, userId, client) {
 
 export const createTextBook = async (req, res) => {
     let client;
-    const { title, promptDetails, luluProductId } = req.body; // promptDetails now contains pageCount, wordsPerPage, totalChapters
+    const { title, promptDetails, luluProductId } = req.body; 
     const userId = req.userId;
 
-    // --- VALIDATION START ---
-    // Perform basic validation for promptDetails existence and required fields for story generation
     if (!title || !promptDetails || !luluProductId || typeof promptDetails.pageCount === 'undefined' || typeof promptDetails.wordsPerPage === 'undefined' || typeof promptDetails.totalChapters === 'undefined') {
         console.error('Validation Error: Missing title, product ID, or required prompt details for story generation.', { title, promptDetails, luluProductId });
         return res.status(400).json({ message: 'Missing title, product ID, or required story generation parameters (pageCount, wordsPerPage, totalChapters).' });
     }
-    // --- VALIDATION END ---
 
     try {
         const pool = await getDb();
         client = await pool.connect();
 
         if (!printOptionsCache) {
-            printOptionsCache = await getPrintOptions(); // Cache all book options for product lookup
+            printOptionsCache = await getPrintOptions(); 
         }
         
-        // --- MODIFIED: Use totalChapters from promptDetails, not hardcoded value ---
-        const totalChaptersForBook = promptDetails.totalChapters; // Get totalChapters from frontend payload
-        // This is a safety check. If totalChapters from frontend doesn't match backend config
+        const totalChaptersForBook = promptDetails.totalChapters; 
         const selectedProductConfig = printOptionsCache.find(p => p.id === luluProductId);
         if (!selectedProductConfig) {
              console.warn(`Product configuration for ID ${luluProductId} not found on backend. Using totalChapters from frontend payload.`);
         }
-        // --- END MODIFIED ---
 
         const bookId = randomUUID();
         const currentDate = new Date().toISOString();
 
         const bookSql = `INSERT INTO text_books (id, user_id, title, prompt_details, lulu_product_id, date_created, last_modified, total_chapters) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`;
-        // --- MODIFIED: Insert totalChaptersForBook into DB ---
         await client.query(bookSql, [bookId, userId, title, JSON.stringify(promptDetails), luluProductId, currentDate, currentDate, totalChaptersForBook]);
-        // --- END MODIFIED ---
 
         const firstChapterText = await generateStoryFromApi({
-            ...promptDetails, // This now correctly includes pageCount, wordsPerPage, totalChapters
+            ...promptDetails,
             chapterNumber: 1,
-            totalChapters: totalChaptersForBook, // Pass the correct totalChapters to AI
+            totalChapters: totalChaptersForBook,
         });
 
         const chapterSql = `INSERT INTO chapters (book_id, chapter_number, content, date_created) VALUES ($1, 1, $2, $3)`;
@@ -71,7 +67,7 @@ export const createTextBook = async (req, res) => {
             message: 'Project created and first chapter generated.',
             bookId: bookId,
             firstChapter: firstChapterText,
-            totalChapters: totalChaptersForBook, // Send back the correct totalChapters
+            totalChapters: totalChaptersForBook,
         });
     } catch (error) {
         console.error('Error creating text book:', error);
@@ -98,23 +94,20 @@ export const generateNextChapter = async (req, res) => {
 
         const previousChaptersText = chapters.map(c => c.content).join('\n\n---\n\n');
         const nextChapterNumber = chapters.length + 1;
-        const promptDetails = JSON.parse(book.prompt_details); // prompt_details from DB (snake_case)
-        const isFinalChapter = nextChapterNumber >= book.total_chapters; // Use book.total_chapters from DB
+        const promptDetails = JSON.parse(book.prompt_details);
+        const isFinalChapter = nextChapterNumber >= book.total_chapters;
 
-        // --- VALIDATION START ---
-        // Ensure promptDetails from DB has required AI generation parameters
         if (typeof promptDetails.pageCount === 'undefined' || typeof promptDetails.wordsPerPage === 'undefined' || typeof promptDetails.totalChapters === 'undefined') {
             const errorMessage = `Missing AI generation parameters in stored promptDetails for book ${bookId}.`;
             console.error('Validation Error:', errorMessage, promptDetails);
             return res.status(500).json({ message: 'Stored book data is missing required AI parameters for chapter generation.' });
         }
-        // --- VALIDATION END ---
 
         const newChapterText = await generateStoryFromApi({
             ...promptDetails, 
             previousChaptersText: previousChaptersText,
             chapterNumber: nextChapterNumber,
-            totalChapters: book.total_chapters, // Use book.total_chapters from DB
+            totalChapters: book.total_chapters,
             isFinalChapter: isFinalChapter,
         });
 
@@ -127,7 +120,7 @@ export const generateNextChapter = async (req, res) => {
             message: `Chapter ${nextChapterNumber} generated.`,
             newChapter: newChapterText,
             chapterNumber: nextChapterNumber,
-            isStoryComplete: isFinalChapter, // Send back completion status
+            isStoryComplete: isFinalChapter,
         });
     } catch (error) {
         console.error(`Error generating chapter for book ${bookId}:`, error);
@@ -145,7 +138,7 @@ export const getTextBooks = async (req, res) => {
         client = await pool.connect();
 
         const booksResult = await client.query(`
-            SELECT tb.id, tb.title, tb.last_modified, tb.lulu_product_id, tb.is_public, tb.cover_image_url, tb.total_chapters, tb.prompt_details -- Include prompt_details to assist frontend fallback
+            SELECT tb.id, tb.title, tb.last_modified, tb.lulu_product_id, tb.is_public, tb.cover_image_url, tb.total_chapters, tb.prompt_details
             FROM text_books tb
             WHERE tb.user_id = $1
             ORDER BY tb.last_modified DESC`, [userId]);
@@ -154,13 +147,13 @@ export const getTextBooks = async (req, res) => {
         if (!printOptionsCache) {
             printOptionsCache = await getPrintOptions();
         }
-        // MODIFIED: Ensure productName and type are correctly mapped from printOptionsCache
+
         const booksWithData = books.map(book => {
             const productConfig = printOptionsCache.find(p => p.id === book.lulu_product_id);
             return { 
                 ...book, 
                 productName: productConfig ? productConfig.name : 'Unknown Book', 
-                type: productConfig ? productConfig.type : 'textBook' // Default to textBook if type unknown
+                type: productConfig ? productConfig.type : 'textBook'
             };
         });
         res.status(200).json(booksWithData);
@@ -195,8 +188,15 @@ export const getTextBookDetails = async (req, res) => {
 
 export const createCheckoutSessionForTextBook = async (req, res) => {
     const { bookId } = req.params;
+    // MODIFIED: Get shipping address from the request body
+    const { shippingAddress } = req.body;
     let client;
     let tempInteriorPdfPath = null, tempCoverPdfPath = null, initialTempPdfPath = null;
+
+    // VALIDATION: Ensure shippingAddress is provided
+    if (!shippingAddress || !shippingAddress.name || !shippingAddress.street1 || !shippingAddress.city || !shippingAddress.postcode || !shippingAddress.country_code || !shippingAddress.state_code) {
+        return res.status(400).json({ message: 'A complete shipping address is required for checkout.' });
+    }
 
     try {
         const pool = await getDb();
@@ -210,6 +210,7 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
         
         console.log(`Checkout for book ${bookId}. Generating PDFs...`);
         
+        // --- PDF Generation (No changes here) ---
         initialTempPdfPath = await generateAndSaveTextBookPdf(book, selectedProductConfig);
         const actualInteriorPageCount = await getPdfPageCount(initialTempPdfPath);
         
@@ -229,32 +230,44 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
         const interiorPdfUrl = await uploadPdfFileToCloudinary(tempInteriorPdfPath, `inkwell-ai/user_${req.userId}/books`, `book_${bookId}_interior`);
         
         const luluSku = selectedProductConfig.luluSku;
-        let coverDimensions;
-        let isFallback = false;
-
-        try {
-            console.log(`Attempting to fetch cover dimensions for SKU ${luluSku} and ${finalPageCount} pages...`);
-            coverDimensions = await getCoverDimensionsFromApi(luluSku, finalPageCount);
-            console.log("✅ Successfully retrieved cover dimensions from Lulu API.");
-        } catch (error) {
-            console.warn("⚠️ Lulu API call for cover dimensions failed. Proceeding with fallback dimensions.");
-            coverDimensions = { width: 290.945, height: 222.25, layout: 'portrait' }; 
-            isFallback = true;
-        }
-        
+        const coverDimensions = await getCoverDimensionsFromApi(luluSku, finalPageCount);
         tempCoverPdfPath = await generateCoverPdf(book, selectedProductConfig, coverDimensions);
         const coverPdfUrl = await uploadPdfFileToCloudinary(tempCoverPdfPath, `inkwell-ai/user_${req.userId}/covers`, `book_${bookId}_cover`);
-        console.log(`PDFs uploaded to Cloudinary. Order is using ${isFallback ? 'FALLBACK' : 'REAL'} dimensions.`);
+        console.log(`PDFs uploaded to Cloudinary.`);
 
+        // --- START: DYNAMIC PRICE CALCULATION ---
+        console.log("Fetching dynamic costs from Lulu...");
+        const lineItems = [{ pod_package_id: luluSku, page_count: finalPageCount }];
+        const luluCosts = await getPrintJobCosts(lineItems, shippingAddress);
+        
+        // Lulu API returns costs as strings. Convert to numbers for calculation.
+        const totalProductionCost = parseFloat(luluCosts.total_cost_incl_tax);
+        if (isNaN(totalProductionCost)) {
+            throw new Error("Failed to parse production cost from Lulu.");
+        }
+        
+        const finalPriceDollars = totalProductionCost + PROFIT_MARGIN_USD;
+        // Stripe requires the price in the smallest currency unit (e.g., cents).
+        const finalPriceInCents = Math.round(finalPriceDollars * 100);
+
+        console.log(`Lulu Cost: $${totalProductionCost.toFixed(2)}, Profit: $${PROFIT_MARGIN_USD.toFixed(2)}, Final Price: $${finalPriceDollars.toFixed(2)} (${finalPriceInCents} cents)`);
+        // --- END: DYNAMIC PRICE CALCULATION ---
+        
         const orderId = randomUUID();
+        // MODIFIED: Save the final calculated price in the database
         await client.query(
             `INSERT INTO orders (id, user_id, book_id, book_type, book_title, lulu_product_id, status, total_price, interior_pdf_url, cover_pdf_url, order_date, actual_page_count, is_fallback) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), $11, $12)`,
-            [orderId, req.userId, bookId, 'textBook', book.title, luluSku, 'pending', selectedProductConfig.basePrice, interiorPdfUrl, coverPdfUrl, finalPageCount, isFallback]
+            [orderId, req.userId, bookId, 'textBook', book.title, luluSku, 'pending', finalPriceDollars.toFixed(2), interiorPdfUrl, coverPdfUrl, finalPageCount, false]
         );
-        console.log(`Created pending order record ${orderId} with fallback status: ${isFallback}.`);
+        console.log(`Created pending order record ${orderId} with final price.`);
 
+        // MODIFIED: Pass the final price in cents to the Stripe service
         const session = await createStripeCheckoutSession(
-            { name: book.title, description: `Inkwell AI Custom Book`, price: selectedProductConfig.basePrice },
+            { 
+                name: book.title, 
+                description: `Inkwell AI Custom Book - ${selectedProductConfig.name}`, 
+                priceInCents: finalPriceInCents // Pass price in cents
+            },
             req.userId,
             orderId,
             bookId,
@@ -276,6 +289,7 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
     }
 };
 
+// ... (rest of the controller functions remain unchanged)
 export const toggleTextBookPrivacy = async (req, res) => {
     let client;
     const { bookId } = req.params;

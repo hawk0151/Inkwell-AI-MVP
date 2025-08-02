@@ -1,5 +1,3 @@
-// backend/src/services/stripe.service.js
-
 import stripe from 'stripe';
 import { getDb } from '../db/database.js';
 import { createLuluPrintJob } from '../services/lulu.service.js';
@@ -7,7 +5,6 @@ import { randomUUID } from 'crypto';
 
 const stripeClient = stripe(process.env.STRIPE_SECRET_KEY);
 
-// FIXED: Added bookId as a parameter to the function signature
 export const createStripeCheckoutSession = async (productDetails, userId, orderId, bookId, bookType) => {
     try {
         const session = await stripeClient.checkout.sessions.create({
@@ -23,7 +20,8 @@ export const createStripeCheckoutSession = async (productDetails, userId, orderI
                             name: productDetails.name,
                             description: productDetails.description,
                         },
-                        unit_amount: Math.round(productDetails.price * 100),
+                        // --- MODIFIED: Use the final price in cents passed from the controller ---
+                        unit_amount: productDetails.priceInCents,
                     },
                     quantity: 1,
                 },
@@ -34,7 +32,7 @@ export const createStripeCheckoutSession = async (productDetails, userId, orderI
             metadata: {
                 userId: userId,
                 orderId: orderId,
-                bookId: bookId, // This variable is now correctly defined
+                bookId: bookId,
                 bookType: bookType
             },
         });
@@ -87,7 +85,7 @@ const handleSuccessfulCheckout = async (session) => {
             postcode: fullSession.shipping_details.address.postal_code,
             country_code: fullSession.shipping_details.address.country,
             state_code: fullSession.shipping_details.address.state,
-            email: fullSession.customer_details.email,
+            email: fullSessio.customer_details.email,
             phone_number: fullSession.customer_details.phone || '000-000-0000',
         };
 
