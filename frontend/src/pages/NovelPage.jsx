@@ -8,9 +8,7 @@ import { LoadingSpinner, Alert, MagicWandIcon } from '../components/common.jsx';
 
 // --- Sub-components ---
 
-// NEW: A dedicated component for the collapsible chapter UI
 const Chapter = ({ chapter, isOpen, onToggle }) => {
-    // Simple chevron icon for the dropdown indicator
     const ChevronDownIcon = (props) => (
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" {...props}>
             <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
@@ -23,7 +21,6 @@ const Chapter = ({ chapter, isOpen, onToggle }) => {
                 onClick={onToggle}
                 className="w-full flex justify-between items-center text-left py-4 px-2 hover:bg-slate-700/50 rounded-lg transition-colors duration-200"
             >
-                {/* Use the existing heading style from the prose class for consistency */}
                 <h2 className="text-2xl md:text-3xl font-serif text-amber-500 m-0 p-0">Chapter {chapter.chapter_number}</h2>
                 <ChevronDownIcon className={`w-6 h-6 text-slate-400 transform transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`} />
             </button>
@@ -36,7 +33,6 @@ const Chapter = ({ chapter, isOpen, onToggle }) => {
                         exit={{ height: 0, opacity: 0, transition: { height: { duration: 0.4, ease: 'easeInOut' }, opacity: { duration: 0.25 } } }}
                         className="overflow-hidden"
                     >
-                        {/* Re-use the prose class for styling the chapter content */}
                         <div className="prose prose-lg lg:prose-xl max-w-none text-slate-300 prose-p:text-slate-300 pt-2 pb-6 px-2">
                             {chapter.content.split('\n').map((paragraph, index) => (
                                 <p key={index} className="mb-4">{paragraph}</p>
@@ -191,6 +187,8 @@ function NovelPage() {
     const [isActionLoading, setIsActionLoading] = useState(false);
     const [isCheckingOut, setIsCheckingOut] = useState(false);
     const [error, setError] = useState(null);
+    // --- NEW STATE: isStoryComplete ---
+    const [isStoryComplete, setIsStoryComplete] = useState(false); // Manages story completion status
 
     const { data: allBookOptions, isLoading: isLoadingBookOptions, isError: isErrorBookOptions } = useQuery({
         queryKey: ['allBookOptions'],
@@ -211,13 +209,33 @@ function NovelPage() {
                     const fetchedChapters = detailsRes.data.chapters;
                     setBookDetails(bookData);
                     setChapters(fetchedChapters);
+                    // --- NEW: Set isStoryComplete based on fetched book data ---
+                    setIsStoryComplete(fetchedChapters.length >= bookData.totalChapters);
+                    // --- END NEW ---
                     
                     if (fetchedChapters.length > 0) {
                         setOpenChapter(fetchedChapters[fetchedChapters.length - 1].chapter_number);
                     }
                     
+                    // --- MODIFIED: Resolve product using allBookOptions for full metadata ---
                     const product = allBookOptions?.find((p) => p.id === bookData.luluProductId);
-                    setSelectedProductForNew(product);
+                    if (product) {
+                        setSelectedProductForNew(product); // This will hold the full product metadata
+                    } else {
+                        // Fallback if product metadata is somehow missing (e.g., old book, new product list)
+                        console.warn("Could not find product metadata for existing book. Using stored details.");
+                        // Attempt to reconstruct essential product data from bookDetails if necessary
+                        setSelectedProductForNew({
+                            id: bookData.luluProductId,
+                            name: bookData.productName || 'Unknown Product',
+                            type: bookData.type || 'textBook',
+                            price: bookData.price || 0,
+                            defaultPageCount: bookData.prompt_details?.pageCount || 66, // Use stored prompt_details or fallback
+                            defaultWordsPerPage: bookData.prompt_details?.wordsPerPage || 250,
+                            totalChapters: bookData.totalChapters || 6
+                        });
+                    }
+                    // --- END MODIFIED ---
                     setBookId(paramBookId);
                     setIsLoadingPage(false);
                 })
@@ -232,8 +250,10 @@ function NovelPage() {
                 setSelectedProductForNew(product);
                 setIsLoadingPage(false);
             } else {
+                // --- NEW VALIDATION ---
                 setError("Invalid book format selected. Please go back and choose a format.");
                 setIsLoadingPage(false);
+                // --- END NEW ---
             }
         } else {
             setError("To create a new novel, please select a book format first.");
@@ -252,22 +272,38 @@ function NovelPage() {
             return;
         }
 
-        // --- ADD AI GENERATION PARAMETERS FROM SELECTED PRODUCT ---
-        // These fields are crucial for gemini.service.js
+        // --- VALIDATION AND AI PARAMETER CONSTRUCTION START ---
+        // Ensure AI generation parameters are valid before sending
+        const pageCount = selectedProductForNew.defaultPageCount;
+        const wordsPerPage = selectedProductForNew.defaultWordsPerPage;
+        const totalChapters = selectedProductForNew.totalChapters;
+
+        if (typeof pageCount === 'undefined' || typeof wordsPerPage === 'undefined' || typeof totalChapters === 'undefined') {
+            const missing = [];
+            if (typeof pageCount === 'undefined') missing.push('pageCount');
+            if (typeof wordsPerPage === 'undefined') missing.push('wordsPerPage');
+            if (typeof totalChapters === 'undefined') missing.push('totalChapters');
+            const errorMessage = `Missing AI generation parameters for selected product: ${missing.join(', ')}. Please check backend LULU_PRODUCT_CONFIGURATIONS.`;
+            console.error("ERROR:", errorMessage, selectedProductForNew);
+            setError(errorMessage); // Display error to user
+            setIsActionLoading(false);
+            return;
+        }
+        
         const aiGenerationParams = {
-            pageCount: selectedProductForNew.defaultPageCount,
-            wordsPerPage: selectedProductForNew.defaultWordsPerPage,
-            totalChapters: selectedProductForNew.totalChapters 
+            pageCount: pageCount,
+            wordsPerPage: wordsPerPage,
+            totalChapters: totalChapters
         };
 
         const promptDetails = { ...restOfPromptDetails, ...aiGenerationParams };
-        // --- END ADDITION ---
+        // --- VALIDATION AND AI PARAMETER CONSTRUCTION END ---
 
         const bookData = { title, promptDetails, luluProductId: selectedProductForNew.id };
 
         // --- ADD DEBUG LOGS START ---
         console.log("DEBUG handleCreateBook: selectedProductForNew:", selectedProductForNew);
-        console.log("DEBUG handleCreateBook: AI params from selectedProductForNew:", aiGenerationParams);
+        console.log("DEBUG handleCreateBook: AI params formed:", aiGenerationParams);
         console.log("DEBUG handleCreateBook: Full promptDetails being sent:", promptDetails);
         console.log("DEBUG handleCreateBook: Full bookData being sent to backend:", bookData);
         // --- ADD DEBUG LOGS END ---
@@ -297,8 +333,11 @@ function NovelPage() {
             };
             setChapters((prev) => [...prev, newChapterData]);
             
-            // MODIFIED: Automatically open the new chapter after it's generated
             setOpenChapter(newChapterData.chapter_number);
+
+            // --- NEW: Update isStoryComplete state ---
+            setIsStoryComplete(response.data.isStoryComplete); 
+            // --- END NEW ---
 
             if (response.data.isStoryComplete) {
                    console.log("Story generation complete!");
@@ -310,7 +349,6 @@ function NovelPage() {
         }
     };
     
-    // NEW: Handler function to open/close chapters
     const handleToggleChapter = (chapterNumber) => {
         setOpenChapter(openChapter === chapterNumber ? null : chapterNumber);
     };
@@ -352,14 +390,22 @@ function NovelPage() {
         return <LoadingSpinner text="Loading book details..." />;
     }
 
-    const currentProduct = bookId ? bookDetails : selectedProductForNew; // Corrected: bookDetails for existing, selectedProductForNew for new
-    const productName = currentProduct?.name || 'Novel'; // Use currentProduct name
-    const totalChapters = currentProduct?.totalChapters || 1; // Use totalChapters from product data
+    // --- MODIFIED: Consistent product metadata resolution ---
+    // For existing books (bookId), find the full product details from allBookOptions
+    // For new books (!bookId), use selectedProductForNew directly
+    const currentProduct = bookId && bookDetails 
+        ? (allBookOptions?.find(p => p.id === bookDetails.luluProductId) || bookDetails) 
+        : selectedProductForNew; 
+    
+    // Defensive check for productName and totalChapters, using resolved currentProduct
+    const productName = currentProduct?.name || 'Novel'; 
+    const totalChapters = currentProduct?.totalChapters || 1; 
+    // --- END MODIFIED ---
 
 
     // --- Render PromptForm for New Books, or Story Content for Existing Books ---
     if (!bookId) {
-        if (!selectedProductForNew) {
+        if (!selectedProductForNew) { // This check should ideally catch earlier, but serves as fallback
             return <Alert title="Error">Missing book format. Please go back to selection.</Alert>;
         }
         return <PromptForm isLoading={isActionLoading} onSubmit={handleCreateBook} productName={productName} />;

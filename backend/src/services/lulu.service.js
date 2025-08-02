@@ -15,7 +15,8 @@ export const LULU_PRODUCT_CONFIGURATIONS = [
         // --- NEW AI GENERATION PARAMETERS START ---
         defaultPageCount: 66, 
         defaultWordsPerPage: 250, 
-        totalChapters: 6 
+        totalChapters: 6,
+        category: 'novel' // Added for frontend filtering
         // --- NEW AI GENERATION PARAMETERS END ---
     },
     {
@@ -28,7 +29,8 @@ export const LULU_PRODUCT_CONFIGURATIONS = [
         // --- NEW AI GENERATION PARAMETERS START ---
         defaultPageCount: 30, 
         defaultWordsPerPage: 100, 
-        totalChapters: 1 
+        totalChapters: 1,
+        category: 'pictureBook' // Added for frontend filtering
         // --- NEW AI GENERATION PARAMETERS END ---
     },
     {
@@ -41,7 +43,8 @@ export const LULU_PRODUCT_CONFIGURATIONS = [
         // --- NEW AI GENERATION PARAMETERS START ---
         defaultPageCount: 100, 
         defaultWordsPerPage: 300, 
-        totalChapters: 10 
+        totalChapters: 10,
+        category: 'novel' // Added for frontend filtering
         // --- NEW AI GENERATION PARAMETERS END ---
     },
     {
@@ -54,7 +57,8 @@ export const LULU_PRODUCT_CONFIGURATIONS = [
         // --- NEW AI GENERATION PARAMETERS START ---
         defaultPageCount: 40, 
         defaultWordsPerPage: 120, 
-        totalChapters: 1 
+        totalChapters: 1,
+        category: 'pictureBook' // Added for frontend filtering
         // --- NEW AI GENERATION PARAMETERS END ---
     }
 ];
@@ -68,12 +72,18 @@ export const getPrintOptions = () => {
     }
     // --- DEBUG LOGS END ---
 
+    // --- MODIFIED: Return additional AI generation parameters and category ---
     const options = LULU_PRODUCT_CONFIGURATIONS.map(p => ({
         id: p.id,
         name: p.name,
         type: p.type,
-        price: p.basePrice
+        price: p.basePrice,
+        defaultPageCount: p.defaultPageCount,
+        defaultWordsPerPage: p.defaultWordsPerPage,
+        totalChapters: p.totalChapters,
+        category: p.category // Return the new category field
     }));
+    // --- END MODIFIED ---
 
     // --- DEBUG LOGS START ---
     console.log("DEBUG getPrintOptions: Options array being returned:", options);
@@ -181,7 +191,6 @@ export async function getCoverDimensionsFromApi(podPackageId, pageCount) {
         return coverDimensionsCache.get(cacheKey);
     }
 
-    // Corrected endpoint for calculating cover dimensions as per Lulu's Node.js sample
     const endpoint = 'https://api.lulu.com/cover-dimensions/'; 
 
     try {
