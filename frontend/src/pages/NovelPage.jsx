@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import apiClient from '../services/apiClient';
 import { useQueryClient, useQuery } from '@tanstack/react-query';
-// MODIFIED: Import motion and AnimatePresence for animations
 import { motion, AnimatePresence } from 'framer-motion';
 
 import { LoadingSpinner, Alert, MagicWandIcon } from '../components/common.jsx';
@@ -186,7 +185,6 @@ function NovelPage() {
     const [bookDetails, setBookDetails] = useState(null);
     const [chapters, setChapters] = useState([]);
     
-    // MODIFIED: State to track which chapter is currently expanded
     const [openChapter, setOpenChapter] = useState(null);
 
     const [isLoadingPage, setIsLoadingPage] = useState(true);
@@ -214,7 +212,6 @@ function NovelPage() {
                     setBookDetails(bookData);
                     setChapters(fetchedChapters);
                     
-                    // MODIFIED: Open the latest chapter by default when the book loads
                     if (fetchedChapters.length > 0) {
                         setOpenChapter(fetchedChapters[fetchedChapters.length - 1].chapter_number);
                     }
@@ -247,13 +244,24 @@ function NovelPage() {
     const handleCreateBook = async (formData) => {
         setIsActionLoading(true);
         setError(null);
-        const { title, ...promptDetails } = formData;
+        const { title, ...restOfPromptDetails } = formData;
         
         if (!selectedProductForNew || !selectedProductForNew.id) {
             setError("Internal error: Book format not selected during creation.");
             setIsActionLoading(false);
             return;
         }
+
+        // --- ADD AI GENERATION PARAMETERS FROM SELECTED PRODUCT ---
+        // These fields are crucial for gemini.service.js
+        const aiGenerationParams = {
+            pageCount: selectedProductForNew.defaultPageCount,
+            wordsPerPage: selectedProductForNew.defaultWordsPerPage,
+            totalChapters: selectedProductForNew.totalChapters 
+        };
+
+        const promptDetails = { ...restOfPromptDetails, ...aiGenerationParams };
+        // --- END ADDITION ---
 
         const bookData = { title, promptDetails, luluProductId: selectedProductForNew.id };
 
@@ -282,11 +290,10 @@ function NovelPage() {
             };
             setChapters((prev) => [...prev, newChapterData]);
             
-            // MODIFIED: Automatically open the new chapter after it's generated
             setOpenChapter(newChapterData.chapter_number);
 
             if (response.data.isStoryComplete) {
-                 console.log("Story generation complete!");
+                   console.log("Story generation complete!");
             }
         } catch (err) {
             setError(err.response?.data?.message || 'Failed to generate the next chapter.');
@@ -295,7 +302,6 @@ function NovelPage() {
         }
     };
     
-    // NEW: Handler function to open/close chapters
     const handleToggleChapter = (chapterNumber) => {
         setOpenChapter(openChapter === chapterNumber ? null : chapterNumber);
     };
@@ -337,10 +343,9 @@ function NovelPage() {
         return <LoadingSpinner text="Loading book details..." />;
     }
 
-    const currentProduct = bookId ? selectedProductForNew : selectedProductForNew;
-    const productName = currentProduct?.name || bookDetails?.productName || 'Novel';
-    const totalChapters = bookDetails?.totalChapters || currentProduct?.totalChapters || 1;
-    const isStoryComplete = chapters.length >= totalChapters;
+    const currentProduct = bookId ? bookDetails : selectedProductForNew; // Corrected: bookDetails for existing, selectedProductForNew for new
+    const productName = currentProduct?.name || 'Novel'; // Use currentProduct name
+    const totalChapters = currentProduct?.totalChapters || 1; // Use totalChapters from product data
 
 
     // --- Render PromptForm for New Books, or Story Content for Existing Books ---
@@ -360,7 +365,6 @@ function NovelPage() {
                     <p className="text-lg text-slate-400 mt-2">Your personalized story</p>
                 </div>
 
-                {/* MODIFIED: Replaced the static list with the new collapsible Chapter components */}
                 <div className="space-y-2">
                     {chapters.map((chapter) => (
                         <Chapter 

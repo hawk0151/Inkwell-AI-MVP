@@ -11,7 +11,12 @@ export const LULU_PRODUCT_CONFIGURATIONS = [
         name: 'Novella (5.75 x 8.75")',
         type: 'textBook',
         trimSize: '5.75x8.75',
-        basePrice: 5.49
+        basePrice: 5.49,
+        // --- NEW AI GENERATION PARAMETERS START ---
+        defaultPageCount: 66, 
+        defaultWordsPerPage: 250, 
+        totalChapters: 6 
+        // --- NEW AI GENERATION PARAMETERS END ---
     },
     {
         id: 'A4STORY_FC_8.27x11.69',
@@ -19,7 +24,12 @@ export const LULU_PRODUCT_CONFIGURATIONS = [
         name: 'A4 Story Book (8.27 x 11.69")',
         type: 'pictureBook',
         trimSize: '8.27x11.69',
-        basePrice: 7.5
+        basePrice: 7.5,
+        // --- NEW AI GENERATION PARAMETERS START ---
+        defaultPageCount: 30, 
+        defaultWordsPerPage: 100, 
+        totalChapters: 1 
+        // --- NEW AI GENERATION PARAMETERS END ---
     },
     {
         id: 'ROYAL_HARDCOVER_6.14x9.21',
@@ -27,7 +37,12 @@ export const LULU_PRODUCT_CONFIGURATIONS = [
         name: 'Royal Hardcover (6.14 x 9.21")',
         type: 'textBook',
         trimSize: '6.14x9.21',
-        basePrice: 12.0
+        basePrice: 12.0,
+        // --- NEW AI GENERATION PARAMETERS START ---
+        defaultPageCount: 100, 
+        defaultWordsPerPage: 300, 
+        totalChapters: 10 
+        // --- NEW AI GENERATION PARAMETERS END ---
     },
     {
         id: 'A4PREMIUM_FC_8.27x11.69',
@@ -35,7 +50,12 @@ export const LULU_PRODUCT_CONFIGURATIONS = [
         name: 'A4 Premium Picture Book (8.27 x 11.69")',
         type: 'pictureBook',
         trimSize: '8.27x11.69',
-        basePrice: 15.0
+        basePrice: 15.0,
+        // --- NEW AI GENERATION PARAMETERS START ---
+        defaultPageCount: 40, 
+        defaultWordsPerPage: 120, 
+        totalChapters: 1 
+        // --- NEW AI GENERATION PARAMETERS END ---
     }
 ];
 
