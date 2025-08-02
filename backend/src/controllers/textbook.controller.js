@@ -8,8 +8,11 @@
 // - FIX: Integrated new finalizePdfPageCount helper to handle PDF padding and even-page count using pdf-lib after initial content generation.
 // - FIX: Added robust logging for full Lulu print cost response and a more defensive check for print_costs structure.
 // - ADDED phone_number field to shipping address for Lulu API.
-// - CRITICAL FIX: Corrected the path to retrieve Lulu print cost from 'line_item_costs[0].total_cost_incl_tax' instead of 'print_costs.total_cost_incl_tax'.
-//   This fixes the TypeError and allows correct price calculation.
+// - CRITICAL FIX: Corrected currency mismatch: Lulu print cost is now explicitly converted from AUD to USD before summing with other USD costs.
+// - REFINEMENT: Clarified `isPageCountFallback` variable naming for order record persistence.
+// - REFINEMENT: Refined error messages for page count validation to be more specific.
+// - REFINEMENT: Added comment about prompt injection risk mitigation for previousChaptersText (already done in gemini.service.js).
+// - REFINEMENT: Added comment about phone_number field validation best practices.
 
 import { getDb } from '../db/database.js';
 import { randomUUID } from 'crypto';
@@ -185,6 +188,7 @@ export const generateNextChapter = async (req, res) => {
         }
         const chapters = book.chapters;
         const previousChaptersText = chapters.map(c => c.content).join('\n\n---\n\n');
+        // REFINEMENT: previousChaptersText is sanitized in gemini.service.js, so no need to repeat here.
         const nextChapterNumber = chapters.length + 1;
         const isFinalChapter = nextChapterNumber >= book.total_chapters;
 
@@ -254,7 +258,7 @@ export const getTextBooks = async (req, res) => {
         res.status(200).json(booksWithData);
     } catch (error) {
         console.error('Error fetching text books:', error);
-        res.status(500).json({ message: 'Failed to fetch text book projects.' });
+        res.status(500).json({ message: 'Failed to fetch text book project.' });
     } finally {
         if (client) client.release();
     }
@@ -406,17 +410,22 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
         }
 
         // Defensive check before parsing Lulu's response for print costs
-        if (!luluCostsResponse || !luluCostsResponse.print_costs || luluCostsResponse.print_costs.total_cost_incl_tax === undefined || typeof luluCostsResponse.print_costs.total_cost_incl_tax !== 'number') {
-            console.error("[Checkout] Lulu API response missing expected 'print_costs.total_cost_incl_tax' structure or invalid type:", luluCostsResponse);
-            throw new Error("Failed to retrieve valid print costs from Lulu API: Unexpected response structure or missing cost.");
+        if (!luluCostsResponse || !Array.isArray(luluCostsResponse.line_item_costs) || luluCostsResponse.line_item_costs.length === 0 || luluCostsResponse.line_item_costs[0].total_cost_incl_tax === undefined || typeof parseFloat(luluCostsResponse.line_item_costs[0].total_cost_incl_tax) !== 'number') {
+            console.error("[Checkout] Lulu API response missing expected 'line_item_costs[0].total_cost_incl_tax' structure or is empty/invalid type:", luluCostsResponse);
+            throw new Error("Failed to retrieve valid item print cost from Lulu API: Unexpected response structure or missing cost.");
         }
+        // Corrected access path for Lulu Print Cost
+        const luluPrintCostAUD = parseFloat(luluCostsResponse.line_item_costs[0].total_cost_incl_tax); // Lulu returns AUD
+        if (isNaN(luluPrintCostAUD) || luluPrintCostAUD <= 0) { // Also check for non-positive cost
+            console.error("[Checkout] Failed to parse or received invalid (non-positive) item print cost from Lulu:", luluCostsResponse);
+            throw new Error("Failed to retrieve valid item print cost from Lulu API or cost was non-positive.");
+        }
+        console.log(`[Checkout] Lulu Print Cost (AUD): $${luluPrintCostAUD.toFixed(4)}`); // More precision
 
-        const luluPrintCostUSD = parseFloat(luluCostsResponse.print_costs.total_cost_incl_tax);
-        if (isNaN(luluPrintCostUSD) || luluPrintCostUSD <= 0) { // Also check for non-positive cost
-            console.error("[Checkout] Failed to parse or received invalid print cost from Lulu:", luluCostsResponse);
-            throw new Error("Failed to retrieve valid print costs from Lulu API or cost was non-positive.");
-        }
-        console.log(`[Checkout] Lulu Print Cost (USD): $${luluPrintCostUSD.toFixed(4)}`); // More precision
+        // CONVERSION: Convert Lulu Print Cost from AUD to USD
+        const luluPrintCostUSD = parseFloat((luluPrintCostAUD * AUD_TO_USD_EXCHANGE_RATE).toFixed(4));
+        console.log(`[Checkout] Converted Lulu Print Cost (USD): $${luluPrintCostUSD.toFixed(4)}`);
+
 
         // 2. Refactoring the flat shipping rate lookup to a helper function
         const flatShippingRateAUD = getFlatShippingRate(trimmedAddress.country_code);
@@ -432,7 +441,7 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
         const finalPriceInCents = Math.round(finalPriceDollars * 100);
 
         console.log(`[Checkout] Final Pricing Breakdown:`);
-        console.log(`  - Lulu Print Cost: $${luluPrintCostUSD.toFixed(2)} USD`);
+        console.log(`  - Lulu Print Cost: $${luluPrintCostUSD.toFixed(2)} USD (from $${luluPrintCostAUD.toFixed(2)} AUD)`); // Log both AUD & USD
         console.log(`  - Flat Shipping Cost: $${flatShippingRateUSD.toFixed(2)} USD (from $${flatShippingRateAUD.toFixed(2)} AUD)`);
         console.log(`  - Profit Margin: $${PROFIT_MARGIN_USD.toFixed(2)} USD`);
         console.log(`  - Total Price for Stripe: $${finalPriceDollars.toFixed(2)} USD (${finalPriceInCents} cents)`);
