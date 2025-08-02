@@ -211,8 +211,15 @@ function NovelPage() {
 
   useEffect(() => {
     // Only proceed if book options are loaded, or if it's a new book flow
-    if (isLoadingBookOptions) return; // Wait for book options to load first
-
+    if (isLoadingBookOptions) {
+            // If book options are still loading, and we are on a new page without selected product,
+            // keep loading. Otherwise, if selectedProductForNew is already set (e.g., after initial
+            // useEffect run), we can proceed to show the prompt.
+            if (paramBookId === 'new' && !location.state?.selectedProductId && !selectedProductForNew) {
+                return; // Still waiting for product options for a new book flow
+            }
+        }
+    
     // Existing book load (bookId present and not 'new')
     if (paramBookId && paramBookId !== 'new' && !bookDetails) {
       setIsLoadingPage(true); // Indicate loading for existing book
@@ -253,28 +260,33 @@ function NovelPage() {
           setIsLoadingPage(false);
         });
     }
-    // New book flow: paramBookId is 'new', and selectedProductId comes from location.state
+    // New book flow: paramBookId is 'new'
     else if (paramBookId === 'new') {
-      if (location.state?.selectedProductId && allBookOptions && !selectedProductForNew) {
-        const product = allBookOptions.find((p) => p.id === location.state.selectedProductId);
-        if (product) {
-          setSelectedProductForNew(product);
-          setIsLoadingPage(false); // Ready to show prompt form
-        } else {
-          setError('Invalid book format selected. Please go back and choose a format.');
-          setIsLoadingPage(false);
-        }
-      } else if (!location.state?.selectedProductId && !selectedProductForNew && !bookDetails) {
-        // Direct /novel/new with no selection state, and no bookDetails means we need to redirect or error
-        setError('To create a new novel, please select a book format first.');
-        setIsLoadingPage(false);
-      } else if (selectedProductForNew && !bookDetails) {
-        // We have a selected product for new book, and no bookDetails. Ready for prompt.
-        setIsLoadingPage(false);
-      }
+        // If we have a selected product from navigation state AND all book options are loaded,
+        // and we haven't already set selectedProductForNew
+        if (location.state?.selectedProductId && allBookOptions && !selectedProductForNew) {
+            const product = allBookOptions.find((p) => p.id === location.state.selectedProductId);
+            if (product) {
+                setSelectedProductForNew(product);
+                setIsLoadingPage(false); // Ready to show prompt form
+            } else {
+                setError('Invalid book format selected. Please go back and choose a format.');
+                setIsLoadingPage(false);
+            }
+        } else if (!location.state?.selectedProductId && !selectedProductForNew && !bookDetails) {
+            // Direct /novel/new with no selection state, and no bookDetails means we need to redirect or error
+            setError('To create a new novel, please select a book format first.');
+            setIsLoadingPage(false);
+        } else if (selectedProductForNew && !bookDetails && isLoadingPage) {
+            // If selectedProductForNew is already set (from a prior useEffect run),
+            // and bookDetails is null, we are ready for the prompt form.
+            // Ensure isLoadingPage is set to false if it's still true.
+            setIsLoadingPage(false);
+        }
     }
     // This ensures that if we have a bookId and bookDetails, loading is false.
-    else if (bookId && bookDetails && isLoadingPage) {
+    // This also acts as a final catch-all for `isLoadingPage` if other conditions set the necessary data.
+    else if ((bookId && bookDetails) && isLoadingPage) {
       setIsLoadingPage(false);
     }
   }, [
@@ -285,7 +297,7 @@ function NovelPage() {
     bookId,
     bookDetails,
     selectedProductForNew,
-    isLoadingPage, // Keep isLoadingPage as a dependency to react to its changes
+    isLoadingPage,
   ]);
 
   const handleCreateBook = async (formData) => {
