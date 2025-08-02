@@ -28,13 +28,15 @@ const createUsersTable = `CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY,
 const createPictureBooksTable = `CREATE TABLE IF NOT EXISTS picture_books (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, title TEXT NOT NULL, last_modified TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, is_public BOOLEAN DEFAULT FALSE, like_count INTEGER DEFAULT 0, comment_count INTEGER DEFAULT 0, cover_image_url TEXT, date_created TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, interior_pdf_url TEXT, cover_pdf_url TEXT, lulu_product_id TEXT);`;
 const createTextBooksTable = `CREATE TABLE IF NOT EXISTS text_books (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, title TEXT NOT NULL, last_modified TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, is_public BOOLEAN DEFAULT FALSE, like_count INTEGER DEFAULT 0, comment_count INTEGER DEFAULT 0, cover_image_url TEXT, prompt_details TEXT, lulu_product_id TEXT, interior_pdf_url TEXT, cover_pdf_url TEXT, date_created TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, total_chapters INTEGER DEFAULT 0);`;
 const createChaptersTable = `CREATE TABLE IF NOT EXISTS chapters (id SERIAL PRIMARY KEY, book_id TEXT NOT NULL, chapter_number INTEGER NOT NULL, content TEXT, date_created TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (book_id) REFERENCES text_books(id) ON DELETE CASCADE);`;
-const createTimelineEventsTable = `CREATE TABLE IF NOT EXISTS timeline_events (id SERIAL PRIMARY KEY, book_id TEXT NOT NULL, page_number INTEGER NOT NULL, event_date TEXT, description TEXT, image_url TEXT, image_style TEXT, uploaded_image_url TEXT, overlay_text TEXT, UNIQUE(book_id, page_number), FOREIGN KEY(book_id) REFERENCES picture_books(id) ON DELETE CASCADE);`;
+
+// --- MODIFIED: Added last_modified column to timeline_events table definition ---
+const createTimelineEventsTable = `CREATE TABLE IF NOT EXISTS timeline_events (id SERIAL PRIMARY KEY, book_id TEXT NOT NULL, page_number INTEGER NOT NULL, event_date TEXT, description TEXT, image_url TEXT, image_style TEXT, uploaded_image_url TEXT, overlay_text TEXT, last_modified TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, UNIQUE(book_id, page_number), FOREIGN KEY(book_id) REFERENCES picture_books(id) ON DELETE CASCADE);`;
+// --- END MODIFIED ---
+
 const createFollowsTable = `CREATE TABLE IF NOT EXISTS follows (follower_id TEXT NOT NULL, following_id TEXT NOT NULL, created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (follower_id, following_id));`;
 const createLikesTable = `CREATE TABLE IF NOT EXISTS likes (user_id TEXT NOT NULL, book_id TEXT NOT NULL, book_type TEXT NOT NULL, created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (user_id, book_id, book_type));`;
 const createCommentsTable = `CREATE TABLE IF NOT EXISTS comments (id SERIAL PRIMARY KEY, user_id TEXT NOT NULL, book_id TEXT NOT NULL, book_type TEXT NOT NULL, comment_text TEXT NOT NULL, created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP);`;
 
-// --- MODIFICATION START ---
-// Added interior_pdf_url, cover_pdf_url, lulu_job_id, lulu_job_status, and NOW updated_at to orders table definition
 const createOrdersTable = `CREATE TABLE IF NOT EXISTS orders (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,
@@ -50,10 +52,8 @@ const createOrdersTable = `CREATE TABLE IF NOT EXISTS orders (
     lulu_job_id TEXT,
     lulu_job_status TEXT,
     order_date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP -- NEW
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );`;
-// --- MODIFICATION END ---
-
 
 export const setupDatabase = async () => {
     let client;
@@ -66,7 +66,7 @@ export const setupDatabase = async () => {
             await client.query(createPictureBooksTable);
             await client.query(createTextBooksTable);
             await client.query(createChaptersTable);
-            await client.query(createTimelineEventsTable);
+            await client.query(createTimelineEventsTable); // This will now create the column
             await client.query(createFollowsTable);
             await client.query(createLikesTable);
             await client.query(createCommentsTable);
@@ -77,6 +77,9 @@ export const setupDatabase = async () => {
             await addColumnIfNotExists(client, 'text_books', 'total_chapters', 'INTEGER DEFAULT 0');
             await addColumnIfNotExists(client, 'picture_books', 'lulu_product_id', 'TEXT');
             await addColumnIfNotExists(client, 'timeline_events', 'overlay_text', 'TEXT');
+            // --- ADDED: Ensure last_modified column exists for existing timeline_events tables ---
+            await addColumnIfNotExists(client, 'timeline_events', 'last_modified', 'TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP');
+            // --- END ADDED ---
             
             await addColumnIfNotExists(client, 'orders', 'interior_pdf_url', 'TEXT');
             await addColumnIfNotExists(client, 'orders', 'cover_pdf_url', 'TEXT');
@@ -84,7 +87,7 @@ export const setupDatabase = async () => {
             await addColumnIfNotExists(client, 'orders', 'tracking_number', 'TEXT');
             await addColumnIfNotExists(client, 'orders', 'lulu_job_id', 'TEXT');
             await addColumnIfNotExists(client, 'orders', 'lulu_job_status', 'TEXT');
-            await addColumnIfNotExists(client, 'orders', 'updated_at', 'TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP'); // NEW
+            await addColumnIfNotExists(client, 'orders', 'updated_at', 'TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP');
             
         } else {
             // Fallback for SQLite - if you are not using SQLite, this block is fine as is
