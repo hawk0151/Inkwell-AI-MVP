@@ -42,8 +42,6 @@ async function getImageBuffer(url) {
     return Buffer.from(response.data, 'binary');
 }
 
-// REMOVED: Inefficient getPdfPageCount function
-
 async function streamToBuffer(doc) {
     return new Promise((resolve, reject) => {
         const buffers = [];
@@ -55,25 +53,20 @@ async function streamToBuffer(doc) {
 
 export const generateCoverPdf = async (book, productConfig, coverDimensions) => {
     console.log(`🚀 Starting dynamic cover generation for SKU: ${productConfig.luluSku}`);
-
     let widthMm = coverDimensions.width;
     let heightMm = coverDimensions.height;
     let widthPoints = mmToPoints(widthMm);
     let heightPoints = mmToPoints(heightMm);
-    
     console.log(`Original dimensions from Lulu (pts): Width=${widthPoints.toFixed(2)}, Height=${heightPoints.toFixed(2)}`);
-
     if (heightPoints > widthPoints) {
         console.warn(`⚠️ Height > Width detected. Swapping dimensions to enforce landscape orientation.`);
         [widthPoints, heightPoints] = [heightPoints, widthPoints];
         console.warn(`   Corrected dimensions (pts): Width=${widthPoints.toFixed(2)}, Height=${heightPoints.toFixed(2)}`);
     }
-
     const doc = new PDFDocument({
         size: [widthPoints, heightPoints],
         margins: { top: 0, bottom: 0, left: 0, right: 0 }
     });
-    
     if (book.cover_image_url) {
         try {
             console.log(`Fetching cover image from: ${book.cover_image_url}`);
@@ -91,20 +84,15 @@ export const generateCoverPdf = async (book, productConfig, coverDimensions) => 
         }
     } else {
         console.warn("⚠️ No `cover_image_url` found. Generating a placeholder text-based cover.");
-        
         doc.rect(0, 0, widthPoints, heightPoints).fill('#313131');
-        
         const safetyMarginPoints = 0.25 * 72;
         const contentAreaWidth = widthPoints - (2 * safetyMarginPoints);
-
         doc.fontSize(48).fillColor('#FFFFFF').font(ROBOTO_BOLD_PATH)
            .text(book.title, safetyMarginPoints, heightPoints / 4, {
                align: 'center',
                width: contentAreaWidth
            });
-        
         doc.moveDown(1);
-
         doc.fontSize(24).fillColor('#CCCCCC').font(ROBOTO_REGULAR_PATH)
            .text('Inkwell AI', {
                align: 'center',
@@ -112,16 +100,12 @@ export const generateCoverPdf = async (book, productConfig, coverDimensions) => 
            });
         console.log("✅ Placeholder cover generated successfully.");
     }
-
     const tempPdfsDir = path.resolve(process.cwd(), 'tmp', 'pdfs');
     await fs.mkdir(tempPdfsDir, { recursive: true });
     const tempFilePath = path.join(tempPdfsDir, `cover_${Date.now()}_${book.id}.pdf`);
-    
     doc.end();
-
     const pdfBuffer = await streamToBuffer(doc);
     await fs.writeFile(tempFilePath, pdfBuffer);
-    
     console.log(`✅ Cover PDF saved successfully to: ${tempFilePath}`);
     return tempFilePath;
 };
@@ -134,19 +118,15 @@ export const generateAndSaveTextBookPdf = async (book, productConfig) => {
         layout: layout,
         margins: { top: 72, bottom: 72, left: 72, right: 72 }
     });
-    
     const tempPdfsDir = path.resolve(process.cwd(), 'tmp', 'pdfs');
     await fs.mkdir(tempPdfsDir, { recursive: true });
     const tempFilePath = path.join(tempPdfsDir, `interior_textbook_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.pdf`);
-
     let pageCount = 0;
-
     doc.addPage();
     pageCount++;
     doc.fontSize(28).font(ROBOTO_BOLD_PATH).text(book.title, { align: 'center' }); 
     doc.moveDown(4);
     doc.fontSize(16).font(ROBOTO_REGULAR_PATH).text('A Story by Inkwell AI', { align: 'center' }); 
-
     for (const chapter of book.chapters) {
         doc.addPage();
         pageCount++;
@@ -154,22 +134,19 @@ export const generateAndSaveTextBookPdf = async (book, productConfig) => {
         doc.moveDown(2);
         doc.fontSize(12).font(ROBOTO_REGULAR_PATH).text(chapter.content, { align: 'justify' }); 
     }
-    
     if (pageCount % 2 !== 0) {
-        console.log("DEBUG: Adding a final blank page to make page count even.");
+        console.log("DEBUG: Page count is odd, adding a final blank page.");
         doc.addPage();
         pageCount++;
     }
-    
     doc.end();
-
     const pdfBuffer = await streamToBuffer(doc);
     await fs.writeFile(tempFilePath, pdfBuffer);
-
     return { path: tempFilePath, pageCount: pageCount };
 };
 
-export const generateAndSavePictureBookPdf = async (book, events, productConfig, addFinalBlankPage = false) => {
+// --- MODIFIED: Upgraded to be memory-efficient and return page count ---
+export const generateAndSavePictureBookPdf = async (book, events, productConfig) => {
     const { width, height, layout } = getProductDimensions(productConfig.id);
     const doc = new PDFDocument({
         size: [width, height],
@@ -180,9 +157,13 @@ export const generateAndSavePictureBookPdf = async (book, events, productConfig,
 
     const tempPdfsDir = path.resolve(process.cwd(), 'tmp', 'pdfs');
     await fs.mkdir(tempPdfsDir, { recursive: true });
-    const tempFilePath = path.join(tempPdfsDir, `interior_picturebook_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.pdf`);
+    const tempFilePath = path.join(tempPdfsDir, `interior_picturebook_${Date.now()}_${book.id}.pdf`);
 
+    let pageCount = 0;
+
+    // Title Page
     doc.addPage();
+    pageCount++;
     if (book.cover_image_url) {
         try {
             const coverImageBuffer = await getImageBuffer(book.cover_image_url);
@@ -197,8 +178,10 @@ export const generateAndSavePictureBookPdf = async (book, events, productConfig,
         doc.fontSize(18).font(ROBOTO_REGULAR_PATH).text('A Personalized Story from Inkwell AI', { align: 'center' }); 
     }
 
+    // Event pages
     for (const event of events) {
         doc.addPage();
+        pageCount++;
         const imageUrl = event.uploaded_image_url || event.image_url;
         if (imageUrl) {
             try {
@@ -218,14 +201,18 @@ export const generateAndSavePictureBookPdf = async (book, events, productConfig,
         }
     }
 
-    if (addFinalBlankPage) {
-        console.log("DEBUG: Adding a final blank page to make page count even.");
+    // Ensure even page count for printing
+    if (pageCount % 2 !== 0) {
+        console.log("DEBUG: Page count is odd, adding a final blank page.");
         doc.addPage();
+        pageCount++;
     }
+
     doc.end();
 
     const pdfBuffer = await streamToBuffer(doc);
     await fs.writeFile(tempFilePath, pdfBuffer);
 
-    return tempFilePath;
+    console.log(`Picture book PDF generated with final page count: ${pageCount}`);
+    return { path: tempFilePath, pageCount: pageCount };
 };
