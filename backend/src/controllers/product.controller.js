@@ -3,18 +3,20 @@ import { getPrintOptions } from '../services/lulu.service.js';
 
 export const getBookOptions = async (req, res) => {
   try {
-    const options = getPrintOptions(); // No need for await here, as getPrintOptions is synchronous
+    const options = getPrintOptions(); 
 
-    // --- CRITICAL FIX START: FORCE NO CACHE & CORRECT CONTENT-TYPE ---
-    // These headers instruct the browser and any proxies not to cache the response
+    // --- CRITICAL FIX START: FORCE 200 OK AND CORRECT CONTENT-TYPE ---
+    // Remove headers that Express uses to determine 'freshness' and send a 304
+    res.removeHeader('ETag'); 
+    res.removeHeader('Last-Modified'); 
+
+    // Explicitly set cache control to ensure no caching occurs
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.setHeader('Pragma', 'no-cache'); // For HTTP/1.0 compatibility
     res.setHeader('Expires', '0');       // For HTTP/1.0 compatibility
-
-    // Explicitly set Content-Type to application/json.
-    // While res.json() should do this, an explicit header can help
-    // if there's an unusual middleware or caching interference.
-    res.setHeader('Content-Type', 'application/json');
+    
+    // Explicitly set Content-Type to application/json
+    res.setHeader('Content-Type', 'application/json'); 
     // --- CRITICAL FIX END ---
 
     // Send the JSON response with 200 OK status
