@@ -11,6 +11,8 @@ export const LULU_PRODUCT_CONFIGURATIONS = [
         trimSize: '5.25x8.25',
         basePrice: 5.99,
         defaultPageCount: 40,
+        minPageCount: 4,
+        maxPageCount: 48,
         defaultWordsPerPage: 250,
         totalChapters: 6,
         category: 'novel'
@@ -23,6 +25,8 @@ export const LULU_PRODUCT_CONFIGURATIONS = [
         trimSize: '8.52x11.94',
         basePrice: 15.99,
         defaultPageCount: 80,
+        minPageCount: 32,
+        maxPageCount: 800,
         defaultWordsPerPage: 400,
         totalChapters: 8,
         category: 'novel'
@@ -35,6 +39,8 @@ export const LULU_PRODUCT_CONFIGURATIONS = [
         trimSize: '6.39x9.46',
         basePrice: 24.99,
         defaultPageCount: 100,
+        minPageCount: 24,
+        maxPageCount: 800,
         defaultWordsPerPage: 300,
         totalChapters: 10,
         category: 'novel'
@@ -47,6 +53,8 @@ export const LULU_PRODUCT_CONFIGURATIONS = [
         trimSize: '8.27x11.69',
         basePrice: 15.0,
         defaultPageCount: 40,
+        minPageCount: 24, // Example value, please verify
+        maxPageCount: 100, // Example value, please verify
         defaultWordsPerPage: 120,
         totalChapters: 1,
         category: 'pictureBook'

@@ -222,6 +222,12 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
             initialTempPdfPath = null;
         }
 
+        if (finalPageCount < selectedProductConfig.minPageCount || finalPageCount > selectedProductConfig.maxPageCount) {
+            const errorMessage = `This book has ${finalPageCount} pages, but the selected product format only supports a range of ${selectedProductConfig.minPageCount}-${selectedProductConfig.maxPageCount} pages.`;
+            console.error("Checkout failed: Page count out of range.", { bookId, finalPageCount, product: selectedProductConfig.id });
+            return res.status(400).json({ message: errorMessage });
+        }
+        
         const interiorPdfUrl = await uploadPdfFileToCloudinary(tempInteriorPdfPath, `inkwell-ai/user_${req.userId}/books`, `book_${bookId}_interior`);
         
         const luluSku = selectedProductConfig.luluSku;
@@ -231,7 +237,6 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
         console.log(`PDFs uploaded to Cloudinary.`);
 
         console.log("Fetching dynamic costs from Lulu...");
-        // --- MODIFIED: Added quantity: 1 to the lineItems object ---
         const lineItems = [{ 
             pod_package_id: luluSku, 
             page_count: finalPageCount,
