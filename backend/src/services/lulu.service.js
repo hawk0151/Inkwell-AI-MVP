@@ -5,17 +5,17 @@ import dns from 'dns/promises';
 export const LULU_PRODUCT_CONFIGURATIONS = [
     {
         id: 'NOVBOOK_BW_5.25x8.25',
-        luluSku: '0500X0800BWSTDSS060UC444MXX',
+        // --- MODIFIED: Updated with new Perfect Bound SKU and page limits ---
+        luluSku: '0500X0800BWSTDPB060UC444MXX',
         name: 'Novella (5.25 x 8.25" Paperback)',
         type: 'textBook',
         trimSize: '5.25x8.25',
         basePrice: 5.99,
-        // --- MERGED: Kept original properties and added new ones ---
         defaultPageCount: 40,
-        minPageCount: 4,
-        maxPageCount: 48,
-        wordsPerPage: 250, // Confirmed accurate value
-        defaultWordsPerPage: 250, // Kept for compatibility
+        minPageCount: 32,
+        maxPageCount: 800,
+        wordsPerPage: 250,
+        defaultWordsPerPage: 250,
         totalChapters: 6,
         category: 'novel'
     },
@@ -26,12 +26,11 @@ export const LULU_PRODUCT_CONFIGURATIONS = [
         type: 'textBook',
         trimSize: '8.52x11.94',
         basePrice: 15.99,
-        // --- MERGED: Kept original properties and added new ones ---
         defaultPageCount: 80,
         minPageCount: 32,
         maxPageCount: 800,
-        wordsPerPage: 450, // Calculated value for this larger format
-        defaultWordsPerPage: 400, // Kept for compatibility
+        wordsPerPage: 450,
+        defaultWordsPerPage: 400,
         totalChapters: 8,
         category: 'novel'
     },
@@ -42,12 +41,11 @@ export const LULU_PRODUCT_CONFIGURATIONS = [
         type: 'textBook',
         trimSize: '6.39x9.46',
         basePrice: 24.99,
-        // --- MERGED: Kept original properties and added new ones ---
         defaultPageCount: 100,
         minPageCount: 24,
         maxPageCount: 800,
-        wordsPerPage: 300, // Calculated value for this format
-        defaultWordsPerPage: 300, // Kept for compatibility
+        wordsPerPage: 300,
+        defaultWordsPerPage: 300,
         totalChapters: 10,
         category: 'novel'
     },
@@ -58,12 +56,11 @@ export const LULU_PRODUCT_CONFIGURATIONS = [
         type: 'pictureBook',
         trimSize: '8.27x11.69',
         basePrice: 15.0,
-        // --- MERGED: Kept original properties and added new ones ---
         defaultPageCount: 40,
         minPageCount: 24,
         maxPageCount: 100,
         wordsPerPage: 120,
-        defaultWordsPerPage: 120, // Kept for compatibility
+        defaultWordsPerPage: 120,
         totalChapters: 1,
         category: 'pictureBook'
     }
