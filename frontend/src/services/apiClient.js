@@ -1,3 +1,4 @@
+// frontend/src/services/apiClient.js
 import axios from 'axios';
 import { getAuth } from 'firebase/auth'; // Import getAuth from Firebase
 
@@ -18,12 +19,35 @@ apiClient.interceptors.request.use(
             const auth = getAuth();
             const user = auth.currentUser;
             if (user) {
-                const token = await user.getIdToken();
+                // MODIFIED: Added a timeout for getIdToken and better error handling
+                const token = await Promise.race([
+                    user.getIdToken(),
+                    new Promise((_, reject) => setTimeout(() => reject(new Error('Firebase ID token retrieval timed out')), 5000)) // 5 second timeout
+                ]);
                 config.headers.Authorization = `Bearer ${token}`;
+            } else {
+                // If no user is logged in, ensure Authorization header is not sent.
+                // Or, if it's an authenticated route, redirect to login.
+                // For now, let's allow non-auth requests to proceed, but for critical pages like NovelPage,
+                // we assume user must be logged in.
             }
         } catch (error) {
-            console.error("Error getting Firebase ID token:", error);
-            // Optionally, handle token refresh or redirect to login
+            console.error("Error getting Firebase ID token in interceptor:", error);
+            // If token retrieval fails (e.g., auth/popup-closed-by-user, timeout),
+            // prevent the API request from proceeding without auth.
+            // For now, reject the config, which will cause the API call to fail.
+            // The component's error handling for the API call will then take over.
+            // If the error is auth-related, a redirect to login might be appropriate here.
+
+            // MODIFIED: If it's a known auth issue, redirect to login
+            if (error.code === 'auth/popup-closed-by-user' || error.message.includes('timed out')) {
+                console.warn("Auth token error. Redirecting to login.");
+                // Prevent infinite redirect loops. Only redirect if not already on login page.
+                if (window.location.pathname !== '/login') {
+                    window.location.href = '/login'; // Force full page reload to ensure Firebase state is reset
+                }
+            }
+            return Promise.reject(error); // Stop the original API request
         }
         return config;
     },
@@ -41,8 +65,12 @@ apiClient.interceptors.response.use(
 
         // Example error handling:
         if (statusCode === 401) {
-            // Unauthorized - redirect to login, refresh token etc.
-            console.warn("Unauthorized API call. Consider redirecting to login.");
+            // Unauthorized - redirect to login
+            console.warn("Unauthorized API call. Redirecting to login.");
+            // Prevent infinite redirect loops. Only redirect if not already on login page.
+            if (window.location.pathname !== '/login') {
+                window.location.href = '/login'; // Force full page reload to ensure Firebase state is reset
+            }
         } else if (statusCode === 403) {
             // Forbidden - user doesn't have permission
             console.warn("Forbidden API call. User lacks permission.");
