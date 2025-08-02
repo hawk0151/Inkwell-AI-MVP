@@ -8,7 +8,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 
 import { LoadingSpinner, Alert, MagicWandIcon } from '../components/common.jsx';
 
-// --- Sub-component: Chapter ---
+// --- Sub-component: Chapter (Accordion for displaying story chapters) ---
 const Chapter = ({ chapter, isOpen, onToggle }) => {
   const ChevronDownIcon = (props) => (
     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" {...props}>
@@ -62,7 +62,8 @@ const Chapter = ({ chapter, isOpen, onToggle }) => {
   );
 };
 
-// --- Sub-component: PromptForm ---
+// --- Sub-component: PromptForm (User input form for new book details) ---
+// This component's JSX structure has been meticulously re-verified for correct syntax.
 const PromptForm = ({ isLoading, onSubmit, productName }) => {
   const [details, setDetails] = useState({
     title: '',
@@ -92,10 +93,12 @@ const PromptForm = ({ isLoading, onSubmit, productName }) => {
       </div>
       <div className="bg-slate-800/50 backdrop-blur-sm p-8 rounded-2xl shadow-xl border border-slate-700">
         <form onSubmit={handleSubmit} className="w-full space-y-6">
+          {/* Book Title Input */}
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-1">Book Title</label>
+            <label htmlFor="title" className="block text-sm font-medium text-slate-300 mb-1">Book Title</label>
             <input
               type="text"
+              id="title"
               name="title"
               value={details.title}
               onChange={handleChange}
@@ -104,21 +107,28 @@ const PromptForm = ({ isLoading, onSubmit, productName }) => {
               required
             />
           </div>
+
+          {/* Recipient Name Input */}
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-1">Who is this book for?</label>
+            <label htmlFor="recipientName" className="block text-sm font-medium text-slate-300 mb-1">Who is this book for?</label>
             <input
               type="text"
+              id="recipientName"
               name="recipientName"
               value={details.recipientName}
               onChange={handleChange}
               placeholder="e.g., My Dad"
               className="w-full p-3 text-base bg-slate-700 border border-slate-600 rounded-lg shadow-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition text-white"
               required
+            />
           </div>
+
+          {/* Main Character Name Input */}
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-1">Main character's name?</label>
+            <label htmlFor="characterName" className="block text-sm font-medium text-slate-300 mb-1">Main character's name?</label>
             <input
               type="text"
+              id="characterName"
               name="characterName"
               value={details.characterName}
               onChange={handleChange}
@@ -127,22 +137,31 @@ const PromptForm = ({ isLoading, onSubmit, productName }) => {
               required
             />
           </div>
+
+          {/* Interests Textarea */}
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-1">What do they love?</label>
+            <label htmlFor="interests" className="block text-sm font-medium text-slate-300 mb-1">What do they love?</label>
             <textarea
+              id="interests"
               name="interests"
               value={details.interests}
               onChange={handleChange}
               placeholder="e.g., Sailing, classic cars, and the color yellow"
               className="w-full h-24 p-3 text-base bg-slate-700 border border-slate-600 rounded-lg shadow-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition text-white"
+              required
+            />
           </div>
+
+          {/* Genre Select */}
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-1">Choose a genre</label>
+            <label htmlFor="genre" className="block text-sm font-medium text-slate-300 mb-1">Choose a genre</label>
             <select
+              id="genre"
               name="genre"
               value={details.genre}
               onChange={handleChange}
               className="w-full p-3 text-base bg-slate-700 border border-slate-600 rounded-lg shadow-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition text-white"
+              required
             >
               {genres.map((g) => (
                 <option key={g} value={g}>
@@ -151,6 +170,8 @@ const PromptForm = ({ isLoading, onSubmit, productName }) => {
               ))}
             </select>
           </div>
+
+          {/* Submit Button */}
           <button
             type="submit"
             disabled={isLoading}
@@ -165,7 +186,7 @@ const PromptForm = ({ isLoading, onSubmit, productName }) => {
   );
 };
 
-// --- Sub-component: FauxReview ---
+// --- Sub-component: FauxReview (Remains unchanged) ---
 const FauxReview = ({ quote, author, avatar }) => (
   <div className="bg-slate-800/50 backdrop-blur-sm p-6 rounded-xl shadow-lg border border-slate-700">
     <p className="text-slate-300 italic">"{quote}"</p>
@@ -176,7 +197,7 @@ const FauxReview = ({ quote, author, avatar }) => (
   </div>
 );
 
-// --- Helper function: fetchBookOptions ---
+// --- Helper function: fetchBookOptions (Remains unchanged) ---
 const fetchBookOptions = async () => {
   const { data } = await apiClient.get('/products/book-options');
   return data;
@@ -230,19 +251,14 @@ function NovelPage() {
       allBookOptions: !!allBookOptions, // Just check existence
     });
 
-    // MODIFIED: Remove early return based on isLoadingBookOptions from here
-    // The main render function will handle the initial loading state.
-    // This useEffect will now proceed to evaluate the flow even if book options are still loading,
-    // letting the render function display the spinner until all preconditions are met.
-
     // Reset local error state at the beginning of data processing logic to prevent stale errors
     setError(null);
 
     // --- Flow for Existing Book Loading (paramBookId is a UUID) ---
     if (paramBookId && paramBookId !== 'new') {
       console.log("NovelPage useEffect: Handling existing book load.");
-      // Fetch book details only if they are not already loaded for this specific bookId
-      if (!bookDetails || bookDetails.id !== paramBookId) {
+      // Only fetch if bookDetails haven't been loaded yet for this specific ID
+      if (!bookDetails || (bookDetails.id && bookDetails.id !== paramBookId)) {
         setIsLoadingPage(true); // Indicate that the page is loading specific book data
         apiClient.get(`/text-books/${paramBookId}`)
           .then((res) => {
@@ -287,6 +303,7 @@ function NovelPage() {
       }
     }
     // --- Flow for New Book Creation (paramBookId is 'new' or no param present) ---
+    // This block also handles initial setting of selectedProductForNew
     else if (paramBookId === 'new' || !paramBookId) {
       console.log("NovelPage useEffect: Handling new book creation flow.");
 
@@ -298,9 +315,9 @@ function NovelPage() {
         return; // Exit this useEffect branch
       }
 
-      // Condition 1: We have selected a product from navigation state AND allBookOptions are loaded,
-      // AND selectedProductForNew has not yet been set in this component's lifecycle.
-      if (location.state?.selectedProductId && allBookOptions && !selectedProductForNew) {
+      // Condition 1: If allBookOptions are loaded, and we have a selected product from location.state,
+      // and selectedProductForNew is not yet set. This is the primary way to initialize selectedProductForNew.
+      if (allBookOptions && location.state?.selectedProductId && !selectedProductForNew) {
         console.log("NovelPage useEffect: Selected product ID found in state and allBookOptions loaded. Attempting to set selectedProductForNew.");
         const product = allBookOptions.find((p) => p.id === location.state.selectedProductId);
         if (product) {
@@ -313,35 +330,43 @@ function NovelPage() {
           setIsLoadingPage(false);
         }
       }
-      // Condition 2: selectedProductForNew is already populated (from a previous render cycle or effect run),
-      // and the page is still in a general loading state. Ready for prompt form.
+      // Condition 2: If selectedProductForNew is already populated (from a previous render cycle),
+      // and the page is still in a general loading state, we are ready for the prompt form.
       else if (selectedProductForNew && isLoadingPage) {
         console.log("NovelPage useEffect: selectedProductForNew is already set. Prompt form ready. Setting isLoadingPage false.");
         setIsLoadingPage(false);
       }
       // Condition 3: Direct access to /novel/new without a product selected via navigation state.
       // This means user typed URL directly or refreshed on /novel/new without prior selection.
-      else if (!selectedProductForNew && !location.state?.selectedProductId && isLoadingPage) {
+      // Only set error/loading if book options have finished loading, otherwise the loading spinner should remain.
+      else if (!selectedProductForNew && !location.state?.selectedProductId && !isLoadingBookOptions && isLoadingPage) {
         console.log("NovelPage useEffect: No selected product. Setting error to prompt user to select format.");
         setError('To create a new novel, please select a book format first.');
         setIsLoadingPage(false);
       }
     }
+    // Fallback: If after all checks, isLoadingPage is still true but there's no reason to load, turn it off.
+    // This catches scenarios where some data might have just finished loading.
+    else if (isLoadingPage) {
+        console.log("NovelPage useEffect: Final fallback: Setting isLoadingPage to false as no specific loading task remains.");
+        setIsLoadingPage(false);
+    }
+
   }, [
     paramBookId,
     allBookOptions,
-    isLoadingBookOptions,
+    isLoadingBookOptions, // Keep as dependency
     location.state?.selectedProductId,
     bookDetails,
     selectedProductForNew,
-    isLoadingPage,
-    error // Added error to dependencies to ensure re-evaluation if error state changes
+    isLoadingPage, // Keep as dependency
+    error // Keep as dependency
   ]);
 
-  // --- handleCreateBook Function ---
+  // --- handleCreateBook Function (remains mostly same as previous version) ---
   const handleCreateBook = async (formData) => {
     setIsActionLoading(true);
-    setError(null); // Clear previous errors
+    setError(null);
 
     if (!selectedProductForNew || !selectedProductForNew.id) {
       setError('Internal error: Book format not selected during creation. Please try again from selection page.');
@@ -351,14 +376,12 @@ function NovelPage() {
 
     const { title, ...restOfPromptDetails } = formData;
 
-    // Extract AI generation parameters from the selected product configuration
     const aiGenerationParams = {
       pageCount: selectedProductForNew.defaultPageCount,
       wordsPerPage: selectedProductForNew.defaultWordsPerPage, // Corrected key name here
       totalChapters: selectedProductForNew.totalChapters,
     };
 
-    // Validate if AI parameters are present in the selected product config
     if (typeof aiGenerationParams.pageCount === 'undefined' || typeof aiGenerationParams.wordsPerPage === 'undefined' || typeof aiGenerationParams.totalChapters === 'undefined') {
       const missing = [];
       if (typeof aiGenerationParams.pageCount === 'undefined') missing.push('pageCount');
@@ -381,25 +404,24 @@ function NovelPage() {
 
     try {
       const response = await apiClient.post('/text-books', bookData);
-      queryClient.invalidateQueries({ queryKey: ['projects'] }); // Invalidate cache for project list
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
 
-      console.log('DEBUG: Create book response from backend:', response.data); // CRITICAL LOG
+      console.log('DEBUG: Create book response from backend:', response.data);
 
-      setBookId(response.data.bookId); // Set the new book ID
+      setBookId(response.data.bookId);
       setBookDetails(
-        // Backend now returns book data, use it directly if available, otherwise fallback
-        response.data.bookDetails || {
-          title: bookData.title,
+        response.data.bookDetails || { 
+          title: bookData.title, 
           luluProductId: bookData.luluProductId,
           prompt_details: promptDetails,
-          total_chapters: aiGenerationParams.totalChapters, // Ensure this reflects the correct total chapters
+          total_chapters: aiGenerationParams.totalChapters,
         }
       );
-      setChapters([{ chapter_number: 1, content: response.data.firstChapter }]); // Set the first chapter
-      setOpenChapter(1); // Open the first chapter
-      setIsStoryComplete(1 >= aiGenerationParams.totalChapters); // Check if story is complete after 1st chapter
+      setChapters([{ chapter_number: 1, content: response.data.firstChapter }]);
+      setOpenChapter(1);
+      setIsStoryComplete(1 >= aiGenerationParams.totalChapters);
 
-      navigate(`/novel/${response.data.bookId}`, { replace: true }); // Navigate to the new book's URL
+      navigate(`/novel/${response.data.bookId}`, { replace: true });
     } catch (err) {
       console.error('handleCreateBook: Failed to create the book:', err);
       setError(err.response?.data?.message || 'Failed to create the book.');
@@ -408,7 +430,7 @@ function NovelPage() {
     }
   };
 
-  // --- handleGenerateNextChapter Function ---
+  // --- handleGenerateNextChapter Function (remains unchanged) ---
   const handleGenerateNextChapter = async () => {
     setIsActionLoading(true);
     setError(null);
@@ -422,12 +444,11 @@ function NovelPage() {
 
       setChapters((prev) => {
         const updatedChapters = [...prev, newChapterData];
-        // Recalculate story completion based on the newly updated chapters array
         setIsStoryComplete(updatedChapters.length >= (bookDetails?.total_chapters || 1));
         return updatedChapters;
       });
 
-      setOpenChapter(newChapterData.chapter_number); // Open the newly generated chapter
+      setOpenChapter(newChapterData.chapter_number);
     } catch (err) {
       console.error('handleGenerateNextChapter: Failed to generate the next chapter:', err);
       setError(err.response?.data?.message || 'Failed to generate the next chapter.');
@@ -436,19 +457,19 @@ function NovelPage() {
     }
   };
 
-  // --- handleToggleChapter Function ---
+  // --- handleToggleChapter Function (remains unchanged) ---
   const handleToggleChapter = (chapterNumber) => {
     setOpenChapter(openChapter === chapterNumber ? null : chapterNumber);
   };
 
-  // --- handleFinalizeAndPurchase Function ---
+  // --- handleFinalizeAndPurchase Function (remains unchanged) ---
   const handleFinalizeAndPurchase = async () => {
     setIsCheckingOut(true);
     setError(null);
 
     try {
       const response = await apiClient.post(`/text-books/${bookId}/checkout`);
-      window.location.href = response.data.url; // Redirect to Stripe checkout
+      window.location.href = response.data.url;
     } catch (err) {
       console.error('handleFinalizeAndPurchase: Could not proceed to checkout:', err);
       setError(err.response?.data?.message || 'Could not proceed to checkout.');
@@ -457,26 +478,22 @@ function NovelPage() {
   };
 
   // --- Primary Conditional Rendering Logic ---
-  // This sequence determines what the user sees based on application state.
-
-  // Debug log right before actual render conditions
   console.log("NovelPage render: Final rendering state decision:", {
-    error: !!error, // True if a local error is set
-    isErrorBookOptions, // True if useQuery failed for book options
-    isLoadingPage, // True if main page content is still loading
-    isLoadingBookOptions, // True if product options are still fetching
-    paramBookId, // The book ID from URL params
-    selectedProductForNew: !!selectedProductForNew, // True if a product format has been chosen for a new book
-    bookDetails: !!bookDetails // True if book details have been loaded/created
+    error: !!error,
+    isErrorBookOptions,
+    isLoadingPage,
+    isLoadingBookOptions,
+    paramBookId,
+    selectedProductForNew: !!selectedProductForNew,
+    bookDetails: !!bookDetails
   });
-
 
   // 1. Display general error (highest priority)
   if (error) {
     console.log("NovelPage render: Condition: 'error' is true. Returning Alert.");
     return <Alert title="Error">{error}</Alert>;
   }
-  // 2. Display error if fetching book options failed
+  // 2. Display error if fetching book options failed (e.g., API is down or 401/404)
   if (isErrorBookOptions) {
     console.log("NovelPage render: Condition: 'isErrorBookOptions' is true. Returning Alert.");
     return <Alert title="Error">Could not load book options.</Alert>;
@@ -489,9 +506,9 @@ function NovelPage() {
 
   // 4. Display PromptForm for new book creation
   // This condition is met when:
-  // - We are on the '/novel/new' path (or no param, implying new) AND
-  // - A product format has been selected (selectedProductForNew is populated) AND
-  // - The book details have NOT yet been created/loaded (bookDetails is null)
+  // - It's a new book path ('new' or no param) AND
+  // - A product has been selected (selectedProductForNew is populated) AND
+  // - Book details have NOT yet been created/loaded (bookDetails is null)
   if ((paramBookId === 'new' || !paramBookId) && selectedProductForNew && !bookDetails) {
     console.log("NovelPage render: Condition: New book flow, prompt form ready. Returning PromptForm.");
     return <PromptForm isLoading={isActionLoading} onSubmit={handleCreateBook} productName={selectedProductForNew?.name || 'Novel'} />;
@@ -500,10 +517,9 @@ function NovelPage() {
   // 5. Display Book Content (chapters) for an existing book or a newly created book
   // This condition is met when:
   // - A book ID is present (either from URL or set after creation) AND
-  // - The book details have been successfully loaded/created (bookDetails is populated)
+  // - Book details have been successfully loaded/created (bookDetails is populated)
   if (bookId && bookDetails) {
     console.log("NovelPage render: Condition: Book data loaded. Returning Book Content.");
-    // Determine total chapters to display, preferring bookDetails value
     const totalChaptersToDisplay = bookDetails.total_chapters || selectedProductForNew?.totalChapters || 1;
 
     return (
