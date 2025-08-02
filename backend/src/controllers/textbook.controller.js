@@ -42,14 +42,11 @@ export const createTextBook = async (req, res) => {
         }
         
         // --- MODIFIED: Use totalChapters from promptDetails, not hardcoded value ---
-        const totalChaptersForBook = promptDetails.totalChapters;
-        // Ensure this matches the product config's totalChapters
+        const totalChaptersForBook = promptDetails.totalChapters; // Get totalChapters from frontend payload
+        // This is a safety check: ensure the luluProductId matches a known config, but we trust frontend for totalChapters
         const selectedProductConfig = printOptionsCache.find(p => p.id === luluProductId);
-        if (!selectedProductConfig || selectedProductConfig.totalChapters !== totalChaptersForBook) {
-            // This is a safety check. If totalChapters from frontend doesn't match backend config
-            console.warn(`Frontend totalChapters (${totalChaptersForBook}) for product ${luluProductId} does not match backend config (${selectedProductConfig?.totalChapters}). Using frontend value.`);
-            // Alternatively, you could force selectedProductConfig.totalChapters here.
-            // For now, we'll trust frontend's promptDetails.totalChapters as it aligns with UI.
+        if (!selectedProductConfig) {
+             console.warn(`Product configuration for ID ${luluProductId} not found on backend. Using totalChapters from frontend payload.`);
         }
         // --- END MODIFIED ---
 
@@ -57,12 +54,14 @@ export const createTextBook = async (req, res) => {
         const currentDate = new Date().toISOString();
 
         const bookSql = `INSERT INTO text_books (id, user_id, title, prompt_details, lulu_product_id, date_created, last_modified, total_chapters) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`;
+        // --- MODIFIED: Insert totalChaptersForBook into DB ---
         await client.query(bookSql, [bookId, userId, title, JSON.stringify(promptDetails), luluProductId, currentDate, currentDate, totalChaptersForBook]);
+        // --- END MODIFIED ---
 
         const firstChapterText = await generateStoryFromApi({
             ...promptDetails, // This now correctly includes pageCount, wordsPerPage, totalChapters
             chapterNumber: 1,
-            totalChapters: totalChaptersForBook,
+            totalChapters: totalChaptersForBook, // Pass the correct totalChapters to AI
         });
 
         const chapterSql = `INSERT INTO chapters (book_id, chapter_number, content, date_created) VALUES ($1, 1, $2, $3)`;
@@ -146,7 +145,7 @@ export const getTextBooks = async (req, res) => {
         client = await pool.connect();
 
         const booksResult = await client.query(`
-            SELECT tb.id, tb.title, tb.last_modified, tb.lulu_product_id, tb.is_public, tb.cover_image_url, tb.total_chapters
+            SELECT tb.id, tb.title, tb.last_modified, tb.lulu_product_id, tb.is_public, tb.cover_image_url, tb.total_chapters, tb.prompt_details -- Include prompt_details to assist frontend fallback
             FROM text_books tb
             WHERE tb.user_id = $1
             ORDER BY tb.last_modified DESC`, [userId]);
@@ -239,10 +238,7 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
             console.log("✅ Successfully retrieved cover dimensions from Lulu API.");
         } catch (error) {
             console.warn("⚠️ Lulu API call for cover dimensions failed. Proceeding with fallback dimensions.");
-            // These fallback dimensions are for a specific novel size (approx 5.5x8.5)
-            // They were previously hardcoded to 291.57 x 222.25 which led to Lulu rejections
-            // If the API continues to fail, this fallback needs to become a dynamic calculation based on trimSize and pageCount.
-            coverDimensions = { width: 290.945, height: 222.25, layout: 'portrait' }; // Using the dimensions that worked for Novella
+            coverDimensions = { width: 290.945, height: 222.25, layout: 'portrait' }; 
             isFallback = true;
         }
         
