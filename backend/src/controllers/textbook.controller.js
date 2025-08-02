@@ -5,16 +5,17 @@
 // - B. Improved validation of generated PDF page count: Handles null pageCount, checks against maxPageCount.
 // - Corrected typo in getFlatShippingRate for FLAT_SHIPPING_RATES_AUD lookup.
 // - FIX: Added JSON.parse for book.prompt_details in generateNextChapter to correctly retrieve saved prompt parameters.
+// - NEW FIX: Integrated new finalizePdfPageCount helper to handle PDF padding and even-page count using pdf-lib after initial content generation.
 
 import { getDb } from '../db/database.js';
 import { randomUUID } from 'crypto';
 import { generateStoryFromApi } from '../services/gemini.service.js';
 import { LULU_PRODUCT_CONFIGURATIONS, getCoverDimensionsFromApi, getPrintOptions, getPrintJobCosts, createLuluPrintJob } from '../services/lulu.service.js'; 
-import { generateAndSaveTextBookPdf, generateCoverPdf } from '../services/pdf.service.js';
+import { generateAndSaveTextBookPdf, generateCoverPdf, finalizePdfPageCount } from '../services/pdf.service.js'; // Import new helper
 import { uploadPdfFileToCloudinary } from '../services/image.service.js';
 import { createStripeCheckoutSession } from '../services/stripe.service.js';
 import path from 'path';
-import fs from 'promises'; // Corrected import from 'fs/promises' to 'promises' (standard Node.js)
+import fs from 'fs/promises';
 
 // --- AbortController import/module system compatibility ---
 // This robustly handles both Node.js versions with global AbortController (v15+)
@@ -316,32 +317,37 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
         
         console.log(`[Checkout] Generating PDFs for book ${bookId}...`);
         
-        const { path: interiorPath, pageCount: finalPageCount } = await generateAndSaveTextBookPdf(book, selectedProductConfig);
+        // First Pass: Generate content PDF and get its true page count
+        const { path: interiorPath, pageCount: trueContentPageCount } = await generateAndSaveTextBookPdf(book, selectedProductConfig);
         tempInteriorPdfPath = interiorPath;
-        console.log(`[Checkout] PDF generation complete. True final page count is ${finalPageCount}.`);
+        console.log(`[Checkout] Content PDF generation complete. True content page count is ${trueContentPageCount}.`);
         
-        let actualFinalPageCount = finalPageCount;
+        let actualFinalPageCount = trueContentPageCount; // Start with the content page count
         let isPageCountFallback = false;
 
-        // B. Handle the case when returned pageCount is null
-        if (finalPageCount === null) {
-            console.warn(`[Checkout] PDF page count could not be accurately determined via pdf-lib. Falling back to product's defaultPageCount: ${selectedProductConfig.defaultPageCount}`);
-            actualFinalPageCount = selectedProductConfig.defaultPageCount; // Use a reasonable default for cost calculation
+        // Handle case where trueContentPageCount from pdf-lib failed
+        if (trueContentPageCount === null) {
+            console.warn(`[Checkout] True content page count was null. Falling back to product's defaultPageCount: ${selectedProductConfig.defaultPageCount}`);
+            actualFinalPageCount = selectedProductConfig.defaultPageCount;
             isPageCountFallback = true;
         }
 
+        // Second Pass: Pad and finalize the PDF using pdf-lib
+        const finalPaddedPageCount = await finalizePdfPageCount(tempInteriorPdfPath, selectedProductConfig, actualFinalPageCount);
+        if (finalPaddedPageCount === null) {
+            console.error(`[Checkout] Failed to finalize PDF page count (padding/evenness).`);
+            return res.status(500).json({ message: 'Failed to finalize book PDF for printing.' });
+        }
+        actualFinalPageCount = finalPaddedPageCount; // Use the count after padding and evenness
+        console.log(`[Checkout] PDF finalization complete. Final padded page count is ${actualFinalPageCount}.`);
+
+
         // B. Improved validation of generated PDF page count
-        // pdf.service.js now pads to minPageCount, so main concern here is exceeding max.
-        // If actualFinalPageCount is still below minPageCount, it indicates a generation/padding issue.
+        // The PDF is now guaranteed to meet minPageCount due to finalizePdfPageCount.
+        // So, we primarily check against maxPageCount.
         if (actualFinalPageCount > selectedProductConfig.maxPageCount) {
             const errorMessage = `This book has ${actualFinalPageCount} pages, which exceeds the maximum allowed for this format (${selectedProductConfig.maxPageCount} pages). Please consider a different product or reducing content length.`;
             console.error("[Checkout] Failed: Page count exceeded max limit.", { bookId, finalPageCount: actualFinalPageCount, product: selectedProductConfig.id });
-            return res.status(400).json({ message: errorMessage });
-        }
-        if (actualFinalPageCount < selectedProductConfig.minPageCount) {
-            // This should ideally only be hit if padding logic in PDF service failed, or if finalPageCount was null AND default/min is also insufficient.
-            const errorMessage = `Generated book page count (${actualFinalPageCount}) is below the minimum required for this format (${selectedProductConfig.minPageCount}). This indicates an issue with PDF generation or unexpected content. Please generate more content or try a different product.`;
-            console.error("[Checkout] ERROR: Page count still below minimum after PDF generation/fallback.", { bookId, finalPageCount: actualFinalPageCount, product: selectedProductConfig.id });
             return res.status(400).json({ message: errorMessage });
         }
 
@@ -373,7 +379,8 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
             city: trimmedAddress.city,
             state_code: trimmedAddress.state_code || '', // State code might be optional for some countries
             postcode: trimmedAddress.postcode,
-            country_code: trimmedAddress.country_code
+            country_code: trimmedAddress.country_code,
+            phone_number: shippingAddress.phone_number ? shippingAddress.phone_number.trim() : '000-000-0000', // ADDED phone_number field
         };
 
         let luluCostsResponse;

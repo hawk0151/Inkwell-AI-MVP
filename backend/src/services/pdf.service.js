@@ -1,19 +1,14 @@
 // backend/src/services/pdf.service.js
 
 // CHANGES:
-// - Replaced manual pageCount tracking with true PDF page count obtained via pdf-lib.
-// - Implemented padding with blank pages in both textbook and picture book PDF generation to meet minPageCount requirements.
-// - Added resilient fallback for pdf-lib failures, returning pageCount: null.
-// - Updated logging to reflect "true page count" where applicable.
-// - Fixed padding logic by ensuring estimatedPageCountBeforePadding is a valid number.
-// - CRITICAL FIX: Removed 'height' option from doc.text() calls in both textbook and picture book PDF generation
-//   to allow text to flow automatically across pages, preventing truncation.
-// - Removed unsupported 'ellipsis' option from doc.text() calls.
-// - Cleaned up unreliable doc.page.count logging before doc.end().
-// - Maintained explicit doc.addPage() for new chapters (from Chapter 2 onwards) to ensure chapters start on new pages.
+// - Redesigned PDF generation into a two-pass system.
+// - generateAndSaveTextBookPdf and generateAndSavePictureBookPdf now only generate content, returning true content page count.
+// - Introduced a new helper function, finalizePdfPageCount, which loads the generated PDF with pdf-lib,
+//   pads it to minPageCount, ensures even page count, and returns the final true page count.
+// - Removed padding/even-page logic from within generation functions.
 
 import PDFDocument from 'pdfkit'; // For creating PDFs
-import { PDFDocument as PDFLibDocument } from 'pdf-lib'; // For reading PDFs
+import { PDFDocument as PDFLibDocument } from 'pdf-lib'; // For reading/modifying PDFs
 import axios from 'axios';
 import fs from 'fs/promises';
 import path from 'path';
@@ -139,10 +134,11 @@ export const generateCoverPdf = async (book, productConfig, coverDimensions) => 
     return tempFilePath;
 };
 
+// First Pass: Generates the content PDF (no padding/evenness yet)
 export const generateAndSaveTextBookPdf = async (book, productConfig) => {
     const { width, height, layout } = getProductDimensions(productConfig.id);
     const doc = new PDFDocument({
-        autoFirstPage: false, // We control page creation manually
+        autoFirstPage: false,
         size: [width, height],
         layout: layout,
         margins: { top: 72, bottom: 72, left: 72, right: 72 } // 1 inch margins
@@ -150,10 +146,12 @@ export const generateAndSaveTextBookPdf = async (book, productConfig) => {
     
     const tempPdfsDir = path.resolve(process.cwd(), 'tmp', 'pdfs');
     await fs.mkdir(tempPdfsDir, { recursive: true });
-    const tempFilePath = path.join(tempPdfsDir, `interior_textbook_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.pdf`);
+    const tempFilePath = path.join(tempPdfsDir, `interior_textbook_content_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.pdf`);
 
     // --- Title Page ---
     doc.addPage();
+    // Log current page count from PDFKit, safely defaulting to 0 for display
+    console.log(`[PDF Service: Textbook - Content] Added Title Page. Current PDFKit page: ${doc.page.count || 0}`);
 
     doc.fontSize(28).font(ROBOTO_BOLD_PATH).text(book.title, { align: 'center' }); 
     doc.moveDown(4);
@@ -161,17 +159,14 @@ export const generateAndSaveTextBookPdf = async (book, productConfig) => {
 
     // --- Chapter Pages ---
     // PDFKit will automatically add pages as content overflows.
-    // Removed explicit doc.addPage() for chapters (after the first one) to allow continuous text flow.
     // Chapters will start on a new page only if the previous content flowed to a new page,
     // or if `doc.moveDown` causes a page break.
     for (const [index, chapter] of book.chapters.entries()) {
-        if (index > 0) { // For Chapter 2 onwards, add a new line after the previous content
-            // This will cause the new chapter header to appear on the same page if space allows,
-            // or on the next page if `moveDown` causes an overflow.
-            doc.moveDown(4); // Add some space before the next chapter header
+        if (index > 0) { // For Chapter 2 onwards, add some space before the next chapter header
+            doc.moveDown(4); // Add some space before the next chapter header if on the same page
         }
-        // Log current page count from PDFKit, safely defaulting to 0 for display
-        console.log(`[PDF Service: Textbook] Adding Chapter ${chapter.chapter_number}. Current PDFKit page: ${doc.page.count || 0}`);
+        // Log current page count as understood by PDFKit at this moment (may not be final until doc.end())
+        console.log(`[PDF Service: Textbook - Content] Adding Chapter ${chapter.chapter_number}. Current PDFKit page: ${doc.page.count || 0}`);
 
         doc.fontSize(18).font(ROBOTO_BOLD_PATH).text(`Chapter ${chapter.chapter_number}`, { align: 'center' }); 
         doc.moveDown(2);
@@ -180,56 +175,35 @@ export const generateAndSaveTextBookPdf = async (book, productConfig) => {
         doc.fontSize(12).font(ROBOTO_REGULAR_PATH).text(chapter.content, { 
             align: 'justify',
             width: doc.page.width - doc.page.margins.left - doc.page.margins.right,
-            // Removed: height: doc.page.height - doc.y - doc.page.margins.bottom,
         }); 
     }
     
-    // --- Defensive Padding for Minimum Page Count ---
-    // Get current page count from PDFKit's internal state AFTER all content is added
-    // Ensure estimatedPageCountBeforePadding is a number, defaulting to 0
-    let estimatedPageCountBeforePadding = doc.page.count || 0; 
-    
-    if (estimatedPageCountBeforePadding < productConfig.minPageCount) {
-        const pagesToAdd = productConfig.minPageCount - estimatedPageCountBeforePadding;
-        console.warn(`[PDF Service: Textbook] ⚠️ Generated content uses ${estimatedPageCountBeforePadding} pages, which is below product minimum (${productConfig.minPageCount}). Adding ${pagesToAdd} blank pages.`);
-        for (let i = 0; i < pagesToAdd; i++) {
-            doc.addPage();
-        }
-    }
-
-    // --- Ensure Even Page Count for Printing ---
-    // Get page count again after padding for minimums
-    let pageCountAfterPadding = doc.page.count;
-    if (pageCountAfterPadding % 2 !== 0) {
-        console.log("[PDF Service: Textbook] DEBUG: Page count is odd, adding a final blank page for printing.");
-        doc.addPage();
-    }
     // Log the final page count from PDFKit directly before `doc.end()`
-    console.log(`[PDF Service: Textbook] Final PDFKit page count before saving: ${doc.page.count}`); 
+    console.log(`[PDF Service: Textbook - Content] Final PDFKit page count before saving: ${doc.page.count || 0}`); 
     
-    doc.end(); // Finalize the PDF document
+    doc.end(); // Finalize the PDF document for content generation
 
     const pdfBuffer = await streamToBuffer(doc);
     await fs.writeFile(tempFilePath, pdfBuffer);
 
-    let truePageCount = null;
+    let trueContentPageCount = null;
     try {
-        // A. PDF generation fix: Use pdf-lib to get true page count
+        // Use pdf-lib to get true page count of content PDF
         const existingPdfBytes = await fs.readFile(tempFilePath);
         const pdfDoc = await PDFLibDocument.load(existingPdfBytes);
-        truePageCount = pdfDoc.getPageCount();
-        console.log(`[PDF Service: Textbook] ✅ True page count from pdf-lib: ${truePageCount}`);
+        trueContentPageCount = pdfDoc.getPageCount();
+        console.log(`[PDF Service: Textbook - Content] ✅ True content page count from pdf-lib: ${trueContentPageCount}`);
     } catch (error) {
-        console.error(`[PDF Service: Textbook] ❌ Failed to get true page count from PDF-Lib for ${tempFilePath}:`, error);
-        // Resilient fallback: If reading PDF fails, return null pageCount
-        console.warn(`[PDF Service: Textbook] Returning pageCount: null due to pdf-lib error. Downstream must handle this.`);
-        truePageCount = null; 
+        console.error(`[PDF Service: Textbook - Content] ❌ Failed to get true content page count from PDF-Lib for ${tempFilePath}:`, error);
+        console.warn(`[PDF Service: Textbook - Content] Returning pageCount: null due to pdf-lib error. Downstream must handle this.`);
+        trueContentPageCount = null; 
     }
 
-    console.log(`[PDF Service: Textbook] Returning { path: ${tempFilePath}, pageCount: ${truePageCount} }`);
-    return { path: tempFilePath, pageCount: truePageCount };
+    console.log(`[PDF Service: Textbook - Content] Returning { path: ${tempFilePath}, pageCount: ${trueContentPageCount} }`);
+    return { path: tempFilePath, pageCount: trueContentPageCount };
 };
 
+// First Pass: Generates the content PDF (no padding/evenness yet)
 export const generateAndSavePictureBookPdf = async (book, events, productConfig) => {
     const { width, height, layout } = getProductDimensions(productConfig.id);
     const doc = new PDFDocument({
@@ -241,23 +215,22 @@ export const generateAndSavePictureBookPdf = async (book, events, productConfig)
 
     const tempPdfsDir = path.resolve(process.cwd(), 'tmp', 'pdfs');
     await fs.mkdir(tempPdfsDir, { recursive: true });
-    const tempFilePath = path.join(tempPdfsDir, `interior_picturebook_${Date.now()}_${book.id}.pdf`);
+    const tempFilePath = path.join(tempPdfsDir, `interior_picturebook_content_${Date.now()}_${book.id}.pdf`);
 
     // Title Page (often the first internal page, distinct from the external cover)
     doc.addPage();
-
     // Log current page count from PDFKit, safely defaulting to 0 for display
-    console.log(`[PDF Service: Picture Book] Added Title Page. Current PDFKit page: ${doc.page.count || 0}`);
+    console.log(`[PDF Service: Picture Book - Content] Added Title Page. Current PDFKit page: ${doc.page.count || 0}`);
 
     // If an interior cover image URL is provided (e.g., for inside cover illustration)
     if (book.cover_image_url) { // Assuming book.cover_image_url might be used for interior title page also
         try {
-            console.log(`[PDF Service: Picture Book] Attempting to load interior title page image from: ${book.cover_image_url}`);
+            console.log(`[PDF Service: Picture Book - Content] Attempting to load interior title page image from: ${book.cover_image_url}`);
             const coverImageBuffer = await getImageBuffer(book.cover_image_url);
             doc.image(coverImageBuffer, 0, 0, { width: doc.page.width, height: doc.page.height, fit: [doc.page.width, doc.page.height], valign: 'center', align: 'center' });
-            console.log(`[PDF Service: Picture Book] Successfully embedded interior title page image.`);
+            console.log(`[PDF Service: Picture Book - Content] Successfully embedded interior title page image.`);
         } catch (imgErr) {
-            console.error(`[PDF Service: Picture Book] Failed to load interior title page image from ${book.cover_image_url}:`, imgErr);
+            console.error(`[PDF Service: Picture Book - Content] Failed to load interior title page image from ${book.cover_image_url}:`, imgErr);
             doc.fontSize(40).font(ROBOTO_BOLD_PATH).text(book.title, { align: 'center' }); 
         }
     } else {
@@ -270,7 +243,7 @@ export const generateAndSavePictureBookPdf = async (book, events, productConfig)
     for (const event of events) {
         doc.addPage();
         // Log current page count from PDFKit, safely defaulting to 0 for display
-        console.log(`[PDF Service: Picture Book] Adding event page for event ID ${event.id}. Current PDFKit page: ${doc.page.count || 0}`);
+        console.log(`[PDF Service: Picture Book - Content] Adding event page for event ID ${event.id}. Current PDFKit page: ${doc.page.count || 0}`);
         const imageUrl = event.uploaded_image_url || event.image_url;
         const margin = doc.page.margins.left;
         const contentWidth = doc.page.width - 2 * margin;
@@ -278,7 +251,7 @@ export const generateAndSavePictureBookPdf = async (book, events, productConfig)
 
         if (imageUrl) {
             try {
-                console.log(`[PDF Service: Picture Book] Fetching event image from: ${imageUrl}`);
+                console.log(`[PDF Service: Picture Book - Content] Fetching event image from: ${imageUrl}`);
                 const imageBuffer = await getImageBuffer(imageUrl);
                 // Fit image within ~70% of page height, centered horizontally and vertically in top 70% area
                 const imageFitHeight = contentHeight * 0.7; 
@@ -287,9 +260,9 @@ export const generateAndSavePictureBookPdf = async (book, events, productConfig)
                     align: 'center', 
                     valign: 'center' 
                 });
-                console.log(`[PDF Service: Picture Book] Successfully embedded event image from ${imageUrl}.`);
+                console.log(`[PDF Service: Picture Book - Content] Successfully embedded event image from ${imageUrl}.`);
             } catch (imgErr) {
-                console.error(`[PDF Service: Picture Book] Failed to load event image from ${imageUrl}:`, imgErr);
+                console.error(`[PDF Service: Picture Book - Content] Failed to load event image from ${imageUrl}:`, imgErr);
                 doc.rect(margin, margin, contentWidth, contentHeight * 0.7).fill('#CCCCCC'); // Placeholder for failed image
                 doc.fontSize(12).fillColor('#333333').text('Image Load Failed', { align: 'center', valign: 'center', width: contentWidth, height: contentHeight * 0.7 });
             }
@@ -301,7 +274,6 @@ export const generateAndSavePictureBookPdf = async (book, events, productConfig)
             const textMarginTop = imageUrl ? (margin + contentHeight * 0.7 + 10) : margin; // 10pt buffer below image
 
             // CRITICAL FIX: Removed 'height' option to allow text to flow automatically across pages
-            // Removed: height: maxTextHeight,
             doc.fontSize(14).font(ROBOTO_REGULAR_PATH).fillColor('#000000').text( 
                 textToRender,
                 margin,
@@ -309,56 +281,75 @@ export const generateAndSavePictureBookPdf = async (book, events, productConfig)
                 { 
                     align: 'justify', 
                     width: contentWidth,
-                    // Removed: height: maxTextHeight, // This caused truncation
-                    // Removed: ellipsis: true // This is not supported by PDFKit and caused unpredictable behavior
                 }
             );
         }
     }
-
-    // --- Defensive Padding for Minimum Page Count ---
-    // Get current page count from PDFKit's internal state AFTER all content is added
-    // Ensure estimatedPageCountBeforePadding is a number, defaulting to 0
-    let estimatedPageCountBeforePadding = doc.page.count || 0; 
     
-    if (estimatedPageCountBeforePadding < productConfig.minPageCount) {
-        const pagesToAdd = productConfig.minPageCount - estimatedPageCountBeforePadding;
-        console.warn(`[PDF Service: Picture Book] ⚠️ Generated content uses ${estimatedPageCountBeforePadding} pages, which is below product minimum (${productConfig.minPageCount}). Adding ${pagesToAdd} blank pages.`);
-        for (let i = 0; i < pagesToAdd; i++) {
-            doc.addPage();
-        }
-    }
-
-    // --- Ensure Even Page Count for Printing ---
-    // Get page count again after padding for minimums
-    let pageCountAfterPadding = doc.page.count;
-    if (pageCountAfterPadding % 2 !== 0) {
-        console.log("[PDF Service: Picture Book] DEBUG: Page count is odd, adding a final blank page for printing.");
-        doc.addPage();
-    }
-
-    // Log the final page count from PDFKit directly before `doc.end()`
-    console.log(`[PDF Service: Picture Book] Final PDFKit page count before saving: ${doc.page.count}`); 
+    console.log(`[PDF Service: Picture Book - Content] Final PDFKit page count before saving: ${doc.page.count || 0}`); 
 
     doc.end();
 
     const pdfBuffer = await streamToBuffer(doc);
     await fs.writeFile(tempFilePath, pdfBuffer);
 
-    let truePageCount = null;
+    let trueContentPageCount = null;
     try {
-        // A. PDF generation fix: Use pdf-lib to get true page count
+        // Use pdf-lib to get true page count
         const existingPdfBytes = await fs.readFile(tempFilePath);
         const pdfDoc = await PDFLibDocument.load(existingPdfBytes);
-        truePageCount = pdfDoc.getPageCount();
-        console.log(`[PDF Service: Picture Book] ✅ True page count from pdf-lib: ${truePageCount}`);
+        trueContentPageCount = pdfDoc.getPageCount();
+        console.log(`[PDF Service: Picture Book - Content] ✅ True content page count from pdf-lib: ${trueContentPageCount}`);
     } catch (error) {
-        console.error(`[PDF Service: Picture Book] ❌ Failed to get true page count from PDF-Lib for ${tempFilePath}:`, error);
-        // Resilient fallback: If reading PDF fails, return null pageCount
-        console.warn(`[PDF Service: Picture Book] Returning pageCount: null due to pdf-lib error. Downstream must handle this.`);
-        truePageCount = null;
+        console.error(`[PDF Service: Picture Book - Content] ❌ Failed to get true content page count from PDF-Lib for ${tempFilePath}:`, error);
+        console.warn(`[PDF Service: Picture Book - Content] Returning pageCount: null due to pdf-lib error. Downstream must handle this.`);
+        trueContentPageCount = null;
     }
 
-    console.log(`[PDF Service: Picture Book] Returning { path: ${tempFilePath}, pageCount: ${truePageCount} }`);
-    return { path: tempFilePath, pageCount: truePageCount };
+    console.log(`[PDF Service: Picture Book - Content] Returning { path: ${tempFilePath}, pageCount: ${trueContentPageCount} }`);
+    return { path: tempFilePath, pageCount: trueContentPageCount };
+};
+
+// NEW HELPER: Second Pass - Finalizes PDF page count (padding and evenness) using pdf-lib
+export const finalizePdfPageCount = async (filePath, productConfig, currentContentPageCount) => {
+    let finalPdfBytes;
+    let finalPageCount = currentContentPageCount; // Start with the count from the first pass
+
+    try {
+        const existingPdfBytes = await fs.readFile(filePath);
+        const pdfDoc = await PDFLibDocument.load(existingPdfBytes);
+
+        // --- Defensive Padding for Minimum Page Count ---
+        if (finalPageCount === null) {
+            console.warn(`[PDF Service: Finalize] Received null content page count. Falling back to product's defaultPageCount (${productConfig.defaultPageCount}) for padding decisions.`);
+            finalPageCount = productConfig.defaultPageCount; // Use default if content count unknown
+        }
+        
+        const pagesToAddForMin = Math.max(0, productConfig.minPageCount - finalPageCount);
+        if (pagesToAddForMin > 0) {
+            console.warn(`[PDF Service: Finalize] ⚠️ Current page count (${finalPageCount}) is below product minimum (${productConfig.minPageCount}). Adding ${pagesToAddForMin} blank pages.`);
+            for (let i = 0; i < pagesToAddForMin; i++) {
+                pdfDoc.addPage();
+            }
+            finalPageCount = pdfDoc.getPageCount(); // Update count after adding pages
+        }
+
+        // --- Ensure Even Page Count for Printing ---
+        if (finalPageCount % 2 !== 0) {
+            console.log(`[PDF Service: Finalize] DEBUG: Current page count (${finalPageCount}) is odd. Adding a final blank page for printing.`);
+            pdfDoc.addPage();
+            finalPageCount = pdfDoc.getPageCount(); // Update count after adding page
+        }
+
+        finalPdfBytes = await pdfDoc.save();
+        await fs.writeFile(filePath, finalPdfBytes); // Overwrite the original file with the modified one
+        
+        console.log(`[PDF Service: Finalize] ✅ PDF finalized. Final true page count: ${finalPageCount}`);
+        return finalPageCount;
+
+    } catch (error) {
+        console.error(`[PDF Service: Finalize] ❌ Failed to finalize PDF page count for ${filePath}:`, error);
+        console.warn(`[PDF Service: Finalize] Returning null final page count due to error.`);
+        return null; // Return null if finalization fails
+    }
 };
