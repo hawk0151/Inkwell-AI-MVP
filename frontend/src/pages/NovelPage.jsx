@@ -187,7 +187,6 @@ function NovelPage() {
     const [isActionLoading, setIsActionLoading] = useState(false);
     const [isCheckingOut, setIsCheckingOut] = useState(false);
     const [error, setError] = useState(null);
-    // --- NEW STATE: isStoryComplete ---
     const [isStoryComplete, setIsStoryComplete] = useState(false); // Manages story completion status
 
     const { data: allBookOptions, isLoading: isLoadingBookOptions, isError: isErrorBookOptions } = useQuery({
@@ -209,33 +208,32 @@ function NovelPage() {
                     const fetchedChapters = detailsRes.data.chapters;
                     setBookDetails(bookData);
                     setChapters(fetchedChapters);
-                    // --- NEW: Set isStoryComplete based on fetched book data ---
-                    setIsStoryComplete(fetchedChapters.length >= bookData.totalChapters);
-                    // --- END NEW ---
+                    setIsStoryComplete(fetchedChapters.length >= bookData.totalChapters); // Update isStoryComplete
                     
+                    // --- ADD DEBUG LOGS START ---
+                    console.log("DEBUG NovelPage: bookData fetched for existing book:", bookData);
+                    console.log("DEBUG NovelPage: totalChapters from bookData:", bookData?.totalChapters);
+                    // --- ADD DEBUG LOGS END ---
+
                     if (fetchedChapters.length > 0) {
                         setOpenChapter(fetchedChapters[fetchedChapters.length - 1].chapter_number);
                     }
                     
-                    // --- MODIFIED: Resolve product using allBookOptions for full metadata ---
                     const product = allBookOptions?.find((p) => p.id === bookData.luluProductId);
                     if (product) {
-                        setSelectedProductForNew(product); // This will hold the full product metadata
+                        setSelectedProductForNew(product);
                     } else {
-                        // Fallback if product metadata is somehow missing (e.g., old book, new product list)
                         console.warn("Could not find product metadata for existing book. Using stored details.");
-                        // Attempt to reconstruct essential product data from bookDetails if necessary
                         setSelectedProductForNew({
                             id: bookData.luluProductId,
                             name: bookData.productName || 'Unknown Product',
                             type: bookData.type || 'textBook',
                             price: bookData.price || 0,
-                            defaultPageCount: bookData.prompt_details?.pageCount || 66, // Use stored prompt_details or fallback
+                            defaultPageCount: bookData.prompt_details?.pageCount || 66,
                             defaultWordsPerPage: bookData.prompt_details?.wordsPerPage || 250,
                             totalChapters: bookData.totalChapters || 6
                         });
                     }
-                    // --- END MODIFIED ---
                     setBookId(paramBookId);
                     setIsLoadingPage(false);
                 })
@@ -250,10 +248,8 @@ function NovelPage() {
                 setSelectedProductForNew(product);
                 setIsLoadingPage(false);
             } else {
-                // --- NEW VALIDATION ---
                 setError("Invalid book format selected. Please go back and choose a format.");
                 setIsLoadingPage(false);
-                // --- END NEW ---
             }
         } else {
             setError("To create a new novel, please select a book format first.");
@@ -272,8 +268,6 @@ function NovelPage() {
             return;
         }
 
-        // --- VALIDATION AND AI PARAMETER CONSTRUCTION START ---
-        // Ensure AI generation parameters are valid before sending
         const pageCount = selectedProductForNew.defaultPageCount;
         const wordsPerPage = selectedProductForNew.defaultWordsPerPage;
         const totalChapters = selectedProductForNew.totalChapters;
@@ -285,7 +279,7 @@ function NovelPage() {
             if (typeof totalChapters === 'undefined') missing.push('totalChapters');
             const errorMessage = `Missing AI generation parameters for selected product: ${missing.join(', ')}. Please check backend LULU_PRODUCT_CONFIGURATIONS.`;
             console.error("ERROR:", errorMessage, selectedProductForNew);
-            setError(errorMessage); // Display error to user
+            setError(errorMessage);
             setIsActionLoading(false);
             return;
         }
@@ -297,16 +291,13 @@ function NovelPage() {
         };
 
         const promptDetails = { ...restOfPromptDetails, ...aiGenerationParams };
-        // --- VALIDATION AND AI PARAMETER CONSTRUCTION END ---
 
         const bookData = { title, promptDetails, luluProductId: selectedProductForNew.id };
 
-        // --- ADD DEBUG LOGS START ---
         console.log("DEBUG handleCreateBook: selectedProductForNew:", selectedProductForNew);
         console.log("DEBUG handleCreateBook: AI params formed:", aiGenerationParams);
         console.log("DEBUG handleCreateBook: Full promptDetails being sent:", promptDetails);
         console.log("DEBUG handleCreateBook: Full bookData being sent to backend:", bookData);
-        // --- ADD DEBUG LOGS END ---
 
         try {
             const response = await apiClient.post('/text-books', bookData);
@@ -335,9 +326,7 @@ function NovelPage() {
             
             setOpenChapter(newChapterData.chapter_number);
 
-            // --- NEW: Update isStoryComplete state ---
             setIsStoryComplete(response.data.isStoryComplete); 
-            // --- END NEW ---
 
             if (response.data.isStoryComplete) {
                    console.log("Story generation complete!");
@@ -390,28 +379,14 @@ function NovelPage() {
         return <LoadingSpinner text="Loading book details..." />;
     }
 
-    // --- MODIFIED: Consistent product metadata resolution ---
-    // For existing books (bookId), find the full product details from allBookOptions
-    // For new books (!bookId), use selectedProductForNew directly
     const currentProduct = bookId && bookDetails 
         ? (allBookOptions?.find(p => p.id === bookDetails.luluProductId) || bookDetails) 
         : selectedProductForNew; 
     
-    // Defensive check for productName and totalChapters, using resolved currentProduct
     const productName = currentProduct?.name || 'Novel'; 
     const totalChapters = currentProduct?.totalChapters || 1; 
-    // --- END MODIFIED ---
 
 
-    // --- Render PromptForm for New Books, or Story Content for Existing Books ---
-    if (!bookId) {
-        if (!selectedProductForNew) { // This check should ideally catch earlier, but serves as fallback
-            return <Alert title="Error">Missing book format. Please go back to selection.</Alert>;
-        }
-        return <PromptForm isLoading={isActionLoading} onSubmit={handleCreateBook} productName={productName} />;
-    }
-
-    // If bookId exists (existing book) and bookDetails loaded, render story content
     return (
         <div className="fade-in">
             <div className="bg-slate-800/50 p-8 md:p-12 rounded-2xl shadow-2xl border border-slate-700">
