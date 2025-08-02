@@ -114,7 +114,6 @@ const PromptForm = ({ isLoading, onSubmit, productName }) => {
               placeholder="e.g., My Dad"
               className="w-full p-3 text-base bg-slate-700 border border-slate-600 rounded-lg shadow-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition text-white"
               required
-            />
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-300 mb-1">Main character's name?</label>
@@ -136,7 +135,6 @@ const PromptForm = ({ isLoading, onSubmit, productName }) => {
               onChange={handleChange}
               placeholder="e.g., Sailing, classic cars, and the color yellow"
               className="w-full h-24 p-3 text-base bg-slate-700 border border-slate-600 rounded-lg shadow-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition text-white"
-            />
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-300 mb-1">Choose a genre</label>
@@ -232,12 +230,10 @@ function NovelPage() {
       allBookOptions: !!allBookOptions, // Just check existence
     });
 
-    // If book options are still loading, return early.
-    // This ensures that we have product configuration data before proceeding with any flow.
-    if (isLoadingBookOptions) {
-      console.log("NovelPage useEffect: isLoadingBookOptions is true. Returning early.");
-      return;
-    }
+    // MODIFIED: Remove early return based on isLoadingBookOptions from here
+    // The main render function will handle the initial loading state.
+    // This useEffect will now proceed to evaluate the flow even if book options are still loading,
+    // letting the render function display the spinner until all preconditions are met.
 
     // Reset local error state at the beginning of data processing logic to prevent stale errors
     setError(null);
@@ -468,7 +464,7 @@ function NovelPage() {
     error: !!error, // True if a local error is set
     isErrorBookOptions, // True if useQuery failed for book options
     isLoadingPage, // True if main page content is still loading
-    isLoadingBookOptions, // True if product options are still being fetched
+    isLoadingBookOptions, // True if product options are still fetching
     paramBookId, // The book ID from URL params
     selectedProductForNew: !!selectedProductForNew, // True if a product format has been chosen for a new book
     bookDetails: !!bookDetails // True if book details have been loaded/created
