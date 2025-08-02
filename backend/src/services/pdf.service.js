@@ -6,7 +6,7 @@
 // - Introduced finalizePdfPageCount helper which loads PDF, pads it, ensures even page count, and returns final page count.
 // - CRITICAL FIX: Ensure pdf-lib's addPage() uses consistent dimensions from the original PDF's first page to resolve 'printable_normalization' warning.
 // - CRITICAL FIX: Added robust validation of page dimensions within finalizePdfPageCount to prevent NaN errors when adding pages to PDF-Lib document.
-// - NEW DIAGNOSTIC: Added granular logging for page dimensions within finalizePdfPageCount to pinpoint NaN origin.
+// - DIAGNOSTIC/WORKAROUND: Hardcoded page dimensions when calling pdfDoc.addPage() in finalizePdfPageCount to further diagnose NaN error origin.
 
 import PDFDocument from 'pdfkit'; // For creating PDFs
 import { PDFDocument as PDFLibDocument } from 'pdf-lib'; // For reading/modifying PDFs
@@ -41,14 +41,10 @@ const getProductDimensions = (luluConfigId) => {
         case '8.27x11.69':
             widthMm = 209.55; heightMm = 296.9; layout = 'portrait'; break;
         default:
-            // Ensure widthMm and heightMm are defined even if trimSize is unknown, for robust error handling downstream
             console.error(`[PDF Service: getProductDimensions] Unknown trim size ${productConfig.trimSize}. Falling back to standard dimensions.`);
             widthMm = 210; // A4 width in mm (default fallback)
             heightMm = 297; // A4 height in mm (default fallback)
             layout = 'portrait';
-            // It's still better to throw here if this is a hard requirement for product validity.
-            // For now, allow fallback to prevent crash, but this product config itself is likely invalid for Lulu.
-            // throw new Error(`Unknown trim size ${productConfig.trimSize} for interior PDF dimensions.`);
     }
     const widthPoints = mmToPoints(widthMm);
     const heightPoints = mmToPoints(heightMm);
