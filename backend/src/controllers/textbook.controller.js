@@ -231,7 +231,12 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
         console.log(`PDFs uploaded to Cloudinary.`);
 
         console.log("Fetching dynamic costs from Lulu...");
-        const lineItems = [{ pod_package_id: luluSku, page_count: finalPageCount }];
+        // --- MODIFIED: Added quantity: 1 to the lineItems object ---
+        const lineItems = [{ 
+            pod_package_id: luluSku, 
+            page_count: finalPageCount,
+            quantity: 1 
+        }];
         const luluShippingAddress = { ...shippingAddress, state_code: shippingAddress.state_code || '' };
         const luluCosts = await getPrintJobCosts(lineItems, luluShippingAddress);
         
@@ -270,13 +275,7 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
 
     } catch (error) {
         console.error(`Failed to create checkout session: ${error.stack}`);
-        // --- MODIFIED FOR DEBUGGING ---
-        // This change sends the detailed error message back to the frontend.
-        res.status(500).json({ 
-            message: 'Failed to create checkout session.', 
-            detailedError: error.message 
-        });
-        // --- END MODIFICATION ---
+        res.status(500).json({ message: 'Failed to create checkout session.', error: error.message });
     } finally {
         if (client) client.release();
         if (tempInteriorPdfPath) await fs.unlink(tempInteriorPdfPath).catch(console.error);
