@@ -11,6 +11,8 @@
 // - Implemented more robust temporary PDF file cleanup with specific error logging.
 // - AbortController import/usage adjusted for CommonJS/Node.js compatibility.
 // - Added a security note regarding sensitive data in logs.
+// - B. Clamped maxPageCount passed into story generation for more realistic budgeting.
+// - B. Improved validation of generated PDF page count: Handles null pageCount, checks against maxPageCount.
 
 import { getDb } from '../db/database.js';
 import { randomUUID } from 'crypto';
@@ -115,13 +117,25 @@ export const createTextBook = async (req, res) => {
             return res.status(400).json({ message: `Product configuration with ID ${luluProductId} not found.` });
         }
         const totalChaptersForBook = selectedProductConfig.totalChapters;
+        
+        // B. Clamp or derive a sane maxPageCount before passing into story generation
+        // Ensures maxPageCount passed to AI is not absurdly high, preferring defaultPageCount + slack
+        const effectiveMaxPageCount = Math.min(
+            selectedProductConfig.maxPageCount, // Cap at product's absolute max
+            Math.max(
+                selectedProductConfig.defaultPageCount, // At least default
+                Math.ceil(selectedProductConfig.defaultPageCount * 1.5) // Allow 50% slack above default
+            )
+        );
+        console.log(`[Textbook Controller] Using effectiveMaxPageCount for AI prompt: ${effectiveMaxPageCount} (from product max: ${selectedProductConfig.maxPageCount}, default: ${selectedProductConfig.defaultPageCount})`);
+
         const bookId = randomUUID();
         const currentDate = new Date().toISOString();
         const finalPromptDetails = {
             ...promptDetails,
             wordsPerPage: selectedProductConfig.wordsPerPage,
             totalChapters: totalChaptersForBook,
-            maxPageCount: selectedProductConfig.maxPageCount
+            maxPageCount: effectiveMaxPageCount // Use the clamped value here
         };
         const bookSql = `INSERT INTO text_books (id, user_id, title, prompt_details, lulu_product_id, date_created, last_modified, total_chapters) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`;
         await client.query(bookSql, [bookId, userId, title, JSON.stringify(finalPromptDetails), luluProductId, currentDate, currentDate, totalChaptersForBook]);
@@ -163,11 +177,22 @@ export const generateNextChapter = async (req, res) => {
         const previousChaptersText = chapters.map(c => c.content).join('\n\n---\n\n');
         const nextChapterNumber = chapters.length + 1;
         const isFinalChapter = nextChapterNumber >= book.total_chapters;
+
+        // B. Clamp or derive a sane maxPageCount before passing into story generation
+        const effectiveMaxPageCount = Math.min(
+            selectedProductConfig.maxPageCount,
+            Math.max(
+                selectedProductConfig.defaultPageCount,
+                Math.ceil(selectedProductConfig.defaultPageCount * 1.5)
+            )
+        );
+        console.log(`[Textbook Controller] Using effectiveMaxPageCount for AI prompt: ${effectiveMaxPageCount} (from product max: ${selectedProductConfig.maxPageCount}, default: ${selectedProductConfig.defaultPageCount})`);
+
         const finalPromptDetails = {
             ...book.prompt_details,
             wordsPerPage: selectedProductConfig.wordsPerPage,
             totalChapters: selectedProductConfig.totalChapters,
-            maxPageCount: selectedProductConfig.maxPageCount
+            maxPageCount: effectiveMaxPageCount // Use the clamped value here
         };
         const newChapterText = await generateStoryFromApi({
             ...finalPromptDetails,
@@ -288,18 +313,37 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
         
         const { path: interiorPath, pageCount: finalPageCount } = await generateAndSaveTextBookPdf(book, selectedProductConfig);
         tempInteriorPdfPath = interiorPath;
-        console.log(`[Checkout] PDF generation complete. Final page count is ${finalPageCount}.`);
+        console.log(`[Checkout] PDF generation complete. True final page count is ${finalPageCount}.`);
         
-        if (finalPageCount < selectedProductConfig.minPageCount || finalPageCount > selectedProductConfig.maxPageCount) {
-            const errorMessage = `This book has ${finalPageCount} pages, but the selected product format only supports a range of ${selectedProductConfig.minPageCount}-${selectedProductConfig.maxPageCount} pages.`;
-            console.error("[Checkout] Failed: Page count out of range.", { bookId, finalPageCount, product: selectedProductConfig.id });
+        let actualFinalPageCount = finalPageCount;
+        let isPageCountFallback = false;
+
+        // B. Handle the case when returned pageCount is null
+        if (finalPageCount === null) {
+            console.warn(`[Checkout] PDF page count could not be accurately determined via pdf-lib. Falling back to product's defaultPageCount: ${selectedProductConfig.defaultPageCount}`);
+            actualFinalPageCount = selectedProductConfig.defaultPageCount; // Use a reasonable default for cost calculation
+            isPageCountFallback = true;
+        }
+
+        // B. Improved validation of generated PDF page count
+        // pdf.service.js now pads to minPageCount, so main concern here is exceeding max.
+        if (actualFinalPageCount > selectedProductConfig.maxPageCount) {
+            const errorMessage = `This book has ${actualFinalPageCount} pages, which exceeds the maximum allowed for this format (${selectedProductConfig.maxPageCount} pages). Please consider a different product or reducing content length.`;
+            console.error("[Checkout] Failed: Page count exceeded max limit.", { bookId, finalPageCount: actualFinalPageCount, product: selectedProductConfig.id });
             return res.status(400).json({ message: errorMessage });
         }
-        
+        // If finalPageCount is still below minPageCount after PDF generation (implies padding failed or null count used fallback below min)
+        if (actualFinalPageCount < selectedProductConfig.minPageCount) {
+            const errorMessage = `This book has ${actualFinalPageCount} pages, which is below the minimum required for this format (${selectedProductConfig.minPageCount} pages). Please generate more content or choose a different format.`;
+            console.error("[Checkout] ERROR: Page count still below minimum after PDF generation/fallback.", { bookId, finalPageCount: actualFinalPageCount, product: selectedProductConfig.id });
+            return res.status(400).json({ message: errorMessage });
+        }
+
+
         const interiorPdfUrl = await uploadPdfFileToCloudinary(tempInteriorPdfPath, `inkwell-ai/user_${req.userId}/books`, `book_${bookId}_interior`);
         
         const luluSku = selectedProductConfig.luluSku;
-        const coverDimensions = await getCoverDimensionsFromApi(luluSku, finalPageCount);
+        const coverDimensions = await getCoverDimensionsFromApi(luluSku, actualFinalPageCount); // Use actualFinalPageCount
         tempCoverPdfPath = await generateCoverPdf(book, selectedProductConfig, coverDimensions);
         const coverPdfUrl = await uploadPdfFileToCloudinary(tempCoverPdfPath, `inkwell-ai/user_${req.userId}/covers`, `book_${bookId}_cover`);
         console.log(`[Checkout] PDFs uploaded to Cloudinary.`);
@@ -309,7 +353,7 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
         // based on page count, even if we use a flat rate for shipping.
         const printCostLineItems = [{ 
             pod_package_id: luluSku, 
-            page_count: finalPageCount,
+            page_count: actualFinalPageCount, // Use actualFinalPageCount
             quantity: 1 
         }];
         
@@ -383,8 +427,8 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
             finalPriceDollars, // Store as number
             interiorPdfUrl, 
             coverPdfUrl, 
-            finalPageCount, 
-            false, 
+            actualFinalPageCount, // Use actualFinalPageCount
+            isPageCountFallback, // Store if fallback was used
             luluPrintCostUSD, // Store as number
             flatShippingRateUSD, // Store as number
             PROFIT_MARGIN_USD // Store as number
