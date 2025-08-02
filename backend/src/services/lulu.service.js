@@ -258,9 +258,6 @@ export const getPrintJobCosts = async (lineItems, shippingAddress) => {
         return response.data;
 
     } catch (error) {
-        // =================================================================
-        // THIS IS THE LINE THAT WAS BROKEN. I HAVE FIXED THE SYNTAX ERROR.
-        // =================================================================
         if (error.response) {
             console.error("❌ Error getting print job costs from Lulu (API response):", {
                 status: error.response.status,
@@ -343,4 +340,4 @@ export const createLuluPrintJob = async (orderDetails, shippingInfo) => {
         }
         throw new Error('Failed to create Lulu Print Job.');
     }
-};s
+};
