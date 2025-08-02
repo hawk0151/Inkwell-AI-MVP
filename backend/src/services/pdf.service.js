@@ -7,6 +7,8 @@
 // - CRITICAL FIX: Ensure pdf-lib's addPage() uses consistent dimensions from the original PDF's first page to resolve 'printable_normalization' warning.
 // - CRITICAL FIX: Added robust validation of page dimensions within finalizePdfPageCount to prevent NaN errors when adding pages to PDF-Lib document.
 // - DIAGNOSTIC/WORKAROUND: Now passes page dimensions as a [width, height] array to pdfDoc.addPage() to bypass potential object interpretation issues causing NaN error.
+// - NEW: Modified generateAndSaveTextBookPdf and generateAndSavePictureBookPdf to include product-specific bleed for interior pages.
+// - NEW: Added a new trimSize case to getProductDimensions for 11.25x8.75_LANDSCAPE.
 
 import PDFDocument from 'pdfkit'; // For creating PDFs
 import { PDFDocument as PDFLibDocument } from 'pdf-lib'; // For reading/modifying PDFs
@@ -34,12 +36,17 @@ const getProductDimensions = (luluConfigId) => {
     switch (productConfig.trimSize) {
         case '5.25x8.25':
             widthMm = 133.35; heightMm = 209.55; layout = 'portrait'; break;
-        case '8.52x11.94':
+        case '8.52x11.94': // A4 portrait like size
             widthMm = 216.41; heightMm = 303.28; layout = 'portrait'; break;
         case '6.39x9.46':
             widthMm = 162.31; heightMm = 240.28; layout = 'portrait'; break;
-        case '8.27x11.69':
+        case '8.27x11.69': // A4 equivalent portrait (209.55mm x 296.9mm)
             widthMm = 209.55; heightMm = 296.9; layout = 'portrait'; break;
+        case '8.75x11.25_LANDSCAPE': // NEW: Landscape version of 11.25 x 8.75 inches
+            widthMm = 285.75; // 11.25 inches
+            heightMm = 222.25; // 8.75 inches
+            layout = 'landscape'; 
+            break;
         default:
             console.error(`[PDF Service: getProductDimensions] Unknown trim size ${productConfig.trimSize}. Falling back to standard dimensions.`);
             widthMm = 210; // A4 width in mm (default fallback)
@@ -140,12 +147,18 @@ export const generateCoverPdf = async (book, productConfig, coverDimensions) => 
 
 // First Pass: Generates the content PDF (no padding/evenness yet)
 export const generateAndSaveTextBookPdf = async (book, productConfig) => {
-    const { width, height, layout } = getProductDimensions(productConfig.id);
+    const { width: trimWidth, height: trimHeight, layout } = getProductDimensions(productConfig.id);
+    const bleedMm = productConfig.bleedMm || 0; // Get bleed from product config
+
+    // Calculate PDF dimensions including bleed
+    const pdfWidthPoints = mmToPoints(mmToPoints(trimWidth) + (2 * bleedMm));
+    const pdfHeightPoints = mmToPoints(mmToPoints(trimHeight) + (2 * bleedMm));
+
     const doc = new PDFDocument({
         autoFirstPage: false,
-        size: [width, height],
+        size: [pdfWidthPoints, pdfHeightPoints], // Use bleed-inclusive dimensions
         layout: layout,
-        margins: { top: 72, bottom: 72, left: 72, right: 72 } // 1 inch margins
+        margins: { top: mmToPoints(12.7), bottom: mmToPoints(12.7), left: mmToPoints(12.7), right: mmToPoints(12.7) } // Example: 0.5 inch (12.7mm) margins
     });
     
     const tempPdfsDir = path.resolve(process.cwd(), 'tmp', 'pdfs');
@@ -201,12 +214,18 @@ export const generateAndSaveTextBookPdf = async (book, productConfig) => {
 
 // First Pass: Generates the content PDF (no padding/evenness yet)
 export const generateAndSavePictureBookPdf = async (book, events, productConfig) => {
-    const { width, height, layout } = getProductDimensions(productConfig.id);
+    const { width: trimWidth, height: trimHeight, layout } = getProductDimensions(productConfig.id);
+    const bleedMm = productConfig.bleedMm || 0; // Get bleed from product config
+
+    // Calculate PDF dimensions including bleed
+    const pdfWidthPoints = mmToPoints(mmToPoints(trimWidth) + (2 * bleedMm));
+    const pdfHeightPoints = mmToPoints(mmToPoints(trimHeight) + (2 * bleedMm));
+
     const doc = new PDFDocument({
-        size: [width, height],
+        size: [pdfWidthPoints, pdfHeightPoints], // Use bleed-inclusive dimensions
         layout: layout,
         autoFirstPage: false,
-        margins: { top: 36, bottom: 36, left: 36, right: 36 } // Half inch margins
+        margins: { top: mmToPoints(12.7), bottom: mmToPoints(12.7), left: mmToPoints(12.7), right: mmToPoints(12.7) } // Example: 0.5 inch (12.7mm) margins
     });
 
     const tempPdfsDir = path.resolve(process.cwd(), 'tmp', 'pdfs');

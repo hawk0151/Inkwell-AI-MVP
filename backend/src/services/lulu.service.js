@@ -1,16 +1,37 @@
 import axios from 'axios';
 import { Buffer } from 'buffer';
-import dns from 'dns/promises';
+import dns from 'dns/promises'; // Ensure dns/promises is correctly used for Node.js v15+
 
+// Load environment variables
+import dotenv from 'dotenv';
+dotenv.config();
+
+// Lulu API Endpoints
+const LULU_API_BASE_URL = process.env.LULU_API_BASE_URL || 'https://api.lulu.com/print-api/v0';
+const LULU_AUTH_URL = process.env.LULU_AUTH_URL || 'https://api.lulu.com/auth/realms/glasgow/protocol/openid-connect/token'; // Verify this URL based on Lulu docs
+const LULU_CLIENT_ID = process.env.LULU_CLIENT_ID;
+const LULU_CLIENT_SECRET = process.env.LULU_CLIENT_SECRET;
+
+// In-memory cache for Lulu access token and product configs
+let accessToken = null;
+let tokenExpiry = 0;
+// productConfigsCache is managed by getPrintOptions, so it doesn't need a global let.
+
+// NEW: Define standard bleed value (0.125 inches per side)
+const STANDARD_BLEED_MM = 3.175; // 0.125 inches = 3.175mm
+
+// LULU_PRODUCT_CONFIGURATIONS: Defines various book product templates with their properties
+// This array should ideally be loaded from a database or external configuration for dynamic management.
+// For now, it's hardcoded based on known Lulu offerings.
 export const LULU_PRODUCT_CONFIGURATIONS = [
     {
         id: 'NOVBOOK_BW_5.25x8.25',
-        // --- MODIFIED: Updated with new Perfect Bound SKU and page limits ---
-        luluSku: '0500X0800BWSTDPB060UC444MXX',
+        luluSku: '0500X0800BWSTDPB060UC444MXX', // 5.25x8.25 in, Black & White, Standard Paperback, Glossy
         name: 'Novella (5.25 x 8.25" Paperback)',
         type: 'textBook',
         trimSize: '5.25x8.25',
-        basePrice: 5.99,
+        bleedMm: STANDARD_BLEED_MM, // Added bleed for interior pages
+        basePrice: 5.99, // Base print cost from Lulu, for basic calculation (USD)
         defaultPageCount: 40,
         minPageCount: 32,
         maxPageCount: 800,
@@ -21,13 +42,14 @@ export const LULU_PRODUCT_CONFIGURATIONS = [
     },
     {
         id: 'A4NOVEL_PB_8.52x11.94',
-        luluSku: '0827X1169BWSTDPB060UC444MXX',
+        luluSku: '0827X1169BWSTDPB060UC444MXX', // Verify actual Lulu SKU for A4 size
         name: 'A4 Novel (8.52 x 11.94" Paperback)',
         type: 'textBook',
-        trimSize: '8.52x11.94',
+        trimSize: '8.52x11.94', // A4 equivalent trim size
+        bleedMm: STANDARD_BLEED_MM,
         basePrice: 15.99,
         defaultPageCount: 80,
-        minPageCount: 32,
+        minPageCount: 32, // Verify actual min/max for A4
         maxPageCount: 800,
         wordsPerPage: 450,
         defaultWordsPerPage: 400,
@@ -36,10 +58,11 @@ export const LULU_PRODUCT_CONFIGURATIONS = [
     },
     {
         id: 'ROYAL_HARDCOVER_6.39x9.46',
-        luluSku: '0614X0921BWSTDCW060UC444MXX',
+        luluSku: '0614X0921BWSTDCW060UC444MXX', // Verify actual Lulu SKU
         name: 'Royal Hardcover (6.39 x 9.46")',
-        type: 'textBook',
+        type: 'textBook', // Can be used for text-heavy books
         trimSize: '6.39x9.46',
+        bleedMm: STANDARD_BLEED_MM,
         basePrice: 24.99,
         defaultPageCount: 100,
         minPageCount: 24,
@@ -49,47 +72,28 @@ export const LULU_PRODUCT_CONFIGURATIONS = [
         totalChapters: 10,
         category: 'novel'
     },
+    // NEW PICTURE BOOK PRODUCT CONFIGURATION (based on user's provided specs)
     {
-        id: 'A4PREMIUM_FC_8.27x11.69',
-        luluSku: '0827X1169PFSTDPB080GC444MXX',
-        name: 'A4 Premium Picture Book (8.27 x 11.69")',
+        id: 'FC_PREMIUM_HL_11.25x8.75', // Custom ID for this specific landscape picture book
+        luluSku: '1100X0850FCPRECW080CW444GXX', // User provided SKU
+        name: 'Premium Photo Book (11.25 x 8.75" Landscape)', // Descriptive name
         type: 'pictureBook',
-        trimSize: '8.27x11.69',
-        basePrice: 15.0,
+        trimSize: '8.75x11.25_LANDSCAPE', // Custom trimSize to represent landscape orientation from portrait base dimensions (W x H)
+        bleedMm: STANDARD_BLEED_MM, // Bleed for interior pages
+        basePrice: 15.00, // Example price
         defaultPageCount: 40,
-        minPageCount: 24,
-        maxPageCount: 100,
-        wordsPerPage: 120,
+        minPageCount: 24, // User provided min
+        maxPageCount: 800, // User provided max
+        wordsPerPage: 120, // Lower words per page for picture books
         defaultWordsPerPage: 120,
-        totalChapters: 1,
+        totalChapters: 1, // Typically 1 chapter/story for picture books
         category: 'pictureBook'
     }
 ];
 
-export const getPrintOptions = () => {
-    console.log("DEBUG getPrintOptions: LULU_PRODUCT_CONFIGURATIONS status:",
-        LULU_PRODUCT_CONFIGURATIONS && LULU_PRODUCT_CONFIGURATIONS.length > 0 ? "POPULATED" : "EMPTY/UNDEFINED");
-    if (LULU_PRODUCT_CONFIGURATIONS) {
-        console.log("DEBUG getPrintOptions: First product config (if any):", LULU_PRODUCT_CONFIGURATIONS[0]);
-    }
-
-    const options = LULU_PRODUCT_CONFIGURATIONS.map(p => ({
-        id: p.id,
-        name: p.name,
-        type: p.type,
-        price: p.basePrice,
-        defaultPageCount: p.defaultPageCount,
-        defaultWordsPerPage: p.defaultWordsPerPage,
-        totalChapters: p.totalChapters,
-        category: p.category
-    }));
-
-    console.log("DEBUG getPrintOptions: Options array being returned:", options);
-    return options;
-};
-
-let accessToken = null;
-let tokenExpiry = 0;
+// In-memory cache for Lulu access token
+let luluAccessToken = null;
+let accessTokenExpiry = 0;
 
 async function retryWithBackoff(fn, attempts = 3, baseDelayMs = 300) {
     let attempt = 0;
@@ -118,27 +122,23 @@ async function ensureHostnameResolvable(url) {
     }
 }
 
-async function getLuluAuthToken() {
-    if (accessToken && Date.now() < tokenExpiry) {
-        return accessToken;
+export async function getLuluAuthToken() {
+    if (luluAccessToken && Date.now() < accessTokenExpiry) {
+        return luluAccessToken;
     }
     console.log('Fetching new Lulu access token (Legacy Method)...');
-    const clientKey = process.env.LULU_CLIENT_ID;
-    const clientSecret = process.env.LULU_CLIENT_SECRET;
+    const clientKey = LULU_CLIENT_ID;
+    const clientSecret = LULU_CLIENT_SECRET;
     if (!clientKey || !clientSecret) {
-        throw new Error('Lulu API credentials (LULU_CLIENT_ID) are not configured.');
+        throw new Error('Lulu API credentials (LULU_CLIENT_ID, LULU_CLIENT_SECRET) are not configured.');
     }
-    const baseUrl = process.env.LULU_API_BASE_URL;
-    if (!baseUrl) {
-        throw new Error('LULU_API_BASE_URL is not set in environment.');
-    }
-    const authUrl = `${baseUrl.replace(/\/$/, '')}/auth/realms/glasstree/protocol/openid-connect/token`;
+    const apiUrl = `${LULU_API_BASE_URL.replace(/\/v0$/, '')}/auth/realms/glasgow/protocol/openid-connect/token`; // Use base URL directly for auth
     const basicAuth = Buffer.from(`${clientKey}:${clientSecret}`).toString('base64');
-    await ensureHostnameResolvable(authUrl);
+    await ensureHostnameResolvable(apiUrl); // Check auth URL hostname
     try {
         const response = await retryWithBackoff(async () => {
             return await axios.post(
-                authUrl,
+                apiUrl,
                 'grant_type=client_credentials',
                 {
                     headers: {
@@ -149,10 +149,10 @@ async function getLuluAuthToken() {
                 }
             );
         }, 3, 500);
-        accessToken = response.data.access_token;
-        tokenExpiry = Date.now() + (response.data.expires_in * 1000) - 5000;
+        luluAccessToken = response.data.access_token;
+        accessTokenExpiry = Date.now() + (response.data.expires_in * 1000) - 5000; // 5 seconds buffer
         console.log('Lulu access token obtained (Legacy Method).');
-        return accessToken;
+        return luluAccessToken;
     } catch (error) {
         if (error.response) {
             console.error('Authentication error fetching Lulu token:', {
@@ -166,69 +166,41 @@ async function getLuluAuthToken() {
     }
 }
 
-const coverDimensionsCache = new Map();
+export async function getPrintOptions() {
+    if (productConfigsCache) {
+        return productConfigsCache;
+    }
+    console.log("DEBUG getPrintOptions: LULU_PRODUCT_CONFIGURATIONS status:",
+        LULU_PRODUCT_CONFIGURATIONS && LULU_PRODUCT_CONFIGURATIONS.length > 0 ? "POPULATED" : "EMPTY/UNDEFINED");
+    if (LULU_PRODUCT_CONFIGURATIONS) {
+        console.log("DEBUG getPrintOptions: First product config (if any):", LULU_PRODUCT_CONFIGURATIONS[0]);
+    }
 
-export async function getCoverDimensionsFromApi(podPackageId, pageCount) {
-    const cacheKey = `${podPackageId}-${pageCount}-mm`;
-    if (coverDimensionsCache.has(cacheKey)) {
-        console.log(`Reusing cached cover dimensions for ${cacheKey}`);
-        return coverDimensionsCache.get(cacheKey);
-    }
-    const endpoint = 'https://api.lulu.com/cover-dimensions/';
-    try {
-        await ensureHostnameResolvable(endpoint);
-    } catch (dnsErr) {
-        console.error('DNS resolution issue before fetching cover dimensions:', dnsErr.message);
-        throw new Error(`Network/DNS error when trying to reach Lulu for cover dimensions: ${dnsErr.message}`);
-    }
-    try {
-        const token = await getLuluAuthToken();
-        const response = await retryWithBackoff(async () => {
-            return await axios.post(
-                endpoint,
-                { pod_package_id: podPackageId, interior_page_count: pageCount },
-                {
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${token}`
-                    },
-                    timeout: 10000
-                }
-            );
-        }, 3, 300);
-        const dimensions = response.data;
-        const ptToMm = (pt) => pt * (25.4 / 72);
-        if (typeof dimensions.width === 'undefined' || typeof dimensions.height === 'undefined' || dimensions.unit !== 'pt') {
-            console.error('Unexpected Lulu API response structure for cover dimensions:', JSON.stringify(dimensions, null, 2));
-            throw new Error('Unexpected Lulu API response for cover dimensions. Missing expected fields (width, height) or unit is not "pt".');
-        }
-        const widthMm = ptToMm(parseFloat(dimensions.width));
-        const heightMm = ptToMm(parseFloat(dimensions.height));
-        const result = {
-            width: widthMm,
-            height: heightMm,
-            layout: widthMm > heightMm ? 'landscape' : 'portrait',
-            bleed: 3.175,
-            spineThickness: 0
-        };
-        coverDimensionsCache.set(cacheKey, result);
-        return result;
-    } catch (error) {
-        console.error('Error getting cover dimensions from Lulu API (cover-dimensions endpoint):',
-            error.response ? JSON.stringify(error.response.data) : error.message);
-        throw new Error(`Failed to get cover dimensions for SKU ${podPackageId} with ${pageCount} pages. Lulu API error: ${error.response ? JSON.stringify(error.response.data) : error.message}`);
-    }
+    const options = LULU_PRODUCT_CONFIGURATIONS.map(p => ({
+        id: p.id,
+        name: p.name,
+        type: p.type,
+        price: p.basePrice,
+        defaultPageCount: p.defaultPageCount,
+        defaultWordsPerPage: p.defaultWordsPerPage,
+        totalChapters: p.totalChapters,
+        category: p.category
+    }));
+
+    productConfigsCache = options; // Cache the mapped options
+    console.log("DEBUG getPrintOptions: Options array being returned:", options);
+    return options;
 }
 
-export const getPrintJobCosts = async (lineItems, shippingAddress) => {
-    const endpoint = `${process.env.LULU_API_BASE_URL.replace(/\/$/, '')}/print-job-cost-calculations/`;
+export async function getPrintJobCosts(lineItems, shippingAddress, shippingLevel = "MAIL") { // Added shippingLevel parameter
+    const endpoint = `${LULU_API_BASE_URL.replace(/\/$/, '')}/print-job-cost-calculations/`;
     try {
         await ensureHostnameResolvable(endpoint);
         const token = await getLuluAuthToken();
         const payload = {
             line_items: lineItems,
             shipping_address: shippingAddress,
-            shipping_level: "MAIL"
+            shipping_level: shippingLevel // Use the passed shippingLevel
         };
         console.log("DEBUG: Requesting print job cost calculation from Lulu...");
         const response = await retryWithBackoff(async () => {
@@ -253,30 +225,27 @@ export const getPrintJobCosts = async (lineItems, shippingAddress) => {
         }
         throw new Error(`Failed to get print job costs. Lulu API error: ${error.response ? JSON.stringify(error.response.data) : error.message}`);
     }
-};
+}
 
-export const createLuluPrintJob = async (orderDetails, shippingInfo) => {
+export async function createLuluPrintJob(orderDetails, shippingInfo, shippingLevel = "MAIL") { // Added shippingLevel parameter
     try {
         const token = await getLuluAuthToken();
-        const baseUrl = process.env.LULU_API_BASE_URL;
-        if (!baseUrl) {
-            throw new Error('LULU_API_BASE_URL is not configured.');
-        }
-        const printJobUrl = `${baseUrl.replace(/\/$/, '')}/print-jobs/`;
+        const printJobUrl = `${LULU_API_BASE_URL.replace(/\/$/, '')}/print-jobs/`;
         await ensureHostnameResolvable(printJobUrl);
         const payload = {
-            contact_email: shippingInfo.email,
+            contact_email: shippingInfo.email, // Assume email is part of shippingInfo now
             external_id: `inkwell-order-${orderDetails.id}`,
-            shipping_level: "MAIL",
+            shipping_level: shippingLevel, // Use the passed shippingLevel
             shipping_address: {
                 name: shippingInfo.name,
                 street1: shippingInfo.street1,
+                street2: shippingInfo.street2 || '', // Ensure optional street2 is handled
                 city: shippingInfo.city,
                 postcode: shippingInfo.postcode,
                 country_code: shippingInfo.country_code,
-                state_code: shippingInfo.state_code,
+                state_code: shippingInfo.state_code || '', // Ensure optional state_code is handled
                 phone_number: shippingInfo.phone_number,
-                email: shippingInfo.email
+                email: shippingInfo.email // Ensure email is passed here for Lulu's records
             },
             line_items: [{
                 title: orderDetails.book_title,
@@ -295,7 +264,7 @@ export const createLuluPrintJob = async (orderDetails, shippingInfo) => {
                 },
                 timeout: 60000
             });
-        }, 3, 500);
+        }, 3, 500); // Using retryWithBackoff with 3 attempts and 500ms base delay
         console.log("✅ Successfully created Lulu print job:", response.data.id);
         return response.data;
     } catch (error) {
@@ -309,4 +278,4 @@ export const createLuluPrintJob = async (orderDetails, shippingInfo) => {
         }
         throw new Error('Failed to create Lulu Print Job.');
     }
-};
+}
