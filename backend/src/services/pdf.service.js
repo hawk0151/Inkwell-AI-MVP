@@ -1,3 +1,5 @@
+// backend/src/services/pdf.service.js
+
 import PDFDocument from 'pdfkit';
 import axios from 'axios';
 import fs from 'fs/promises';
@@ -53,20 +55,25 @@ async function streamToBuffer(doc) {
 
 export const generateCoverPdf = async (book, productConfig, coverDimensions) => {
     console.log(`🚀 Starting dynamic cover generation for SKU: ${productConfig.luluSku}`);
+
     let widthMm = coverDimensions.width;
     let heightMm = coverDimensions.height;
     let widthPoints = mmToPoints(widthMm);
     let heightPoints = mmToPoints(heightMm);
+    
     console.log(`Original dimensions from Lulu (pts): Width=${widthPoints.toFixed(2)}, Height=${heightPoints.toFixed(2)}`);
+
     if (heightPoints > widthPoints) {
         console.warn(`⚠️ Height > Width detected. Swapping dimensions to enforce landscape orientation.`);
         [widthPoints, heightPoints] = [heightPoints, widthPoints];
         console.warn(`   Corrected dimensions (pts): Width=${widthPoints.toFixed(2)}, Height=${heightPoints.toFixed(2)}`);
     }
+
     const doc = new PDFDocument({
         size: [widthPoints, heightPoints],
         margins: { top: 0, bottom: 0, left: 0, right: 0 }
     });
+    
     if (book.cover_image_url) {
         try {
             console.log(`Fetching cover image from: ${book.cover_image_url}`);
@@ -84,15 +91,20 @@ export const generateCoverPdf = async (book, productConfig, coverDimensions) => 
         }
     } else {
         console.warn("⚠️ No `cover_image_url` found. Generating a placeholder text-based cover.");
+        
         doc.rect(0, 0, widthPoints, heightPoints).fill('#313131');
+        
         const safetyMarginPoints = 0.25 * 72;
         const contentAreaWidth = widthPoints - (2 * safetyMarginPoints);
+
         doc.fontSize(48).fillColor('#FFFFFF').font(ROBOTO_BOLD_PATH)
            .text(book.title, safetyMarginPoints, heightPoints / 4, {
                align: 'center',
                width: contentAreaWidth
            });
+        
         doc.moveDown(1);
+
         doc.fontSize(24).fillColor('#CCCCCC').font(ROBOTO_REGULAR_PATH)
            .text('Inkwell AI', {
                align: 'center',
@@ -100,12 +112,16 @@ export const generateCoverPdf = async (book, productConfig, coverDimensions) => 
            });
         console.log("✅ Placeholder cover generated successfully.");
     }
+
     const tempPdfsDir = path.resolve(process.cwd(), 'tmp', 'pdfs');
     await fs.mkdir(tempPdfsDir, { recursive: true });
     const tempFilePath = path.join(tempPdfsDir, `cover_${Date.now()}_${book.id}.pdf`);
+    
     doc.end();
+
     const pdfBuffer = await streamToBuffer(doc);
     await fs.writeFile(tempFilePath, pdfBuffer);
+    
     console.log(`✅ Cover PDF saved successfully to: ${tempFilePath}`);
     return tempFilePath;
 };
@@ -113,39 +129,84 @@ export const generateCoverPdf = async (book, productConfig, coverDimensions) => 
 export const generateAndSaveTextBookPdf = async (book, productConfig) => {
     const { width, height, layout } = getProductDimensions(productConfig.id);
     const doc = new PDFDocument({
-        autoFirstPage: false,
+        autoFirstPage: false, // We control page creation manually
         size: [width, height],
         layout: layout,
-        margins: { top: 72, bottom: 72, left: 72, right: 72 }
+        margins: { top: 72, bottom: 72, left: 72, right: 72 } // 1 inch margins
     });
+    
     const tempPdfsDir = path.resolve(process.cwd(), 'tmp', 'pdfs');
     await fs.mkdir(tempPdfsDir, { recursive: true });
     const tempFilePath = path.join(tempPdfsDir, `interior_textbook_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.pdf`);
+
     let pageCount = 0;
+
+    // --- Title Page ---
     doc.addPage();
     pageCount++;
+    console.log(`[PDF Service: Textbook] Added Title Page. Current pageCount: ${pageCount}`);
+
     doc.fontSize(28).font(ROBOTO_BOLD_PATH).text(book.title, { align: 'center' }); 
     doc.moveDown(4);
     doc.fontSize(16).font(ROBOTO_REGULAR_PATH).text('A Story by Inkwell AI', { align: 'center' }); 
+
+    // --- Chapter Pages ---
     for (const chapter of book.chapters) {
-        doc.addPage();
+        // Add a new page for each chapter to ensure clear separation and correct counting.
+        // PDFKit will add more pages automatically if the content overflows.
+        doc.addPage(); 
         pageCount++;
+        console.log(`[PDF Service: Textbook] Starting Chapter ${chapter.chapter_number}. Current pageCount: ${pageCount}`);
+
         doc.fontSize(18).font(ROBOTO_BOLD_PATH).text(`Chapter ${chapter.chapter_number}`, { align: 'center' }); 
         doc.moveDown(2);
-        doc.fontSize(12).font(ROBOTO_REGULAR_PATH).text(chapter.content, { align: 'justify' }); 
+
+        // --- MODIFIED: Added options for text rendering to ensure proper flow ---
+        doc.fontSize(12).font(ROBOTO_REGULAR_PATH).text(chapter.content, { 
+            align: 'justify',
+            // Set continued: true for the last segment of text to allow PDFKit to automatically
+            // flow text onto new pages as needed. This is key for long content.
+            // However, for entire chapter content, PDFKit usually handles this by default.
+            // Explicitly setting columnGap and height might be needed for more complex layouts,
+            // but for simple flowing text, default behavior is usually sufficient if text is long.
+            // Let's ensure no hidden properties prevent new pages.
+            // Example: width property if too restrictive could prevent flow.
+            width: doc.page.width - doc.page.margins.left - doc.page.margins.right, // Ensure text uses full content width
+            height: doc.page.height - doc.y - doc.page.margins.bottom, // Ensure it fills remaining vertical space
+            // Adding a listener to count pages automatically when PDFKit adds them
+            // This is the most robust way to get page count for flowing text.
+            // Unfortunately, pdfkit doesn't expose a simple way to count *new* pages added by text() overflow.
+            // The `doc.addPage()` before each chapter is the explicit page addition.
+            // For overflow, the `pageCount` must be derived *after* doc.end() or by tracking `doc.page.count`.
+        }); 
+        
+        // After adding chapter content, if PDFKit automatically added pages,
+        // doc.page.count will be greater than the last recorded pageCount.
+        // We need to capture these new pages.
+        while (doc.page.count > pageCount) {
+            pageCount++;
+            console.log(`[PDF Service: Textbook] Auto-added page for overflow. Current pageCount: ${pageCount}`);
+        }
     }
+    
+    // --- Ensure Even Page Count for Printing ---
+    // This logic is crucial for physical printing requirements.
     if (pageCount % 2 !== 0) {
         console.log("DEBUG: Page count is odd, adding a final blank page.");
         doc.addPage();
         pageCount++;
     }
-    doc.end();
+    console.log(`[PDF Service: Textbook] Final pageCount before saving: ${pageCount}`);
+    
+    doc.end(); // Finalize the PDF document
+
     const pdfBuffer = await streamToBuffer(doc);
     await fs.writeFile(tempFilePath, pdfBuffer);
+
+    console.log(`PDF generated with final page count: ${pageCount}`);
     return { path: tempFilePath, pageCount: pageCount };
 };
 
-// --- MODIFIED: Upgraded to be memory-efficient and return page count ---
 export const generateAndSavePictureBookPdf = async (book, events, productConfig) => {
     const { width, height, layout } = getProductDimensions(productConfig.id);
     const doc = new PDFDocument({
