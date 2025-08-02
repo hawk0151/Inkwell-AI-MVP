@@ -11,6 +11,10 @@
 // - REFINEMENT: Separated logging for different cleanup types.
 // - FIX: Prompt engineered to prevent excessive repetition of 'recipientName' (personalized child character's name)
 //   by explicitly instructing the AI to use pronouns after initial mentions.
+// - FIX: Added fallback for 'recipientName' in prompt if it's undefined or empty,
+//   and added a warning log to help diagnose the upstream data issue.
+// - FIX: Added fallback for 'characterName' in prompt if it's undefined or empty,
+//   and added a warning log to help diagnose the upstream data issue for this field.
 
 import fetch from 'node-fetch';
 
@@ -44,6 +48,24 @@ export const generateStoryFromApi = async (promptDetails) => {
         isFinalChapter,
         maxPageCount
     } = promptDetails;
+
+    // --- FIX: Add a robust check for recipientName with a fallback ---
+    const actualRecipientName = (typeof recipientName === 'string' && recipientName.trim() !== '') 
+                                ? recipientName.trim() 
+                                : 'the child'; // Fallback name for child character
+
+    if (actualRecipientName === 'the child' && (typeof recipientName !== 'string' || recipientName.trim() === '')) {
+        console.warn(`[Gemini Service] Chapter ${chapterNumber}: recipientName was undefined or empty. Using fallback: "${actualRecipientName}". This indicates a potential upstream data issue.`);
+    }
+
+    // --- FIX: Add a robust check for characterName with a fallback ---
+    const actualCharacterName = (typeof characterName === 'string' && characterName.trim() !== '') 
+                                ? characterName.trim() 
+                                : 'the guardian'; // Fallback name for adult character
+
+    if (actualCharacterName === 'the guardian' && (typeof characterName !== 'string' || characterName.trim() === '')) {
+        console.warn(`[Gemini Service] Chapter ${chapterNumber}: characterName was undefined or empty. Using fallback: "${actualCharacterName}". This indicates a potential upstream data issue for the main adult character.`);
+    }
 
     if (!wordsPerPage || !totalChapters || !maxPageCount) {
         throw new Error('wordsPerPage, totalChapters, and maxPageCount are required for story generation.');
@@ -121,11 +143,11 @@ You MUST adhere strictly to the provided names and pronouns.
 PREVIOUS CHAPTERS (for context only - DO NOT REGENERATE):
 ${sanitizedPreviousChaptersText}
 
-TASK: Write ONLY chapter ${chapterNumber} of a story for a reader named ${recipientName}.
+TASK: Write ONLY chapter ${chapterNumber} of a story for a reader named ${actualRecipientName}.
 
 STORY DETAILS:
-- Adult Character: ${characterName} (Pronouns: ${characterPronounSubject}/${characterPronounObject}/${characterPronounPossessive})
-- The personalized child character in the story is named: "${recipientName}".
+- Adult Character: ${actualCharacterName} (Pronouns: ${characterPronounSubject}/${characterPronounObject}/${characterPronounPossessive})
+- The personalized child character in the story is named: "${actualRecipientName}".
 - Themes & Interests: ${interests}
 - Genre: ${genre}
 
@@ -136,8 +158,8 @@ REQUIREMENTS:
 - **DO NOT** write "The End" or any similar concluding phrases.
 - **DO NOT** include any titles or chapter headings like "Chapter ${chapterNumber}".
 - **IMPORTANT: NEVER use placeholders or text in brackets.** Always use the actual names and pronouns provided.
-    - **When referring to the personalized child character, use their name "${recipientName}" initially, then use natural, flowing pronouns (e.g., "he", "she", "they", "him", "her", "them", "his", "her", "their") to avoid repetition. DO NOT repeat the full name "${recipientName}" excessively when a pronoun would be more natural.**
-    - **ALWAYS** refer to the adult character by their actual name: "${characterName}".
+    - **When referring to the personalized child character, use their name "${actualRecipientName}" initially, then use natural, flowing pronouns (e.g., "he", "she", "they", "him", "her", "them", "his", "her", "their") to avoid repetition. DO NOT repeat the full name "${actualRecipientName}" excessively when a pronoun would be more natural.**
+    - **ALWAYS** refer to the adult character by their actual name: "${actualCharacterName}".
     - When referring to the adult character, use the correct pronouns: "${characterPronounSubject}", "${characterPronounObject}", "${characterPronounPossessive}".
 - Continue the story seamlessly from the "PREVIOUS CHAPTERS".
 - Begin immediately with the story text for chapter ${chapterNumber}.
