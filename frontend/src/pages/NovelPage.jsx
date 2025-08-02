@@ -8,7 +8,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 
 import { LoadingSpinner, Alert, MagicWandIcon } from '../components/common.jsx';
 
-// --- Sub-components ---
+// --- Sub-components (unchanged) ---
 const Chapter = ({ chapter, isOpen, onToggle }) => {
   const ChevronDownIcon = (props) => (
     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" {...props}>
@@ -101,7 +101,6 @@ const PromptForm = ({ isLoading, onSubmit, productName }) => {
               placeholder="e.g., The Adventures of Captain Alistair"
               className="w-full p-3 text-base bg-slate-700 border border-slate-600 rounded-lg shadow-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition text-white"
               required
-            />
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-300 mb-1">Who is this book for?</label>
@@ -112,8 +111,6 @@ const PromptForm = ({ isLoading, onSubmit, productName }) => {
               onChange={handleChange}
               placeholder="e.g., My Dad"
               className="w-full p-3 text-base bg-slate-700 border border-slate-600 rounded-lg shadow-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition text-white"
-              required
-            />
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-300 mb-1">Main character's name?</label>
@@ -124,8 +121,6 @@ const PromptForm = ({ isLoading, onSubmit, productName }) => {
               onChange={handleChange}
               placeholder="e.g., Captain Alistair"
               className="w-full p-3 text-base bg-slate-700 border border-slate-600 rounded-lg shadow-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition text-white"
-              required
-            />
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-300 mb-1">What do they love?</label>
@@ -135,8 +130,6 @@ const PromptForm = ({ isLoading, onSubmit, productName }) => {
               onChange={handleChange}
               placeholder="e.g., Sailing, classic cars, and the color yellow"
               className="w-full h-24 p-3 text-base bg-slate-700 border border-slate-600 rounded-lg shadow-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition text-white"
-              required
-            />
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-300 mb-1">Choose a genre</label>
@@ -188,7 +181,7 @@ function NovelPage() {
   const queryClient = useQueryClient();
   const { bookId: paramBookId } = useParams();
 
-  // Fix: treat 'new' param as "no bookId" so we don't set it prematurely
+  // This ensures bookId is null for new books, which is correct.
   const [bookId, setBookId] = useState(paramBookId && paramBookId !== 'new' ? paramBookId : null);
   const [bookDetails, setBookDetails] = useState(null);
   const [chapters, setChapters] = useState([]);
@@ -210,83 +203,92 @@ function NovelPage() {
   const [selectedProductForNew, setSelectedProductForNew] = useState(null);
 
   useEffect(() => {
-    // Only proceed if book options are loaded, or if it's a new book flow
-    if (isLoadingBookOptions) {
-            // If book options are still loading, and we are on a new page without selected product,
-            // keep loading. Otherwise, if selectedProductForNew is already set (e.g., after initial
-            // useEffect run), we can proceed to show the prompt.
-            if (paramBookId === 'new' && !location.state?.selectedProductId && !selectedProductForNew) {
-                return; // Still waiting for product options for a new book flow
-            }
-        }
-    
-    // Existing book load (bookId present and not 'new')
-    if (paramBookId && paramBookId !== 'new' && !bookDetails) {
-      setIsLoadingPage(true); // Indicate loading for existing book
-      apiClient
-        .get(`/text-books/${paramBookId}`)
-        .then((detailsRes) => {
-          const bookData = detailsRes.data.book;
-          const fetchedChapters = detailsRes.data.chapters;
-          setBookDetails(bookData);
-          setChapters(fetchedChapters);
-          setIsStoryComplete(fetchedChapters.length >= (bookData.total_chapters || 1));
+    // If book options are still loading, and it's a new flow, wait.
+    // If it's an existing book, we also wait for book options (for product fallback).
+    if (isLoadingBookOptions) return;
 
-          if (fetchedChapters.length > 0) {
-            setOpenChapter(fetchedChapters[fetchedChapters.length - 1].chapter_number);
-          }
+    // Case 1: Loading an existing book
+    if (paramBookId && paramBookId !== 'new') {
+      // Only fetch if bookDetails haven't been loaded yet for this ID
+      if (!bookDetails || bookDetails.id !== paramBookId) {
+        setIsLoadingPage(true); // Indicate loading for existing book
+        apiClient
+          .get(`/text-books/${paramBookId}`)
+          .then((detailsRes) => {
+            const bookData = detailsRes.data.book;
+            const fetchedChapters = detailsRes.data.chapters;
+            setBookDetails(bookData);
+            setChapters(fetchedChapters);
+            setIsStoryComplete(fetchedChapters.length >= (bookData.total_chapters || 1));
 
-          const product = allBookOptions?.find((p) => p.id === bookData.luluProductId);
-          if (product) {
-            setSelectedProductForNew(product);
-          } else {
-            // Fallback for product details if not found in allBookOptions (e.g., deleted product)
-            setSelectedProductForNew({
-              id: bookData.luluProductId,
-              name: bookData.productName || 'Unknown Product',
-              type: bookData.type || 'textBook',
-              price: bookData.price || 0,
-              defaultPageCount: bookData.prompt_details?.pageCount || 66,
-              defaultWordsPerPage: bookData.prompt_details?.wordsPerPage || 250,
-              totalChapters: bookData.total_chapters || 6,
-            });
-          }
-          setBookId(paramBookId); // Ensure bookId is set to paramBookId for existing
-          setIsLoadingPage(false); // Finished loading existing book
-        })
-        .catch((err) => {
-          console.error('Error loading existing project:', err);
-          setError(err.response?.data?.message || 'Could not load your project.');
-          setIsLoadingPage(false);
-        });
-    }
-    // New book flow: paramBookId is 'new'
-    else if (paramBookId === 'new') {
-        // If we have a selected product from navigation state AND all book options are loaded,
-        // and we haven't already set selectedProductForNew
-        if (location.state?.selectedProductId && allBookOptions && !selectedProductForNew) {
-            const product = allBookOptions.find((p) => p.id === location.state.selectedProductId);
-            if (product) {
-                setSelectedProductForNew(product);
-                setIsLoadingPage(false); // Ready to show prompt form
-            } else {
-                setError('Invalid book format selected. Please go back and choose a format.');
-                setIsLoadingPage(false);
+            if (fetchedChapters.length > 0) {
+              setOpenChapter(fetchedChapters[fetchedChapters.length - 1].chapter_number);
             }
-        } else if (!location.state?.selectedProductId && !selectedProductForNew && !bookDetails) {
-            // Direct /novel/new with no selection state, and no bookDetails means we need to redirect or error
-            setError('To create a new novel, please select a book format first.');
+
+            const product = allBookOptions?.find((p) => p.id === bookData.luluProductId);
+            if (product) {
+              setSelectedProductForNew(product); // Set for display purposes if needed later
+            } else {
+              setSelectedProductForNew({
+                id: bookData.luluProductId,
+                name: bookData.productName || 'Unknown Product',
+                type: bookData.type || 'textBook',
+                price: bookData.price || 0,
+                defaultPageCount: bookData.prompt_details?.pageCount || 66,
+                wordsPerPage: bookData.prompt_details?.wordsPerPage || 250,
+                totalChapters: bookData.total_chapters || 6,
+              });
+            }
+            setBookId(paramBookId);
             setIsLoadingPage(false);
-        } else if (selectedProductForNew && !bookDetails && isLoadingPage) {
-            // If selectedProductForNew is already set (from a prior useEffect run),
-            // and bookDetails is null, we are ready for the prompt form.
-            // Ensure isLoadingPage is set to false if it's still true.
-            setIsLoadingPage(false);
-        }
+          })
+          .catch((err) => {
+            console.error('Error loading existing project:', err);
+            setError(err.response?.data?.message || 'Could not load your project.');
+            setIsLoadingPage(false);
+          });
+      } else if (bookDetails && isLoadingPage) { // If bookDetails already loaded, just ensure loading is off
+        setIsLoadingPage(false);
+      }
     }
-    // This ensures that if we have a bookId and bookDetails, loading is false.
-    // This also acts as a final catch-all for `isLoadingPage` if other conditions set the necessary data.
-    else if ((bookId && bookDetails) && isLoadingPage) {
+    // Case 2: New book creation flow (paramBookId is 'new')
+    else if (paramBookId === 'new') {
+      // Ensure we are NOT showing prompt form if bookDetails are already set (means book was created)
+      if (bookDetails) {
+        setIsLoadingPage(false);
+        return;
+      }
+
+      // If we have selectedProductId from location.state and book options are available,
+      // AND selectedProductForNew is not yet set.
+      if (location.state?.selectedProductId && allBookOptions && !selectedProductForNew) {
+        const product = allBookOptions.find((p) => p.id === location.state.selectedProductId);
+        if (product) {
+          setSelectedProductForNew(product);
+          setIsLoadingPage(false); // Ready to show prompt form
+        } else {
+          setError('Invalid book format selected. Please go back and choose a format.');
+          setIsLoadingPage(false);
+        }
+      }
+      // If no selectedProductId in state (e.g., direct /novel/new access), show error.
+      else if (!location.state?.selectedProductId && !selectedProductForNew) {
+        setError('To create a new novel, please select a book format first.');
+        setIsLoadingPage(false);
+      }
+      // If selectedProductForNew is already set from a previous render, and bookDetails are null,
+      // ensure isLoadingPage is false to display the prompt form.
+      else if (selectedProductForNew && !bookDetails && isLoadingPage) {
+        setIsLoadingPage(false);
+      }
+    }
+    // Fallback: If paramBookId is not 'new' and not an existing ID, show error or redirect
+    else if (!paramBookId && !bookId && !location.state?.selectedProductId) {
+      setError('To create a new novel, please select a book format first.');
+      setIsLoadingPage(false);
+    }
+    // Final catch-all to turn off loading if data is ready but isLoadingPage is still true.
+    else if ((bookId && bookDetails || selectedProductForNew && paramBookId === 'new' && !bookDetails) && isLoadingPage) {
       setIsLoadingPage(false);
     }
   }, [
@@ -294,7 +296,7 @@ function NovelPage() {
     allBookOptions,
     isLoadingBookOptions,
     location.state?.selectedProductId,
-    bookId,
+    bookId, // Crucial: paramBookId determines bookId, so react to it
     bookDetails,
     selectedProductForNew,
     isLoadingPage,
@@ -381,24 +383,17 @@ function NovelPage() {
   };
 
   // Primary rendering logic
-  if (isLoadingPage || isLoadingBookOptions) {
-    return <LoadingSpinner text="Getting your book ready..." />;
-  }
-  if (error) {
-    return <Alert title="Error">{error}</Alert>;
-  }
-  if (isErrorBookOptions) {
-    return <Alert title="Error">Could not load book options.</Alert>;
-  }
+  if (error) return <Alert title="Error">{error}</Alert>;
+  if (isErrorBookOptions) return <Alert title="Error">Could not load book options.</Alert>;
+  if (isLoadingPage || isLoadingBookOptions) return <LoadingSpinner text="Getting your book ready..." />;
+
 
   // Show PromptForm if on /novel/new and have selectedProductForNew but no bookDetails yet
-  // This condition is now more robust. It explicitly checks for the new flow state.
   if (paramBookId === 'new' && selectedProductForNew && !bookDetails) {
     return <PromptForm isLoading={isActionLoading} onSubmit={handleCreateBook} productName={selectedProductForNew?.name || 'Novel'} />;
   }
 
-  // Show book content for existing or newly created book
-  // This now explicitly ensures bookDetails is present for the book display.
+  // If bookId exists (either existing or newly created) and bookDetails are loaded
   if (bookId && bookDetails) {
     const totalChaptersToDisplay = bookDetails.total_chapters || selectedProductForNew?.totalChapters || 1;
 
@@ -473,7 +468,7 @@ function NovelPage() {
     );
   }
 
-  // This fallback is now less likely to be hit incorrectly, but remains for safety.
+  // Fallback if no condition met (should be rare with good state management)
   return null;
 }
 
