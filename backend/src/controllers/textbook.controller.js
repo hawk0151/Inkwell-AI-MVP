@@ -1,7 +1,6 @@
 import { getDb } from '../db/database.js';
 import { randomUUID } from 'crypto';
 import { generateStoryFromApi } from '../services/gemini.service.js';
-// MODIFIED: Import the new getPrintJobCosts function
 import { LULU_PRODUCT_CONFIGURATIONS, getCoverDimensionsFromApi, getPrintOptions, getPrintJobCosts } from '../services/lulu.service.js';
 import { generateAndSaveTextBookPdf, generateCoverPdf, getPdfPageCount } from '../services/pdf.service.js';
 import { uploadPdfFileToCloudinary } from '../services/image.service.js';
@@ -10,7 +9,6 @@ import path from 'path';
 import fs from 'fs/promises';
 
 let printOptionsCache = null;
-// ADDED: A configurable profit margin
 const PROFIT_MARGIN_USD = 10.00;
 
 
@@ -188,14 +186,13 @@ export const getTextBookDetails = async (req, res) => {
 
 export const createCheckoutSessionForTextBook = async (req, res) => {
     const { bookId } = req.params;
-    // MODIFIED: Get shipping address from the request body
     const { shippingAddress } = req.body;
     let client;
     let tempInteriorPdfPath = null, tempCoverPdfPath = null, initialTempPdfPath = null;
 
-    // VALIDATION: Ensure shippingAddress is provided
-    if (!shippingAddress || !shippingAddress.name || !shippingAddress.street1 || !shippingAddress.city || !shippingAddress.postcode || !shippingAddress.country_code || !shippingAddress.state_code) {
-        return res.status(400).json({ message: 'A complete shipping address is required for checkout.' });
+    // --- MODIFIED: Relaxed validation to allow for countries without states/provinces ---
+    if (!shippingAddress || !shippingAddress.name || !shippingAddress.street1 || !shippingAddress.city || !shippingAddress.postcode || !shippingAddress.country_code) {
+        return res.status(400).json({ message: 'Address must include name, street, city, postal code, and country.' });
     }
 
     try {
@@ -210,7 +207,6 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
         
         console.log(`Checkout for book ${bookId}. Generating PDFs...`);
         
-        // --- PDF Generation (No changes here) ---
         initialTempPdfPath = await generateAndSaveTextBookPdf(book, selectedProductConfig);
         const actualInteriorPageCount = await getPdfPageCount(initialTempPdfPath);
         
@@ -235,38 +231,34 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
         const coverPdfUrl = await uploadPdfFileToCloudinary(tempCoverPdfPath, `inkwell-ai/user_${req.userId}/covers`, `book_${bookId}_cover`);
         console.log(`PDFs uploaded to Cloudinary.`);
 
-        // --- START: DYNAMIC PRICE CALCULATION ---
         console.log("Fetching dynamic costs from Lulu...");
         const lineItems = [{ pod_package_id: luluSku, page_count: finalPageCount }];
-        const luluCosts = await getPrintJobCosts(lineItems, shippingAddress);
+        // Ensure state_code is passed, even if it's an empty string for countries that don't need it.
+        const luluShippingAddress = { ...shippingAddress, state_code: shippingAddress.state_code || '' };
+        const luluCosts = await getPrintJobCosts(lineItems, luluShippingAddress);
         
-        // Lulu API returns costs as strings. Convert to numbers for calculation.
         const totalProductionCost = parseFloat(luluCosts.total_cost_incl_tax);
         if (isNaN(totalProductionCost)) {
             throw new Error("Failed to parse production cost from Lulu.");
         }
         
         const finalPriceDollars = totalProductionCost + PROFIT_MARGIN_USD;
-        // Stripe requires the price in the smallest currency unit (e.g., cents).
         const finalPriceInCents = Math.round(finalPriceDollars * 100);
 
         console.log(`Lulu Cost: $${totalProductionCost.toFixed(2)}, Profit: $${PROFIT_MARGIN_USD.toFixed(2)}, Final Price: $${finalPriceDollars.toFixed(2)} (${finalPriceInCents} cents)`);
-        // --- END: DYNAMIC PRICE CALCULATION ---
         
         const orderId = randomUUID();
-        // MODIFIED: Save the final calculated price in the database
         await client.query(
             `INSERT INTO orders (id, user_id, book_id, book_type, book_title, lulu_product_id, status, total_price, interior_pdf_url, cover_pdf_url, order_date, actual_page_count, is_fallback) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), $11, $12)`,
             [orderId, req.userId, bookId, 'textBook', book.title, luluSku, 'pending', finalPriceDollars.toFixed(2), interiorPdfUrl, coverPdfUrl, finalPageCount, false]
         );
         console.log(`Created pending order record ${orderId} with final price.`);
 
-        // MODIFIED: Pass the final price in cents to the Stripe service
         const session = await createStripeCheckoutSession(
             { 
                 name: book.title, 
                 description: `Inkwell AI Custom Book - ${selectedProductConfig.name}`, 
-                priceInCents: finalPriceInCents // Pass price in cents
+                priceInCents: finalPriceInCents
             },
             req.userId,
             orderId,
@@ -289,7 +281,6 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
     }
 };
 
-// ... (rest of the controller functions remain unchanged)
 export const toggleTextBookPrivacy = async (req, res) => {
     let client;
     const { bookId } = req.params;
