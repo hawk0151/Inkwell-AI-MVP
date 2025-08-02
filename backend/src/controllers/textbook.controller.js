@@ -1,7 +1,11 @@
+// backend/src/controllers/textbook.controller.js
+
 import { getDb } from '../db/database.js';
 import { randomUUID } from 'crypto';
 import { generateStoryFromApi } from '../services/gemini.service.js';
-import { LULU_PRODUCT_CONFIGURATIONS, getCoverDimensionsFromApi, getPrintOptions, getPrintJobCosts } from '../services/lulu.service.js';
+// Ensure createLuluPrintJob is imported if it's used directly in this controller later, though current context implies it's only called after Stripe success.
+// Adding it here for completeness based on typical checkout flow imports.
+import { LULU_PRODUCT_CONFIGURATIONS, getCoverDimensionsFromApi, getPrintOptions, getPrintJobCosts, createLuluPrintJob } from '../services/lulu.service.js'; 
 import { generateAndSaveTextBookPdf, generateCoverPdf } from '../services/pdf.service.js';
 import { uploadPdfFileToCloudinary } from '../services/image.service.js';
 import { createStripeCheckoutSession } from '../services/stripe.service.js';
@@ -11,6 +15,23 @@ import fs from 'fs/promises';
 let printOptionsCache = null;
 const PROFIT_MARGIN_USD = 10.00;
 
+// --- ADDED: Flat shipping rates in AUD based on your requirements ---
+const FLAT_SHIPPING_RATES_AUD = {
+    'US': 25.00, // USA
+    'CA': 25.00, // Canada
+    'MX': 25.00, // Mexico
+    'AU': 15.00, // Australia
+    'GB': 15.00, // United Kingdom
+    // IMPORTANT: Define a fallback for any other country not explicitly listed.
+    // This ensures no customer is left without a shipping cost.
+    'DEFAULT': 35.00 // Example: "Rest of World" shipping rate
+};
+
+// --- ADDED: Exchange Rate AUD to USD ---
+// IMPORTANT: This is a static placeholder. For a production application,
+// this rate should be fetched daily from a reliable currency exchange API (e.g., Fixer.io, Open Exchange Rates)
+// to avoid losing money due to currency fluctuations.
+const AUD_TO_USD_EXCHANGE_RATE = 0.66; // Current approximate rate at 2025-08-02
 
 async function getFullTextBook(bookId, userId, client) {
     const bookResult = await client.query(`SELECT * FROM text_books WHERE id = $1 AND user_id = $2`, [bookId, userId]);
@@ -168,16 +189,21 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
     const { shippingAddress } = req.body;
     let client;
     let tempInteriorPdfPath = null, tempCoverPdfPath = null;
+
     if (!shippingAddress || !shippingAddress.name || !shippingAddress.street1 || !shippingAddress.city || !shippingAddress.postcode || !shippingAddress.country_code) {
         return res.status(400).json({ message: 'Address must include name, street, city, postal code, and country.' });
     }
+
     try {
         const pool = await getDb();
         client = await pool.connect();
+        
         const book = await getFullTextBook(bookId, req.userId, client);
         if (!book) return res.status(404).json({ message: 'Text book not found.' });
+        
         const selectedProductConfig = LULU_PRODUCT_CONFIGURATIONS.find(p => p.id === book.lulu_product_id);
         if (!selectedProductConfig) return res.status(400).json({ message: 'Invalid product ID.' });
+        
         console.log(`Checkout for book ${bookId}. Generating PDFs...`);
         
         const { path: interiorPath, pageCount: finalPageCount } = await generateAndSaveTextBookPdf(book, selectedProductConfig);
@@ -189,37 +215,69 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
             console.error("Checkout failed: Page count out of range.", { bookId, finalPageCount, product: selectedProductConfig.id });
             return res.status(400).json({ message: errorMessage });
         }
+        
         const interiorPdfUrl = await uploadPdfFileToCloudinary(tempInteriorPdfPath, `inkwell-ai/user_${req.userId}/books`, `book_${bookId}_interior`);
+        
         const luluSku = selectedProductConfig.luluSku;
         const coverDimensions = await getCoverDimensionsFromApi(luluSku, finalPageCount);
         tempCoverPdfPath = await generateCoverPdf(book, selectedProductConfig, coverDimensions);
         const coverPdfUrl = await uploadPdfFileToCloudinary(tempCoverPdfPath, `inkwell-ai/user_${req.userId}/covers`, `book_${bookId}_cover`);
         console.log(`PDFs uploaded to Cloudinary.`);
-        console.log("Fetching dynamic costs from Lulu...");
-        const lineItems = [{ 
+
+        console.log("Fetching print costs from Lulu (excluding shipping for calculation)...");
+        // We still call getPrintJobCosts as it gives us the base print cost for the product
+        // based on page count, even if we use a flat rate for shipping.
+        const printCostLineItems = [{ 
             pod_package_id: luluSku, 
             page_count: finalPageCount,
             quantity: 1 
         }];
-        const luluShippingAddress = { ...shippingAddress, state_code: shippingAddress.state_code || '' };
-        const luluCosts = await getPrintJobCosts(lineItems, luluShippingAddress);
-        const totalProductionCost = parseFloat(luluCosts.total_cost_incl_tax);
-        if (isNaN(totalProductionCost)) {
-            throw new Error("Failed to parse production cost from Lulu.");
+        // Lulu's API for print job cost calculation generally requires a full shipping address.
+        // We pass the actual shipping address provided by the user.
+        // We will then extract only the print cost and add our flat shipping rate.
+        const luluShippingAddressForCost = { ...shippingAddress, state_code: shippingAddress.state_code || '' };
+
+        const luluCostsResponse = await getPrintJobCosts(printCostLineItems, luluShippingAddressForCost);
+        
+        const luluPrintCostUSD = parseFloat(luluCostsResponse.print_costs.total_cost_incl_tax);
+        if (isNaN(luluPrintCostUSD)) {
+            throw new Error("Failed to parse print cost from Lulu.");
         }
-        const finalPriceDollars = totalProductionCost + PROFIT_MARGIN_USD;
+        console.log(`Lulu Print Cost (USD): $${luluPrintCostUSD.toFixed(2)}`);
+
+        // --- ADDED: Determine Flat Shipping Rate in AUD ---
+        const customerCountryCode = shippingAddress.country_code.toUpperCase();
+        let flatShippingRateAUD = FLAT_SHIPPING_RATES_AUD[customerCountryCode];
+        
+        // Use default if country not explicitly listed
+        if (flatShippingRateAUD === undefined) {
+            flatShippingRateAUD = FLAT_SHIPPING_RATES_AUD['DEFAULT'];
+            console.warn(`No specific flat shipping rate found for country code: ${customerCountryCode}. Using default rate: $${flatShippingRateAUD.toFixed(2)} AUD.`);
+        }
+        console.log(`Flat Shipping Rate (AUD) for ${customerCountryCode}: $${flatShippingRateAUD.toFixed(2)}`);
+
+        // Convert flat shipping rate from AUD to USD (assuming Stripe is in USD)
+        const flatShippingRateUSD = flatShippingRateAUD * AUD_TO_USD_EXCHANGE_RATE;
+        console.log(`Flat Shipping Rate (USD) converted from AUD: $${flatShippingRateUSD.toFixed(2)}`);
+
+        // Calculate total price for Stripe in USD
+        // total = Lulu Print Cost (USD) + Flat Shipping Rate (USD) + Your Profit Margin (USD)
+        const finalPriceDollars = luluPrintCostUSD + flatShippingRateUSD + PROFIT_MARGIN_USD;
         const finalPriceInCents = Math.round(finalPriceDollars * 100);
-        console.log(`Lulu Cost: $${totalProductionCost.toFixed(2)}, Profit: $${PROFIT_MARGIN_USD.toFixed(2)}, Final Price: $${finalPriceDollars.toFixed(2)} (${finalPriceInCents} cents)`);
+
+        console.log(`Final Pricing Summary: Lulu Print: $${luluPrintCostUSD.toFixed(2)}, Flat Shipping: $${flatShippingRateUSD.toFixed(2)}, Profit: $${PROFIT_MARGIN_USD.toFixed(2)}, Total (USD): $${finalPriceDollars.toFixed(2)} (${finalPriceInCents} cents)`);
+        
         const orderId = randomUUID();
         await client.query(
             `INSERT INTO orders (id, user_id, book_id, book_type, book_title, lulu_product_id, status, total_price, interior_pdf_url, cover_pdf_url, order_date, actual_page_count, is_fallback) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), $11, $12)`,
             [orderId, req.userId, bookId, 'textBook', book.title, luluSku, 'pending', finalPriceDollars.toFixed(2), interiorPdfUrl, coverPdfUrl, finalPageCount, false]
         );
         console.log(`Created pending order record ${orderId} with final price.`);
+
         const session = await createStripeCheckoutSession(
             { 
                 name: book.title, 
-                description: `Inkwell AI Custom Book - ${selectedProductConfig.name}`, 
+                description: `Inkwell AI Custom Book - ${selectedProductConfig.name} (incl. shipping)`, 
                 priceInCents: finalPriceInCents
             },
             req.userId,
@@ -227,10 +285,13 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
             bookId,
             'textBook'
         );
+        
         await client.query('UPDATE orders SET stripe_session_id = $1 WHERE id = $2', [session.id, orderId]);
+        
         res.status(200).json({ url: session.url });
+
     } catch (error) {
-        console.error(`Failed to create checkout session: ${error.stack}`);
+        console.error(`Failed to create checkout session for textbook: ${error.stack}`);
         res.status(500).json({ message: 'Failed to create checkout session.', error: error.message });
     } finally {
         if (client) client.release();
