@@ -1,8 +1,89 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import apiClient from '../services/apiClient';
 import ImageEditor from '../components/ImageEditor.jsx';
 import { LoadingSpinner, Alert } from '../components/common.jsx';
+import { AnimatePresence, motion } from 'framer-motion'; // Ensure motion and AnimatePresence are imported
+
+// --- NEW SUB-COMPONENT: ShippingAddressForm (Copied from NovelPage.jsx) ---
+const ShippingAddressForm = ({ isOpen, onClose, onSubmit, isLoading }) => {
+    const [address, setAddress] = useState({
+        name: '',
+        street1: '',
+        street2: '', // Optional
+        city: '',
+        state_code: '',
+        postcode: '',
+        country_code: 'AU', // Default country for Australian context
+        phone_number: '', // Add phone number field for Lulu
+    });
+
+    const allowedCountries = [
+        { code: 'AU', name: 'Australia' },
+        { code: 'US', name: 'United States' },
+        { code: 'CA', name: 'Canada' },
+        { code: 'GB', name: 'United Kingdom' },
+        { code: 'NZ', name: 'New Zealand' },
+    ];
+
+    const handleChange = (e) => {
+        setAddress(prev => ({ ...prev, [e.target.name]: e.target.value }));
+    };
+
+    const handleSubmit = (e) => {
+        e.preventDefault();
+        onSubmit(address);
+    };
+
+    return (
+        <AnimatePresence>
+            {isOpen && (
+                <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+                    onClick={onClose}
+                >
+                    <motion.div
+                        initial={{ scale: 0.9, y: -20 }}
+                        animate={{ scale: 1, y: 0 }}
+                        exit={{ scale: 0.9, y: 20 }}
+                        className="bg-slate-800 rounded-2xl shadow-xl border border-slate-700 w-full max-w-md p-8"
+                        onClick={(e) => e.stopPropagation()} // Prevent closing modal when clicking inside
+                    >
+                        <h2 className="text-2xl font-bold text-white mb-4">Enter Shipping Address</h2>
+                        <p className="text-slate-400 mb-6">We need your address to calculate the final price including shipping.</p>
+                        <form onSubmit={handleSubmit} className="space-y-4">
+                            <input name="name" value={address.name} onChange={handleChange} placeholder="Full Name" required className="w-full p-3 bg-slate-700 border border-slate-600 rounded-lg text-white" />
+                            <input name="street1" value={address.street1} onChange={handleChange} placeholder="Street Address 1" required className="w-full p-3 bg-slate-700 border border-slate-600 rounded-lg text-white" />
+                            <input name="street2" value={address.street2} onChange={handleChange} placeholder="Street Address 2 (Optional)" className="w-full p-3 bg-slate-700 border border-slate-600 rounded-lg text-white" />
+                            <div className="flex space-x-4">
+                                <input name="city" value={address.city} onChange={handleChange} placeholder="City" required className="w-full p-3 bg-slate-700 border border-slate-600 rounded-lg text-white" />
+                                <input name="postcode" value={address.postcode} onChange={handleChange} placeholder="Postal Code" required className="w-1/2 p-3 bg-slate-700 border border-slate-600 rounded-lg text-white" />
+                            </div>
+                            <div className="flex space-x-4">
+                                <input name="state_code" value={address.state_code} onChange={handleChange} placeholder="State/Province Code (e.g., SA)" className="w-1/2 p-3 bg-slate-700 border border-slate-600 rounded-lg text-white" />
+                                <select name="country_code" value={address.country_code} onChange={handleChange} required className="w-1/2 p-3 bg-slate-700 border border-slate-600 rounded-lg text-white">
+                                    {allowedCountries.map(c => <option key={c.code} value={c.code}>{c.name}</option>)}
+                                </select>
+                            </div>
+                            <input name="phone_number" value={address.phone_number} onChange={handleChange} placeholder="Phone Number (e.g., 0412345678)" required className="w-full p-3 bg-slate-700 border border-slate-600 rounded-lg text-white" /> {/* Added phone number field */}
+                            <div className="pt-4 flex items-center justify-end space-x-4">
+                                <button type="button" onClick={onClose} className="text-slate-400 hover:text-white transition">Cancel</button>
+                                <button type="submit" disabled={isLoading} className="bg-green-600 text-white font-bold py-2 px-6 rounded-lg hover:bg-green-700 disabled:bg-green-300 transition">
+                                    {isLoading ? 'Processing...' : 'Continue to Payment'}
+                                </button>
+                            </div>
+                        </form>
+                    </motion.div>
+                </motion.div>
+            )}
+        </AnimatePresence>
+    );
+};
+// --- END NEW SUB-COMPONENT ---
+
 
 const useDebouncedEffect = (callback, delay, deps) => {
     const callbackRef = useRef(callback);
@@ -17,6 +98,7 @@ const useDebouncedEffect = (callback, delay, deps) => {
 
 function PictureBookPage() {
     const { bookId } = useParams();
+    const navigate = useNavigate();
     const [book, setBook] = useState(null);
     const [timeline, setTimeline] = useState([]);
     const [currentPage, setCurrentPage] = useState(1);
@@ -24,7 +106,10 @@ function PictureBookPage() {
     const [isCheckingOut, setIsCheckingOut] = useState(false);
     const [error, setError] = useState(null);
     const [isSaving, setIsSaving] = useState(false);
-    const minPageCount = 24;
+    const minPageCount = 24; // This minPageCount should ideally come from productConfig in the future
+
+    // --- NEW: State for shipping modal ---
+    const [isShippingModalOpen, setIsShippingModalOpen] = useState(false);
 
     const fetchBook = async () => {
         if (!bookId) {
@@ -107,7 +192,6 @@ function PictureBookPage() {
             alert("You cannot delete the last page of the book. To delete the book, go to My Projects.");
             return;
         }
-        // Removed: if (timeline.length <= minPageCount) restriction for editing, now applies only to checkout
         
         if (window.confirm(`Are you sure you want to delete Page ${currentPage}? This action cannot be undone.`)) {
             try {
@@ -129,26 +213,47 @@ function PictureBookPage() {
         }
     };
 
-    const handleFinalizeAndCheckout = async () => {
+    // --- MODIFIED: handleFinalizeAndCheckout now opens modal ---
+    const handleFinalizeAndCheckout = () => {
+        setIsShippingModalOpen(true);
+    };
+
+    // --- NEW: handleShippingSubmit for actual checkout API call ---
+    const handleShippingSubmit = async (shippingAddress) => {
         setIsCheckingOut(true);
         setError(null);
         try {
-            const response = await apiClient.post(`/picture-books/${bookId}/checkout`);
-            window.location.href = response.data.url;
+            // Include shippingAddress in the POST request body
+            const response = await apiClient.post(`/picture-books/${bookId}/checkout`, { shippingAddress });
+            window.location.href = response.data.url; // Redirect to Stripe
         } catch (err) {
-            setError(err.response?.data?.message || "Could not proceed to checkout.");
+            console.error('handleShippingSubmit (PictureBookPage): Could not proceed to checkout:', err);
+            const detailedError = err.response?.data?.message || 'Could not proceed to checkout.';
+            setError(detailedError);
             setIsCheckingOut(false);
+            setIsShippingModalOpen(false); // Close modal on error
         }
     };
+
 
     if (isLoading) return <LoadingSpinner text="Loading your project..." />;
     if (error) return <div className="text-red-500 font-bold p-4">Error: {error}</div>;
 
     const currentEvent = timeline[currentPage - 1] || {};
-    const meetsPageMinimum = timeline.length >= minPageCount; // Still used for checkout button
+    // Ensure book.minPageCount is used, or a fallback if book is null/missing
+    const actualMinPageCount = book?.minPageCount || minPageCount; 
+    const meetsPageMinimum = timeline.length >= actualMinPageCount; 
 
     return (
         <div className="container mx-auto p-4 text-white min-h-screen flex flex-col">
+            {/* Render the shipping modal here */}
+            <ShippingAddressForm
+                isOpen={isShippingModalOpen}
+                onClose={() => setIsShippingModalOpen(false)}
+                onSubmit={handleShippingSubmit}
+                isLoading={isCheckingOut}
+            />
+
             <div className="flex-grow flex flex-col md:flex-row gap-8 bg-slate-900/50 p-6 rounded-lg shadow-xl border border-slate-700">
                 
                 {/* Left Panel: Controls & Input Fields */}
@@ -193,7 +298,6 @@ function PictureBookPage() {
                         </div>
                         <div className="flex flex-col space-y-2">
                             <button onClick={addPage} className="w-full px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition shadow-md">Add New Page</button>
-                            {/* MODIFIED disabled condition to allow deletion down to 1 page */}
                             <button onClick={handleDeletePage} disabled={timeline.length <= 1} className="w-full px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:bg-red-400 transition shadow-md">Delete Current Page</button>
                         </div>
                         
@@ -203,7 +307,7 @@ function PictureBookPage() {
                             </button>
                             {!meetsPageMinimum && (
                                 <p className="text-sm text-red-400 mt-2">
-                                    Minimum {minPageCount} pages to print. ({timeline.length}/{minPageCount})
+                                    Minimum {actualMinPageCount} pages to print. ({timeline.length}/{actualMinPageCount})
                                 </p>
                             )}
                         </div>
