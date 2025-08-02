@@ -80,7 +80,13 @@ const startServer = async () => {
         'https://inkwell-ai-mvp-frontend.onrender.com',
         'https://inkwell-ai-mvp-frontend.onrender.com/' // Added with trailing slash for flexibility
     ];
+    // --- ADD DEBUG LOGS START ---
+    console.log("DEBUG CORS: allowedOrigins configured:", allowedOrigins);
+    // --- ADD DEBUG LOGS END ---
     app.use(cors({ origin: allowedOrigins, credentials: true }));
+    // --- ADD DEBUG LOGS START ---
+    console.log("DEBUG CORS: CORS middleware applied.");
+    // --- ADD DEBUG LOGS END ---
     // --- END OF CORS UPDATE ---
 
     app.use(morgan('dev'));
