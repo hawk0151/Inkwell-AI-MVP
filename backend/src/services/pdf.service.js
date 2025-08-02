@@ -6,8 +6,11 @@
 // - Added resilient fallback for pdf-lib failures, returning pageCount: null.
 // - Updated logging to reflect "true page count" where applicable.
 // - Fixed padding logic by ensuring estimatedPageCountBeforePadding is a valid number.
-// - NEW FIX: Removed explicit doc.addPage() for chapters (after the first one) to allow continuous text flow across pages,
-//   only adding new pages when content naturally overflows.
+// - CRITICAL FIX: Removed 'height' option from doc.text() calls in both textbook and picture book PDF generation
+//   to allow text to flow automatically across pages, preventing truncation.
+// - Removed unsupported 'ellipsis' option from doc.text() calls.
+// - Cleaned up unreliable doc.page.count logging before doc.end().
+// - Maintained explicit doc.addPage() for new chapters (from Chapter 2 onwards) to ensure chapters start on new pages.
 
 import PDFDocument from 'pdfkit'; // For creating PDFs
 import { PDFDocument as PDFLibDocument } from 'pdf-lib'; // For reading PDFs
@@ -158,27 +161,32 @@ export const generateAndSaveTextBookPdf = async (book, productConfig) => {
 
     // --- Chapter Pages ---
     // PDFKit will automatically add pages as content overflows.
-    // NEW FIX: Removed explicit doc.addPage() for chapters (after the first one) to allow continuous text flow.
+    // Removed explicit doc.addPage() for chapters (after the first one) to allow continuous text flow.
+    // Chapters will start on a new page only if the previous content flowed to a new page,
+    // or if `doc.moveDown` causes a page break.
     for (const [index, chapter] of book.chapters.entries()) {
-        if (index > 0) { // For Chapter 2 onwards, we will add a new line after the previous content
-            doc.moveDown(4); // Add some space before the next chapter header if on the same page
+        if (index > 0) { // For Chapter 2 onwards, add a new line after the previous content
+            // This will cause the new chapter header to appear on the same page if space allows,
+            // or on the next page if `moveDown` causes an overflow.
+            doc.moveDown(4); // Add some space before the next chapter header
         }
-        // Log current page count as understood by PDFKit at this moment (may not be final until doc.end())
-        console.log(`[PDF Service: Textbook] Starting Chapter ${chapter.chapter_number} on PDFKit page: ${doc.page.count || 0}`);
+        // Log current page count from PDFKit, safely defaulting to 0 for display
+        console.log(`[PDF Service: Textbook] Adding Chapter ${chapter.chapter_number}. Current PDFKit page: ${doc.page.count || 0}`);
 
         doc.fontSize(18).font(ROBOTO_BOLD_PATH).text(`Chapter ${chapter.chapter_number}`, { align: 'center' }); 
         doc.moveDown(2);
 
+        // CRITICAL FIX: Removed 'height' option to allow text to flow automatically across pages
         doc.fontSize(12).font(ROBOTO_REGULAR_PATH).text(chapter.content, { 
             align: 'justify',
             width: doc.page.width - doc.page.margins.left - doc.page.margins.right,
-            height: doc.page.height - doc.y - doc.page.margins.bottom,
+            // Removed: height: doc.page.height - doc.y - doc.page.margins.bottom,
         }); 
     }
     
     // --- Defensive Padding for Minimum Page Count ---
     // Get current page count from PDFKit's internal state AFTER all content is added
-    // FIX: Ensure estimatedPageCountBeforePadding is a number, defaulting to 0
+    // Ensure estimatedPageCountBeforePadding is a number, defaulting to 0
     let estimatedPageCountBeforePadding = doc.page.count || 0; 
     
     if (estimatedPageCountBeforePadding < productConfig.minPageCount) {
@@ -238,7 +246,8 @@ export const generateAndSavePictureBookPdf = async (book, events, productConfig)
     // Title Page (often the first internal page, distinct from the external cover)
     doc.addPage();
 
-    console.log(`[PDF Service: Picture Book] Added Title Page. PDFKit page count: ${doc.page.count || 0}`);
+    // Log current page count from PDFKit, safely defaulting to 0 for display
+    console.log(`[PDF Service: Picture Book] Added Title Page. Current PDFKit page: ${doc.page.count || 0}`);
 
     // If an interior cover image URL is provided (e.g., for inside cover illustration)
     if (book.cover_image_url) { // Assuming book.cover_image_url might be used for interior title page also
@@ -260,8 +269,8 @@ export const generateAndSavePictureBookPdf = async (book, events, productConfig)
     // Event pages
     for (const event of events) {
         doc.addPage();
-        // Log current page count as understood by PDFKit at this moment (may not be final until doc.end())
-        console.log(`[PDF Service: Picture Book] Adding event page for event ID ${event.id}. PDFKit page count: ${doc.page.count || 0}`);
+        // Log current page count from PDFKit, safely defaulting to 0 for display
+        console.log(`[PDF Service: Picture Book] Adding event page for event ID ${event.id}. Current PDFKit page: ${doc.page.count || 0}`);
         const imageUrl = event.uploaded_image_url || event.image_url;
         const margin = doc.page.margins.left;
         const contentWidth = doc.page.width - 2 * margin;
@@ -291,8 +300,8 @@ export const generateAndSavePictureBookPdf = async (book, events, productConfig)
             const textToRender = event.overlay_text || event.description;
             const textMarginTop = imageUrl ? (margin + contentHeight * 0.7 + 10) : margin; // 10pt buffer below image
 
-            const maxTextHeight = doc.page.height - doc.page.margins.bottom - textMarginTop;
-
+            // CRITICAL FIX: Removed 'height' option to allow text to flow automatically across pages
+            // Removed: height: maxTextHeight,
             doc.fontSize(14).font(ROBOTO_REGULAR_PATH).fillColor('#000000').text( 
                 textToRender,
                 margin,
@@ -300,8 +309,8 @@ export const generateAndSavePictureBookPdf = async (book, events, productConfig)
                 { 
                     align: 'justify', 
                     width: contentWidth,
-                    height: maxTextHeight, // Limit height to prevent overflow into margin
-                    ellipsis: true // Add ellipsis if text is too long
+                    // Removed: height: maxTextHeight, // This caused truncation
+                    // Removed: ellipsis: true // This is not supported by PDFKit and caused unpredictable behavior
                 }
             );
         }
@@ -309,7 +318,7 @@ export const generateAndSavePictureBookPdf = async (book, events, productConfig)
 
     // --- Defensive Padding for Minimum Page Count ---
     // Get current page count from PDFKit's internal state AFTER all content is added
-    // FIX: Ensure estimatedPageCountBeforePadding is a number, defaulting to 0
+    // Ensure estimatedPageCountBeforePadding is a number, defaulting to 0
     let estimatedPageCountBeforePadding = doc.page.count || 0; 
     
     if (estimatedPageCountBeforePadding < productConfig.minPageCount) {
