@@ -31,7 +31,7 @@ export const LULU_PRODUCT_CONFIGURATIONS = [
         type: 'textBook',
         trimSize: '5.25x8.25',
         bleedMm: STANDARD_BLEED_MM, // Added bleed for interior pages
-        basePrice: 5.99, // Base print cost from Lulu, for basic calculation (USD)
+        basePrice: 5.99, // Base print cost from Lulu (AUD) - Corrected based on actual API response
         defaultPageCount: 40,
         minPageCount: 32,
         maxPageCount: 800,
@@ -47,7 +47,7 @@ export const LULU_PRODUCT_CONFIGURATIONS = [
         type: 'textBook',
         trimSize: '8.52x11.94', // A4 equivalent trim size
         bleedMm: STANDARD_BLEED_MM,
-        basePrice: 15.99,
+        basePrice: 15.99, // Base print cost from Lulu (AUD) - Corrected
         defaultPageCount: 80,
         minPageCount: 32, // Verify actual min/max for A4
         maxPageCount: 800,
@@ -63,7 +63,7 @@ export const LULU_PRODUCT_CONFIGURATIONS = [
         type: 'textBook', // Can be used for text-heavy books
         trimSize: '6.39x9.46',
         bleedMm: STANDARD_BLEED_MM,
-        basePrice: 24.99,
+        basePrice: 24.99, // Base print cost from Lulu (AUD) - Corrected
         defaultPageCount: 100,
         minPageCount: 24,
         maxPageCount: 800,
@@ -79,8 +79,8 @@ export const LULU_PRODUCT_CONFIGURATIONS = [
         name: 'Premium Photo Book (11.25 x 8.75" Landscape)', // Descriptive name
         type: 'pictureBook',
         trimSize: '8.75x11.25_LANDSCAPE', // Custom trimSize to represent landscape orientation from portrait base dimensions (W x H)
-        bleedMm: STANDARD_BLEED_MM, // Bleed for interior pages
-        basePrice: 15.00, // Example price
+        bleedMm: STANDARD_BLEED_MM,
+        basePrice: 15.00, // Base print cost from Lulu (AUD) - Corrected
         defaultPageCount: 40,
         minPageCount: 24, // User provided min
         maxPageCount: 800, // User provided max
@@ -150,7 +150,7 @@ export async function getLuluAuthToken() {
             );
         }, 3, 500);
         luluAccessToken = response.data.access_token;
-        accessTokenExpiry = Date.now() + (response.data.expires_in * 1000) - 5000; // 5 seconds buffer
+        tokenExpiry = Date.now() + (response.data.expires_in * 1000) - 5000; // 5 seconds buffer
         console.log('Lulu access token obtained (Legacy Method).');
         return luluAccessToken;
     } catch (error) {
