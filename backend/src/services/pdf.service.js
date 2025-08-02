@@ -1,12 +1,11 @@
 // backend/src/services/pdf.service.js
 
 // CHANGES:
-// - Removed manual pageCount tracking.
-// - Integrated pdf-lib to read finished PDF files and obtain accurate page count.
-// - Replaced generator function return values with { filePath, pageCount } where pageCount is from pdf-lib.
+// - Replaced manual pageCount tracking with true PDF page count obtained via pdf-lib.
+// - Removed redundant doc.addPage() calls within chapter loops to allow content to flow naturally across pages.
+// - Implemented padding with blank pages in both textbook and picture book PDF generation to meet minPageCount requirements.
 // - Added resilient fallback for pdf-lib failures, returning pageCount: null.
 // - Updated logging to reflect "true page count" where applicable.
-// - Implemented padding with blank pages in both textbook and picture book PDF generation to meet minPageCount requirements.
 
 import PDFDocument from 'pdfkit'; // For creating PDFs
 import { PDFDocument as PDFLibDocument } from 'pdf-lib'; // For reading PDFs
@@ -148,23 +147,22 @@ export const generateAndSaveTextBookPdf = async (book, productConfig) => {
     await fs.mkdir(tempPdfsDir, { recursive: true });
     const tempFilePath = path.join(tempPdfsDir, `interior_textbook_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.pdf`);
 
-    // Use a temporary counter based on PDFKit's internal page management for padding decisions
-    let estimatedPageCount = 0;
-
     // --- Title Page ---
     doc.addPage();
-    estimatedPageCount++;
-    console.log(`[PDF Service: Textbook] Added Title Page. Estimated pageCount: ${estimatedPageCount}`);
 
     doc.fontSize(28).font(ROBOTO_BOLD_PATH).text(book.title, { align: 'center' }); 
     doc.moveDown(4);
     doc.fontSize(16).font(ROBOTO_REGULAR_PATH).text('A Story by Inkwell AI', { align: 'center' }); 
 
     // --- Chapter Pages ---
-    for (const chapter of book.chapters) {
-        doc.addPage(); 
-        estimatedPageCount++;
-        console.log(`[PDF Service: Textbook] Starting Chapter ${chapter.chapter_number}. Estimated pageCount: ${estimatedPageCount}`);
+    // PDFKit will automatically add pages as content overflows.
+    // We explicitly add a new page *for each chapter after the first*,
+    // to ensure chapters start on a new page as is common in books.
+    for (const [index, chapter] of book.chapters.entries()) {
+        if (index > 0) { // For Chapter 2 onwards, add a new page
+            doc.addPage();
+        }
+        console.log(`[PDF Service: Textbook] Starting Chapter ${chapter.chapter_number} on PDFKit page: ${doc.page.count}`);
 
         doc.fontSize(18).font(ROBOTO_BOLD_PATH).text(`Chapter ${chapter.chapter_number}`, { align: 'center' }); 
         doc.moveDown(2);
@@ -174,33 +172,27 @@ export const generateAndSaveTextBookPdf = async (book, productConfig) => {
             width: doc.page.width - doc.page.margins.left - doc.page.margins.right,
             height: doc.page.height - doc.y - doc.page.margins.bottom,
         }); 
-        
-        // After adding chapter content, if PDFKit automatically added pages due to overflow,
-        // capture these new pages for estimatedPageCount.
-        while (doc.page.count > estimatedPageCount) {
-            estimatedPageCount++;
-            console.log(`[PDF Service: Textbook] Auto-added page for overflow. Estimated pageCount: ${estimatedPageCount}`);
-        }
     }
     
-    // --- Defensive Padding for Minimum Page Count (based on estimated count) ---
-    // This happens *before* ensuring even page count, as Lulu requires minimum pages.
-    if (estimatedPageCount < productConfig.minPageCount) {
-        const pagesToAdd = productConfig.minPageCount - estimatedPageCount;
-        console.warn(`[PDF Service: Textbook] ⚠️ Generated page count (${estimatedPageCount}) is below product minimum (${productConfig.minPageCount}). Adding ${pagesToAdd} blank pages.`);
+    // --- Defensive Padding for Minimum Page Count ---
+    // Get current page count from PDFKit's internal state AFTER all content is added
+    let estimatedPageCountBeforePadding = doc.page.count;
+    if (estimatedPageCountBeforePadding < productConfig.minPageCount) {
+        const pagesToAdd = productConfig.minPageCount - estimatedPageCountBeforePadding;
+        console.warn(`[PDF Service: Textbook] ⚠️ Generated content uses ${estimatedPageCountBeforePadding} pages, which is below product minimum (${productConfig.minPageCount}). Adding ${pagesToAdd} blank pages.`);
         for (let i = 0; i < pagesToAdd; i++) {
             doc.addPage();
-            estimatedPageCount++; // Update estimated count for padding
         }
     }
 
-    // --- Ensure Even Page Count for Printing (based on estimated count, after minimum padding) ---
-    if (estimatedPageCount % 2 !== 0) {
-        console.log("[PDF Service: Textbook] DEBUG: Estimated page count is odd, adding a final blank page for printing.");
+    // --- Ensure Even Page Count for Printing ---
+    // Get page count again after padding for minimums
+    let pageCountAfterPadding = doc.page.count;
+    if (pageCountAfterPadding % 2 !== 0) {
+        console.log("[PDF Service: Textbook] DEBUG: Page count is odd, adding a final blank page for printing.");
         doc.addPage();
-        estimatedPageCount++; // Update estimated count for evenness
     }
-    console.log(`[PDF Service: Textbook] Estimated total pageCount before finalization: ${estimatedPageCount}`);
+    console.log(`[PDF Service: Textbook] Final PDFKit page count before saving: ${doc.page.count}`);
     
     doc.end(); // Finalize the PDF document
 
@@ -238,13 +230,10 @@ export const generateAndSavePictureBookPdf = async (book, events, productConfig)
     await fs.mkdir(tempPdfsDir, { recursive: true });
     const tempFilePath = path.join(tempPdfsDir, `interior_picturebook_${Date.now()}_${book.id}.pdf`);
 
-    // Use a temporary counter based on PDFKit's internal page management for padding decisions
-    let estimatedPageCount = 0;
-
     // Title Page (often the first internal page, distinct from the external cover)
     doc.addPage();
-    estimatedPageCount++;
-    console.log(`[PDF Service: Picture Book] Added Title Page. Estimated pageCount: ${estimatedPageCount}`);
+
+    console.log(`[PDF Service: Picture Book] Added Title Page. PDFKit page count: ${doc.page.count}`);
 
     // If an interior cover image URL is provided (e.g., for inside cover illustration)
     if (book.cover_image_url) { // Assuming book.cover_image_url might be used for interior title page also
@@ -266,8 +255,7 @@ export const generateAndSavePictureBookPdf = async (book, events, productConfig)
     // Event pages
     for (const event of events) {
         doc.addPage();
-        estimatedPageCount++;
-        console.log(`[PDF Service: Picture Book] Adding event page for event ID ${event.id}. Estimated pageCount: ${estimatedPageCount}`);
+        console.log(`[PDF Service: Picture Book] Adding event page for event ID ${event.id}. PDFKit page count: ${doc.page.count}`);
         const imageUrl = event.uploaded_image_url || event.image_url;
         const margin = doc.page.margins.left;
         const contentWidth = doc.page.width - 2 * margin;
@@ -313,25 +301,26 @@ export const generateAndSavePictureBookPdf = async (book, events, productConfig)
         }
     }
 
-    // --- Defensive Padding for Minimum Page Count (based on estimated count) ---
-    // If the generated page count is less than the product's minimum, add blank pages.
-    if (estimatedPageCount < productConfig.minPageCount) {
-        const pagesToAdd = productConfig.minPageCount - estimatedPageCount;
-        console.warn(`[PDF Service: Picture Book] ⚠️ Generated page count (${estimatedPageCount}) is below product minimum (${productConfig.minPageCount}). Adding ${pagesToAdd} blank pages.`);
+    // --- Defensive Padding for Minimum Page Count ---
+    // Get current page count from PDFKit's internal state AFTER all content is added
+    let estimatedPageCountBeforePadding = doc.page.count;
+    if (estimatedPageCountBeforePadding < productConfig.minPageCount) {
+        const pagesToAdd = productConfig.minPageCount - estimatedPageCountBeforePadding;
+        console.warn(`[PDF Service: Picture Book] ⚠️ Generated content uses ${estimatedPageCountBeforePadding} pages, which is below product minimum (${productConfig.minPageCount}). Adding ${pagesToAdd} blank pages.`);
         for (let i = 0; i < pagesToAdd; i++) {
             doc.addPage();
-            estimatedPageCount++; // Update estimated count for padding
         }
     }
 
-    // --- Ensure Even Page Count for Printing (based on estimated count, after minimum padding) ---
-    if (estimatedPageCount % 2 !== 0) {
-        console.log("[PDF Service: Picture Book] DEBUG: Estimated page count is odd, adding a final blank page for printing.");
+    // --- Ensure Even Page Count for Printing ---
+    // Get page count again after padding for minimums
+    let pageCountAfterPadding = doc.page.count;
+    if (pageCountAfterPadding % 2 !== 0) {
+        console.log("[PDF Service: Picture Book] DEBUG: Page count is odd, adding a final blank page for printing.");
         doc.addPage();
-        estimatedPageCount++; // Update estimated count for evenness
     }
 
-    console.log(`[PDF Service: Picture Book] Estimated total pageCount before finalization: ${estimatedPageCount}`);
+    console.log(`[PDF Service: Picture Book] Final PDFKit page count before saving: ${doc.page.count}`);
 
     doc.end();
 
