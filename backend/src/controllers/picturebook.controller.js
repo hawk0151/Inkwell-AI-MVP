@@ -1,24 +1,19 @@
 // backend/src/controllers/picturebook.controller.js
 
 // CHANGES:
-// - Implemented full flat-rate shipping integration in createBookCheckoutSession.
-// - Price calculation now includes Lulu print cost, flat-rate shipping (AUD converted to USD), and a profit margin.
-// - Detailed pricing information is saved to the 'orders' table.
-// - Comprehensive console logging of the pricing breakdown is included for auditing.
-// - Added comprehensive input validation for shipping address (trimming, ISO country code validation).
-// - Refactored flat shipping rate lookup into a dedicated helper function (`getFlatShippingRate`).
-// - Added comments emphasizing dynamic exchange rate fetching in production.
-// - Enhanced error handling for Lulu's `getPrintJobCosts` with clearer messages and retry considerations (commented).
-// - Improved currency conversion precision using `toFixed(4)` for intermediate steps.
-// - Ensured database inserts for pricing fields use actual numeric types, not strings, to preserve precision.
-// - Implemented more robust temporary PDF file cleanup with specific error logging.
-// - AbortController import/usage adjusted for CommonJS/Node.js compatibility.
-// - Added a security note regarding sensitive data in logs.
-// - Added a defensive guard in checkout flow to check generated page count against product maxPageCount.
+// - Implemented full flat-rate shipping integration in createBookCheckoutSession, mirroring textbook logic.
+// - Price calculation now includes Lulu print cost (AUD to USD conversion), flat-rate shipping (AUD to USD), and profit margin.
+// - Detailed pricing is saved to 'orders' table.
+// - Comprehensive console logging of pricing breakdown.
+// - Added comprehensive input validation for shipping address (trimming, ISO country code validation, phone_number).
+// - Uses getFlatShippingRate helper function.
+// - Enhanced error handling for Lulu's getPrintJobCosts and response structure.
+// - Integrated two-pass PDF generation: generateAndSavePictureBookPdf for content, then finalizePdfPageCount for padding/evenness.
+// - Corrected Lulu print cost extraction from 'line_item_costs[0].total_cost_incl_tax'.
 
 import { getDb } from '../db/database.js';
 import { randomUUID } from 'crypto';
-import { generateAndSavePictureBookPdf, generateCoverPdf } from '../services/pdf.service.js';
+import { generateAndSavePictureBookPdf, generateCoverPdf, finalizePdfPageCount } from '../services/pdf.service.js'; // Import new helper
 import { LULU_PRODUCT_CONFIGURATIONS, getPrintOptions, getCoverDimensionsFromApi, getPrintJobCosts } from '../services/lulu.service.js';
 import { createStripeCheckoutSession } from '../services/stripe.service.js';
 import { uploadPdfFileToCloudinary } from '../services/image.service.js';
@@ -26,27 +21,22 @@ import path from 'path';
 import fs from 'fs/promises';
 
 // --- AbortController import/module system compatibility ---
-// This robustly handles both Node.js versions with global AbortController (v15+)
-// and older CommonJS environments requiring the polyfill.
 let AbortController;
 if (typeof globalThis.AbortController === 'function') {
     AbortController = globalThis.AbortController;
 } else {
-    // Dynamically require for CommonJS environments
     try {
         const NodeAbortController = require('node-abort-controller');
         AbortController = NodeAbortController.AbortController;
     } catch (e) {
         console.error("Critical: AbortController not available. Please ensure Node.js v15+ is used or 'node-abort-controller' is installed. Error:", e.message);
-        // Fail loudly if AbortController cannot be obtained, as timeouts won't work otherwise.
         throw new Error("AbortController is not available. Please install 'node-abort-controller' or use Node.js v15+.");
     }
 }
 
-// List of ISO 3166-1 alpha-2 country codes for validation. This list should be kept up-to-date.
-// For a production system, consider fetching this from a reliable external source or a larger library.
+// List of ISO 3166-1 alpha-2 country codes for validation.
 const VALID_ISO_COUNTRY_CODES = new Set([
-    'AF', 'AX', 'AL', 'DZ', 'AS', 'AD', 'AO', 'AI', 'AQ', 'AG', 'AR', 'AM', 'AW', 'AU', 'AT', 'AZ', 'BS', 'BH', 'BD', 'BB', 'BY', 'BE', 'BZ', 'BJ', 'BM', 'BT', 'BO', 'BQ', 'BA', 'BW', 'BV', 'BR', 'IO', 'BN', 'BG', 'BF', 'BI', 'CV', 'KH', 'CM', 'CA', 'KY', 'CF', 'TD', 'CL', 'CN', 'CX', 'CC', 'CO', 'KM', 'CD', 'CG', 'CK', 'CR', 'CI', 'HR', 'CU', 'CW', 'CY', 'CZ', 'DK', 'DJ', 'DM', 'DO', 'EC', 'EG', 'SV', 'GQ', 'ER', 'EE', 'SZ', 'ET', 'FK', 'FO', 'FJ', 'FI', 'FR', 'GF', 'PF', 'TF', 'GA', 'GM', 'GE', 'DE', 'GH', 'GI', 'GR', 'GL', 'GD', 'GP', 'GU', 'GT', 'GG', 'GN', 'GW', 'GY', 'HT', 'HM', 'VA', 'HN', 'HK', 'HU', 'IS', 'IN', 'ID', 'IR', 'IQ', 'IE', 'IM', 'IL', 'IT', 'JM', 'JP', 'JE', 'JO', 'KZ', 'KE', 'KI', 'KP', 'KR', 'KW', 'KG', 'LA', 'LV', 'LB', 'LS', 'LR', 'LY', 'LI', 'LT', 'LU', 'MO', 'MG', 'MW', 'MY', 'MV', 'ML', 'MT', 'MH', 'MQ', 'MR', 'MU', 'YT', 'MX', 'FM', 'MD', 'MC', 'MN', 'ME', 'MS', 'MA', 'MZ', 'MM', 'NA', 'NR', 'NP', 'NL', 'NC', 'NZ', 'NI', 'NE', 'NG', 'NU', 'NF', 'MP', 'NO', 'OM', 'PK', 'PW', 'PS', 'PA', 'PG', 'PY', 'PE', 'PH', 'PN', 'PL', 'PT', 'PR', 'QA', 'MK', 'RO', 'RU', 'RW', 'RE', 'SA', 'SN', 'RS', 'SC', 'SL', 'SG', 'SX', 'SK', 'SI', 'SB', 'SO', 'ZA', 'GS', 'SS', 'ES', 'LK', 'SD', 'SR', 'SJ', 'SE', 'CH', 'SY', 'TW', 'TJ', 'TZ', 'TH', 'TL', 'TG', 'TK', 'TO', 'TT', 'TN', 'TR', 'TM', 'TC', 'TV', 'UG', 'UA', 'AE', 'GB', 'US', 'UM', 'UY', 'UZ', 'VU', 'VE', 'VN', 'VG', 'VI', 'WF', 'EH', 'YE', 'ZM', 'ZW'
+    'AF', 'AX', 'AL', 'DZ', 'AS', 'AD', 'AO', 'AI', 'AQ', 'AG', 'AR', 'AM', 'AW', 'AU', 'AT', 'AZ', 'BS', 'BH', 'BD', 'BB', 'BY', 'BE', 'BZ', 'BJ', 'BM', 'BT', 'BO', 'BQ', 'BA', 'BW', 'BR', 'IO', 'BN', 'BG', 'BF', 'BI', 'CV', 'KH', 'CM', 'CA', 'KY', 'CF', 'TD', 'CL', 'CN', 'CX', 'CC', 'CO', 'KM', 'CD', 'CG', 'CK', 'CR', 'CI', 'HR', 'CU', 'CW', 'CY', 'CZ', 'DK', 'DJ', 'DM', 'DO', 'EC', 'EG', 'SV', 'GQ', 'ER', 'EE', 'SZ', 'ET', 'FK', 'FO', 'FJ', 'FI', 'FR', 'GF', 'PF', 'TF', 'GA', 'GM', 'GE', 'DE', 'GH', 'GI', 'GR', 'GL', 'GD', 'GP', 'GU', 'GT', 'GG', 'GN', 'GW', 'GY', 'HT', 'HM', 'VA', 'HN', 'HK', 'HU', 'IS', 'IN', 'ID', 'IR', 'IQ', 'IE', 'IM', 'IL', 'IT', 'JM', 'JP', 'JE', 'JO', 'KZ', 'KE', 'KI', 'KP', 'KR', 'KW', 'KG', 'LA', 'LV', 'LB', 'LS', 'LR', 'LY', 'LI', 'LT', 'LU', 'MO', 'MG', 'MW', 'MY', 'MV', 'ML', 'MT', 'MH', 'MQ', 'MR', 'MU', 'YT', 'MX', 'FM', 'MD', 'MC', 'MN', 'ME', 'MS', 'MA', 'MZ', 'MM', 'NA', 'NR', 'NP', 'NL', 'NC', 'NZ', 'NI', 'NE', 'NG', 'NU', 'NF', 'MP', 'NO', 'OM', 'PK', 'PW', 'PS', 'PA', 'PG', 'PY', 'PE', 'PH', 'PN', 'PL', 'PT', 'PR', 'QA', 'MK', 'RO', 'RU', 'RW', 'RE', 'SA', 'SN', 'RS', 'SC', 'SL', 'SG', 'SX', 'SK', 'SI', 'SB', 'SO', 'ZA', 'GS', 'SS', 'ES', 'LK', 'SD', 'SR', 'SJ', 'SE', 'CH', 'SY', 'TW', 'TJ', 'TZ', 'TH', 'TL', 'TG', 'TK', 'TO', 'TT', 'TN', 'TR', 'TM', 'TC', 'TV', 'UG', 'UA', 'AE', 'GB', 'US', 'UM', 'UY', 'UZ', 'VU', 'VE', 'VN', 'VG', 'VI', 'WF', 'EH', 'YE', 'ZM', 'ZW'
 ]);
 
 const PROFIT_MARGIN_USD = 10.00; // This can be dynamic based on product/strategy
@@ -66,7 +56,7 @@ const FLAT_SHIPPING_RATES_AUD = {
 // For a production application, this rate MUST be fetched dynamically
 // and regularly (e.g., daily or hourly) from a reliable currency exchange API (e.g., Fixer.io, Open Exchange Rates)
 // to avoid significant financial loss due to currency fluctuations.
-const AUD_TO_USD_EXCHANGE_RATE = 0.66; // Current approximate rate at 2025-08-02 (ADELAIDE, SA)
+const AUD_TO_USD_EXCHANGE_RATE = 0.66; // Current approximate rate at 2025-08-02
 
 // --- Helper function for flat shipping rate lookup ---
 /**
@@ -81,7 +71,7 @@ function getFlatShippingRate(countryCode) {
     let isDefault = false;
 
     if (flatShippingRateAUD === undefined) {
-        flatShippingRateAUD = FLAT_SHIPPING_RATES_ATUD['DEFAULT'];
+        flatShippingRateAUD = FLAT_SHIPPING_RATES_AUD['DEFAULT'];
         isDefault = true;
     }
 
@@ -335,170 +325,170 @@ export const createBookCheckoutSession = async (req, res) => {
         const finalPriceInCents = Math.round(finalPriceDollars * 100);
 
         console.log(`[Checkout] Final Pricing Breakdown (Picture Book):`);
-        console.log(`  - Lulu Print Cost: $${luluPrintCostUSD.toFixed(2)} USD`);
-        console.log(`  - Flat Shipping Cost: $${flatShippingRateUSD.toFixed(2)} USD (from $${flatShippingRateAUD.toFixed(2)} AUD)`);
-        console.log(`  - Profit Margin: $${PROFIT_MARGIN_USD.toFixed(2)} USD`);
-        console.log(`  - Total Price for Stripe: $${finalPriceDollars.toFixed(2)} USD (${finalPriceInCents} cents)`);
+        console.log(`  - Lulu Print Cost: $${luluPrintCostUSD.toFixed(2)} USD`);
+        console.log(`  - Flat Shipping Cost: $${flatShippingRateUSD.toFixed(2)} USD (from $${flatShippingRateAUD.toFixed(2)} AUD)`);
+        console.log(`  - Profit Margin: $${PROFIT_MARGIN_USD.toFixed(2)} USD`);
+        console.log(`  - Total Price for Stripe: $${finalPriceDollars.toFixed(2)} USD (${finalPriceInCents} cents)`);
         
         const orderId = randomUUID();
         // 7. Ensure that database inserts use parameterized queries with proper types for price fields
         const insertOrderSql = `
-            INSERT INTO orders (
-                id, user_id, book_id, book_type, book_title, lulu_product_id, status, 
-                total_price_usd, interior_pdf_url, cover_pdf_url, order_date, actual_page_count, is_fallback, 
-                lulu_print_cost_usd, flat_shipping_cost_usd, profit_usd
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), $11, $12, $13, $14, $15)`;
+            INSERT INTO orders (
+                id, user_id, book_id, book_type, book_title, lulu_product_id, status, 
+                total_price_usd, interior_pdf_url, cover_pdf_url, order_date, actual_page_count, is_fallback, 
+                lulu_print_cost_usd, flat_shipping_cost_usd, profit_usd
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), $11, $12, $13, $14, $15)`;
 
-        await client.query(insertOrderSql, [
-            orderId, 
-            req.userId, 
-            bookId, 
-            'pictureBook', 
-            book.title, 
-            luluSku, 
-            'pending', 
-            finalPriceDollars, 
-            interiorPdfUrl, 
-            coverPdfUrl, 
-            finalPageCount, 
-            false, 
-            luluPrintCostUSD, 
-            flatShippingRateUSD, 
-            PROFIT_MARGIN_USD
-        ]);
-        console.log(`[Checkout] Created pending order record ${orderId} with final price.`);
+        await client.query(insertOrderSql, [
+            orderId, 
+            req.userId, 
+            bookId, 
+            'pictureBook', 
+            book.title, 
+            luluSku, 
+            'pending', 
+            finalPriceDollars, 
+            interiorPdfUrl, 
+            coverPdfUrl, 
+            finalPageCount, 
+            false, 
+            luluPrintCostUSD, 
+            flatShippingRateUSD, 
+            PROFIT_MARGIN_USD
+        ]);
+        console.log(`[Checkout] Created pending order record ${orderId} with final price.`);
 
-        const session = await createStripeCheckoutSession(
-            { 
-                name: book.title, 
-                description: `Inkwell AI Custom Picture Book - ${selectedProductConfig.name} (incl. shipping)`, 
-                priceInCents: finalPriceInCents
-            },
-            req.userId,
-            orderId,
-            bookId,
-            'pictureBook'
-        );
-        
-        await client.query('UPDATE orders SET stripe_session_id = $1 WHERE id = $2', [session.id, orderId]);
+        const session = await createStripeCheckoutSession(
+            { 
+                name: book.title, 
+                description: `Inkwell AI Custom Picture Book - ${selectedProductConfig.name} (incl. shipping)`, 
+                priceInCents: finalPriceInCents
+            },
+            req.userId,
+            orderId,
+            bookId,
+            'pictureBook'
+        );
+        
+        await client.query('UPDATE orders SET stripe_session_id = $1 WHERE id = $2', [session.id, orderId]);
 
-        res.status(200).json({ url: session.url });
-    } catch (error) {
-        console.error("Failed to create checkout session (Picture Book):", error.stack);
-        res.status(500).json({ message: "Failed to create checkout session." });
-    } finally {
-        if (client) client.release();
-        // 8. Cleaning up temporary PDF files with more robust error handling and logs.
-        if (tempInteriorPdfPath) {
-            try {
-                await fs.unlink(tempInteriorPdfPath);
-                console.log(`[Cleanup] Deleted temporary interior PDF: ${tempInteriorPdfPath}`);
-            } catch (unlinkError) {
-                console.error(`[Cleanup] Error deleting temporary interior PDF ${tempInteriorPdfPath}:`, unlinkError);
-            }
-        }
-        if (tempCoverPdfPath) {
-            try {
-                await fs.unlink(tempCoverPdfPath);
-                console.log(`[Cleanup] Deleted temporary cover PDF: ${tempCoverPdfPath}`);
-            } catch (unlinkError) {
-                console.error(`[Cleanup] Error deleting temporary cover PDF ${tempCoverPdfPath}:`, unlinkError);
-            }
-        }
-    }
+        res.status(200).json({ url: session.url });
+    } catch (error) {
+        console.error("Failed to create checkout session (Picture Book):", error.stack);
+        res.status(500).json({ message: "Failed to create checkout session." });
+    } finally {
+        if (client) client.release();
+        // 8. Cleaning up temporary PDF files with more robust error handling and logs.
+        if (tempInteriorPdfPath) {
+            try {
+                await fs.unlink(tempInteriorPdfPath);
+                console.log(`[Cleanup] Deleted temporary interior PDF: ${tempInteriorPdfPath}`);
+            } catch (unlinkError) {
+                console.error(`[Cleanup] Error deleting temporary interior PDF ${tempInteriorPdfPath}:`, unlinkError);
+            }
+        }
+        if (tempCoverPdfPath) {
+            try {
+                await fs.unlink(tempCoverPdfPath);
+                console.log(`[Cleanup] Deleted temporary cover PDF: ${tempCoverPdfPath}`);
+            } catch (unlinkError) {
+                console.error(`[Cleanup] Error deleting temporary cover PDF ${tempCoverPdfPath}:`, unlinkError);
+            }
+        }
+    }
 };
 
 export const deletePictureBook = async (req, res) => {
-    let client;
-    try {
-        const pool = await getDb();
-        client = await pool.connect();
-        await client.query('BEGIN');
+    let client;
+    try {
+        const pool = await getDb();
+        client = await pool.connect();
+        await client.query('BEGIN');
 
-        const { bookId } = req.params;
-        const userId = req.userId;
+        const { bookId } = req.params;
+        const userId = req.userId;
 
-        const bookResult = await client.query(`SELECT id FROM picture_books WHERE id = $1 AND user_id = $2`, [bookId, userId]);
-        const book = bookResult.rows[0];
-        if (!book) return res.status(404).json({ message: 'Project not found.' });
+        const bookResult = await client.query(`SELECT id FROM picture_books WHERE id = $1 AND user_id = $2`, [bookId, userId]);
+        const book = bookResult.rows[0];
+        if (!book) return res.status(404).json({ message: 'Project not found.' });
 
-        await client.query(`DELETE FROM timeline_events WHERE book_id = $1`, [bookId]);
-        await client.query(`DELETE FROM picture_books WHERE id = $1`, [bookId]);
+        await client.query(`DELETE FROM timeline_events WHERE book_id = $1`, [bookId]);
+        await client.query(`DELETE FROM picture_books WHERE id = $1`, [bookId]);
 
-        await client.query('COMMIT');
-        res.status(200).json({ message: 'Project deleted successfully.' });
-    } catch (err) {
-        if (client) await client.query('ROLLBACK');
-        console.error("Error deleting project:", err.message);
-        res.status(500).json({ message: 'Failed to delete project.' });
-    } finally {
-        if (client) client.release();
-    }
+        await client.query('COMMIT');
+        res.status(200).json({ message: 'Project deleted successfully.' });
+    } catch (err) {
+        if (client) await client.query('ROLLBACK');
+        console.error("Error deleting project:", err.message);
+        res.status(500).json({ message: 'Failed to delete project.' });
+    } finally {
+        if (client) client.release();
+    }
 };
 
 export const deleteTimelineEvent = async (req, res) => {
-    let client;
-    const { bookId, pageNumber } = req.params;
-    const userId = req.userId;
+    let client;
+    const { bookId, pageNumber } = req.params;
+    const userId = req.userId;
 
-    try {
-        const pool = await getDb();
-        client = await pool.connect();
+    try {
+        const pool = await getDb();
+        client = await pool.connect();
 
-        const bookResult = await client.query(`SELECT id FROM picture_books WHERE id = $1 AND user_id = $2`, [bookId, userId]);
-        const book = bookResult.rows[0];
-        if (!book) {
-            return res.status(404).json({ message: 'Project not found or you do not have permission to edit it.' });
-        }
+        const bookResult = await client.query(`SELECT id FROM picture_books WHERE id = $1 AND user_id = $2`, [bookId, userId]);
+        const book = bookResult.rows[0];
+        if (!book) {
+            return res.status(404).json({ message: 'Project not found or you do not have permission to edit it.' });
+        }
 
-        await client.query(`DELETE FROM timeline_events WHERE book_id = $1 AND page_number = $2`, [bookId, pageNumber]);
-        // Shift page numbers for subsequent events
-        await client.query(`UPDATE timeline_events SET page_number = page_number - 1 WHERE book_id = $1 AND page_number > $2`, [bookId, pageNumber]);
-        await client.query(`UPDATE picture_books SET last_modified = $1 WHERE id = $2`, [new Date().toISOString(), bookId]);
+        await client.query(`DELETE FROM timeline_events WHERE book_id = $1 AND page_number = $2`, [bookId, pageNumber]);
+        // Shift page numbers for subsequent events
+        await client.query(`UPDATE timeline_events SET page_number = page_number - 1 WHERE book_id = $1 AND page_number > $2`, [bookId, pageNumber]);
+        await client.query(`UPDATE picture_books SET last_modified = $1 WHERE id = $2`, [new Date().toISOString(), bookId]);
 
-        res.status(200).json({ message: `Page ${pageNumber} deleted successfully and subsequent pages re-ordered.` });
-    } catch (err) {
-        console.error(`Error in deleteTimelineEvent controller:`, err.message);
-        res.status(500).json({ message: 'Failed to delete the page.' });
-    } finally {
-        if (client) client.release();
-    }
+        res.status(200).json({ message: `Page ${pageNumber} deleted successfully and subsequent pages re-ordered.` });
+    } catch (err) {
+        console.error(`Error in deleteTimelineEvent controller:`, err.message);
+        res.status(500).json({ message: 'Failed to delete the page.' });
+    } finally {
+        if (client) client.release();
+    }
 };
 
 export const togglePictureBookPrivacy = async (req, res) => {
-    let client;
-    const { bookId } = req.params;
-    const userId = req.userId;
-    const { is_public } = req.body;
+    let client;
+    const { bookId } = req.params;
+    const userId = req.userId;
+    const { is_public } = req.body;
 
-    if (typeof is_public !== 'boolean') {
-        return res.status(400).json({ message: 'is_public must be a boolean value.' });
-    }
+    if (typeof is_public !== 'boolean') {
+        return res.status(400).json({ message: 'is_public must be a boolean value.' });
+    }
 
-    try {
-        const pool = await getDb();
-        client = await pool.connect();
+    try {
+        const pool = await getDb();
+        client = await pool.connect();
 
-        const bookResult = await client.query(`SELECT id, user_id FROM picture_books WHERE id = $1`, [bookId]);
-        const book = bookResult.rows[0];
+        const bookResult = await client.query(`SELECT id, user_id FROM picture_books WHERE id = $1`, [bookId]);
+        const book = bookResult.rows[0];
 
-        if (!book) {
-            return res.status(404).json({ message: 'Project not found.' });
-        }
-        if (book.user_id !== userId) {
-            return res.status(403).json({ message: 'You are not authorized to edit this project.' });
-        }
+        if (!book) {
+            return res.status(404).json({ message: 'Project not found.' });
+        }
+        if (book.user_id !== userId) {
+            return res.status(403).json({ message: 'You are not authorized to edit this project.' });
+        }
 
-        await client.query(`UPDATE picture_books SET is_public = $1 WHERE id = $2`, [is_public, bookId]);
+        await client.query(`UPDATE picture_books SET is_public = $1 WHERE id = $2`, [is_public, bookId]);
 
-        res.status(200).json({
-            message: `Book status successfully set to ${is_public ? 'public' : 'private'}.`,
-            is_public: is_public
-        });
-    } catch (err) {
-        console.error("Error toggling book privacy:", err.message);
-        res.status(500).json({ message: 'Failed to update project status.' });
-    } finally {
-        if (client) client.release();
-    }
+        res.status(200).json({
+            message: `Book status successfully set to ${is_public ? 'public' : 'private'}.`,
+            is_public: is_public
+        });
+    } catch (err) {
+        console.error("Error toggling book privacy:", err.message);
+        res.status(500).json({ message: 'Failed to update project status.' });
+    } finally {
+        if (client) client.release();
+    }
 };
