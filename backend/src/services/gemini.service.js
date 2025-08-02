@@ -9,6 +9,8 @@
 // - REFINEMENT: Used sanitized previousChaptersText in prompt.
 // - REFINEMENT: Refined post-generation cleanup regex for more conservative removal.
 // - REFINEMENT: Separated logging for different cleanup types.
+// - FIX: Prompt engineered to prevent excessive repetition of 'recipientName' (personalized child character's name)
+//   by explicitly instructing the AI to use pronouns after initial mentions.
 
 import fetch from 'node-fetch';
 
@@ -30,9 +32,9 @@ if (typeof globalThis.AbortController === 'function') {
 
 export const generateStoryFromApi = async (promptDetails) => {
     const {
-        recipientName,
-        characterName,
-        characterGender,
+        recipientName, // This is the personalized child character's name in the story
+        characterName, // This is the adult character's name (e.g., Peter)
+        characterGender, // This refers to the gender of 'characterName'
         interests,
         genre,
         wordsPerPage, // This is the target words per *average page*
@@ -104,6 +106,7 @@ export const generateStoryFromApi = async (promptDetails) => {
     }
 
     // 7. Pronoun defaults: Default to neutral if gender is not specified or recognized
+    // This applies to 'characterName' (e.g., Peter), not 'recipientName'
     const characterPronounSubject = characterGender === 'male' ? 'he' : characterGender === 'female' ? 'she' : 'they';
     const characterPronounObject = characterGender === 'male' ? 'him' : characterGender === 'female' ? 'her' : 'them';
     const characterPronounPossessive = characterGender === 'male' ? 'his' : characterGender === 'female' ? 'her' : 'their';
@@ -121,8 +124,8 @@ ${sanitizedPreviousChaptersText}
 TASK: Write ONLY chapter ${chapterNumber} of a story for a reader named ${recipientName}.
 
 STORY DETAILS:
-- Main Character: ${characterName} (Pronouns: ${characterPronounSubject}/${characterPronounObject}/${characterPronounPossessive})
-- Child Character: ${recipientName}
+- Adult Character: ${characterName} (Pronouns: ${characterPronounSubject}/${characterPronounObject}/${characterPronounPossessive})
+- The personalized child character in the story is named: "${recipientName}".
 - Themes & Interests: ${interests}
 - Genre: ${genre}
 
@@ -133,9 +136,9 @@ REQUIREMENTS:
 - **DO NOT** write "The End" or any similar concluding phrases.
 - **DO NOT** include any titles or chapter headings like "Chapter ${chapterNumber}".
 - **IMPORTANT: NEVER use placeholders or text in brackets.** Always use the actual names and pronouns provided.
-    - **ALWAYS** refer to the child character by their actual name: "${recipientName}".
-    - **ALWAYS** refer to the main character (e.g., "Dad") by their actual name: "${characterName}".
-    - When referring to the main character, use the correct pronouns: "${characterPronounSubject}", "${characterPronounObject}", "${characterPronounPossessive}".
+    - **When referring to the personalized child character, use their name "${recipientName}" initially, then use natural, flowing pronouns (e.g., "he", "she", "they", "him", "her", "them", "his", "her", "their") to avoid repetition. DO NOT repeat the full name "${recipientName}" excessively when a pronoun would be more natural.**
+    - **ALWAYS** refer to the adult character by their actual name: "${characterName}".
+    - When referring to the adult character, use the correct pronouns: "${characterPronounSubject}", "${characterPronounObject}", "${characterPronounPossessive}".
 - Continue the story seamlessly from the "PREVIOUS CHAPTERS".
 - Begin immediately with the story text for chapter ${chapterNumber}.
 - Ensure fluid narrative progression and character consistency.
