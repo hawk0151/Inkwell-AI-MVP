@@ -1,64 +1,37 @@
-// backend/src/services/pdf.service.js
-
 import PDFDocument from 'pdfkit';
 import axios from 'axios';
 import fs from 'fs/promises';
 import path from 'path';
-import { fileURLToPath, pathToFileURL } from 'url';
+import { fileURLToPath } from 'url';
 import { dirname } from 'path';
-import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { LULU_PRODUCT_CONFIGURATIONS } from './lulu.service.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-
-const workerPath = path.resolve(__dirname, '../../node_modules/pdfjs-dist/build/pdf.worker.mjs');
-pdfjsLib.GlobalWorkerOptions.workerSrc = pathToFileURL(workerPath).href;
 
 const mmToPoints = (mm) => mm * (72 / 25.4);
 
 const ROBOTO_REGULAR_PATH = path.join(__dirname, '../fonts/Roboto-Regular.ttf');
 const ROBOTO_BOLD_PATH = path.join(__dirname, '../fonts/Roboto-Bold.ttf');
 
-// --- MODIFIED: Updated to handle the new trim sizes from lulu.service.js ---
 const getProductDimensions = (luluConfigId) => {
     const productConfig = LULU_PRODUCT_CONFIGURATIONS.find(p => p.id === luluConfigId);
     if (!productConfig) {
         throw new Error(`Product configuration with ID ${luluConfigId} not found.`);
     }
-
     let widthMm, heightMm, layout;
-
     switch (productConfig.trimSize) {
-        // New Novella Size
         case '5.25x8.25':
-            widthMm = 133.35;
-            heightMm = 209.55;
-            layout = 'portrait';
-            break;
-        // New A4 Novel Size
+            widthMm = 133.35; heightMm = 209.55; layout = 'portrait'; break;
         case '8.52x11.94':
-            widthMm = 216.41;
-            heightMm = 303.28;
-            layout = 'portrait';
-            break;
-        // New Royal Hardcover Size
+            widthMm = 216.41; heightMm = 303.28; layout = 'portrait'; break;
         case '6.39x9.46':
-            widthMm = 162.31;
-            heightMm = 240.28;
-            layout = 'portrait';
-            break;
-        // Picture Book Size (assuming it's unchanged)
+            widthMm = 162.31; heightMm = 240.28; layout = 'portrait'; break;
         case '8.27x11.69':
-            widthMm = 209.55;
-            heightMm = 296.9;
-            layout = 'portrait';
-            break;
+            widthMm = 209.55; heightMm = 296.9; layout = 'portrait'; break;
         default:
-            // This was the error source. It will no longer be triggered for our main products.
             throw new Error(`Unknown trim size ${productConfig.trimSize} for interior PDF dimensions.`);
     }
-
     const widthPoints = mmToPoints(widthMm);
     const heightPoints = mmToPoints(heightMm);
     return { width: widthPoints, height: heightPoints, layout: layout };
@@ -69,17 +42,7 @@ async function getImageBuffer(url) {
     return Buffer.from(response.data, 'binary');
 }
 
-export async function getPdfPageCount(pdfFilePath) {
-    try {
-        const pdfData = new Uint8Array(await fs.readFile(pdfFilePath));
-        const loadingTask = pdfjsLib.getDocument({ data: pdfData });
-        const pdfDocument = await loadingTask.promise;
-        return pdfDocument.numPages;
-    } catch (error) {
-        console.error(`Error reading PDF page count from ${pdfFilePath}:`, error);
-        throw new Error(`Failed to get PDF page count from ${pdfFilePath}.`);
-    }
-}
+// REMOVED: Inefficient getPdfPageCount function
 
 async function streamToBuffer(doc) {
     return new Promise((resolve, reject) => {
@@ -163,9 +126,10 @@ export const generateCoverPdf = async (book, productConfig, coverDimensions) => 
     return tempFilePath;
 };
 
-export const generateAndSaveTextBookPdf = async (book, productConfig, addFinalBlankPage = false) => {
+export const generateAndSaveTextBookPdf = async (book, productConfig) => {
     const { width, height, layout } = getProductDimensions(productConfig.id);
     const doc = new PDFDocument({
+        autoFirstPage: false,
         size: [width, height],
         layout: layout,
         margins: { top: 72, bottom: 72, left: 72, right: 72 }
@@ -175,27 +139,34 @@ export const generateAndSaveTextBookPdf = async (book, productConfig, addFinalBl
     await fs.mkdir(tempPdfsDir, { recursive: true });
     const tempFilePath = path.join(tempPdfsDir, `interior_textbook_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.pdf`);
 
+    let pageCount = 0;
+
+    doc.addPage();
+    pageCount++;
     doc.fontSize(28).font(ROBOTO_BOLD_PATH).text(book.title, { align: 'center' }); 
     doc.moveDown(4);
     doc.fontSize(16).font(ROBOTO_REGULAR_PATH).text('A Story by Inkwell AI', { align: 'center' }); 
 
     for (const chapter of book.chapters) {
         doc.addPage();
+        pageCount++;
         doc.fontSize(18).font(ROBOTO_BOLD_PATH).text(`Chapter ${chapter.chapter_number}`, { align: 'center' }); 
         doc.moveDown(2);
         doc.fontSize(12).font(ROBOTO_REGULAR_PATH).text(chapter.content, { align: 'justify' }); 
     }
     
-    if (addFinalBlankPage) {
+    if (pageCount % 2 !== 0) {
         console.log("DEBUG: Adding a final blank page to make page count even.");
         doc.addPage();
+        pageCount++;
     }
+    
     doc.end();
 
     const pdfBuffer = await streamToBuffer(doc);
     await fs.writeFile(tempFilePath, pdfBuffer);
 
-    return tempFilePath;
+    return { path: tempFilePath, pageCount: pageCount };
 };
 
 export const generateAndSavePictureBookPdf = async (book, events, productConfig, addFinalBlankPage = false) => {

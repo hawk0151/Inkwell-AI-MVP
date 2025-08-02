@@ -2,7 +2,7 @@ import { getDb } from '../db/database.js';
 import { randomUUID } from 'crypto';
 import { generateStoryFromApi } from '../services/gemini.service.js';
 import { LULU_PRODUCT_CONFIGURATIONS, getCoverDimensionsFromApi, getPrintOptions, getPrintJobCosts } from '../services/lulu.service.js';
-import { generateAndSaveTextBookPdf, generateCoverPdf, getPdfPageCount } from '../services/pdf.service.js';
+import { generateAndSaveTextBookPdf, generateCoverPdf } from '../services/pdf.service.js';
 import { uploadPdfFileToCloudinary } from '../services/image.service.js';
 import { createStripeCheckoutSession } from '../services/stripe.service.js';
 import path from 'path';
@@ -26,43 +26,31 @@ export const createTextBook = async (req, res) => {
     let client;
     const { title, promptDetails, luluProductId } = req.body;
     const userId = req.userId;
-
-    if (!title || !promptDetails || !luluProductId) {
-        return res.status(400).json({ message: 'Missing title, product ID, or prompt details.' });
-    }
-
     try {
         const pool = await getDb();
         client = await pool.connect();
-
         const selectedProductConfig = LULU_PRODUCT_CONFIGURATIONS.find(p => p.id === luluProductId);
         if (!selectedProductConfig) {
             return res.status(400).json({ message: `Product configuration with ID ${luluProductId} not found.` });
         }
-
         const totalChaptersForBook = selectedProductConfig.totalChapters;
         const bookId = randomUUID();
         const currentDate = new Date().toISOString();
-
         const finalPromptDetails = {
             ...promptDetails,
             wordsPerPage: selectedProductConfig.wordsPerPage,
             totalChapters: totalChaptersForBook,
             maxPageCount: selectedProductConfig.maxPageCount
         };
-
         const bookSql = `INSERT INTO text_books (id, user_id, title, prompt_details, lulu_product_id, date_created, last_modified, total_chapters) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`;
         await client.query(bookSql, [bookId, userId, title, JSON.stringify(finalPromptDetails), luluProductId, currentDate, currentDate, totalChaptersForBook]);
-
         const firstChapterText = await generateStoryFromApi({
             ...finalPromptDetails,
             chapterNumber: 1,
             isFinalChapter: totalChaptersForBook === 1
         });
-
         const chapterSql = `INSERT INTO chapters (book_id, chapter_number, content, date_created) VALUES ($1, 1, $2, $3)`;
         await client.query(chapterSql, [bookId, firstChapterText, currentDate]);
-
         res.status(201).json({
             message: 'Project created and first chapter generated.',
             bookId: bookId,
@@ -84,42 +72,32 @@ export const generateNextChapter = async (req, res) => {
     try {
         const pool = await getDb();
         client = await pool.connect();
-
         const book = await getFullTextBook(bookId, userId, client);
         if (!book) return res.status(404).json({ message: 'Book project not found.' });
-        
-        // --- MODIFIED: Ensure the latest product config is always used ---
         const selectedProductConfig = LULU_PRODUCT_CONFIGURATIONS.find(p => p.id === book.lulu_product_id);
         if (!selectedProductConfig) {
             return res.status(400).json({ message: 'Could not find product configuration for this book.' });
         }
-
         const chapters = book.chapters;
         const previousChaptersText = chapters.map(c => c.content).join('\n\n---\n\n');
         const nextChapterNumber = chapters.length + 1;
         const isFinalChapter = nextChapterNumber >= book.total_chapters;
-
-        // Create a complete, up-to-date prompt object to send to the AI
         const finalPromptDetails = {
-            ...book.prompt_details, // User's original prompt (character names, etc.)
+            ...book.prompt_details,
             wordsPerPage: selectedProductConfig.wordsPerPage,
             totalChapters: selectedProductConfig.totalChapters,
             maxPageCount: selectedProductConfig.maxPageCount
         };
-        // --- END MODIFICATION ---
-
         const newChapterText = await generateStoryFromApi({
-            ...finalPromptDetails, // Use the complete, correct object
+            ...finalPromptDetails,
             previousChaptersText: previousChaptersText,
             chapterNumber: nextChapterNumber,
             isFinalChapter: isFinalChapter,
         });
-
         const currentDate = new Date().toISOString();
         const chapterSql = `INSERT INTO chapters (book_id, chapter_number, content, date_created) VALUES ($1, $2, $3, $4)`;
         await client.query(chapterSql, [bookId, nextChapterNumber, newChapterText, currentDate]);
         await client.query(`UPDATE text_books SET last_modified = $1 WHERE id = $2`, [currentDate, bookId]);
-
         res.status(201).json({
             message: `Chapter ${nextChapterNumber} generated.`,
             newChapter: newChapterText,
@@ -189,7 +167,7 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
     const { bookId } = req.params;
     const { shippingAddress } = req.body;
     let client;
-    let tempInteriorPdfPath = null, tempCoverPdfPath = null, initialTempPdfPath = null;
+    let tempInteriorPdfPath = null, tempCoverPdfPath = null;
     if (!shippingAddress || !shippingAddress.name || !shippingAddress.street1 || !shippingAddress.city || !shippingAddress.postcode || !shippingAddress.country_code) {
         return res.status(400).json({ message: 'Address must include name, street, city, postal code, and country.' });
     }
@@ -201,19 +179,11 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
         const selectedProductConfig = LULU_PRODUCT_CONFIGURATIONS.find(p => p.id === book.lulu_product_id);
         if (!selectedProductConfig) return res.status(400).json({ message: 'Invalid product ID.' });
         console.log(`Checkout for book ${bookId}. Generating PDFs...`);
-        initialTempPdfPath = await generateAndSaveTextBookPdf(book, selectedProductConfig);
-        const actualInteriorPageCount = await getPdfPageCount(initialTempPdfPath);
-        let finalPageCount = actualInteriorPageCount;
-        const needsBlankPage = actualInteriorPageCount % 2 !== 0;
-        if (needsBlankPage) {
-            finalPageCount++;
-            await fs.unlink(initialTempPdfPath);
-            initialTempPdfPath = null;
-            tempInteriorPdfPath = await generateAndSaveTextBookPdf(book, selectedProductConfig, true);
-        } else {
-            tempInteriorPdfPath = initialTempPdfPath;
-            initialTempPdfPath = null;
-        }
+        
+        const { path: interiorPath, pageCount: finalPageCount } = await generateAndSaveTextBookPdf(book, selectedProductConfig);
+        tempInteriorPdfPath = interiorPath;
+        console.log(`PDF generation complete. Final page count is ${finalPageCount}.`);
+        
         if (finalPageCount < selectedProductConfig.minPageCount || finalPageCount > selectedProductConfig.maxPageCount) {
             const errorMessage = `This book has ${finalPageCount} pages, but the selected product format only supports a range of ${selectedProductConfig.minPageCount}-${selectedProductConfig.maxPageCount} pages.`;
             console.error("Checkout failed: Page count out of range.", { bookId, finalPageCount, product: selectedProductConfig.id });
@@ -266,7 +236,6 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
         if (client) client.release();
         if (tempInteriorPdfPath) await fs.unlink(tempInteriorPdfPath).catch(console.error);
         if (tempCoverPdfPath) await fs.unlink(tempCoverPdfPath).catch(console.error);
-        if (initialTempPdfPath) await fs.unlink(initialTempPdfPath).catch(console.error);
     }
 };
 
