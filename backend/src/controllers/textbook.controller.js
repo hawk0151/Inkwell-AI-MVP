@@ -43,7 +43,7 @@ export const createTextBook = async (req, res) => {
         
         // --- MODIFIED: Use totalChapters from promptDetails, not hardcoded value ---
         const totalChaptersForBook = promptDetails.totalChapters; // Get totalChapters from frontend payload
-        // This is a safety check: ensure the luluProductId matches a known config, but we trust frontend for totalChapters
+        // This is a safety check. If totalChapters from frontend doesn't match backend config
         const selectedProductConfig = printOptionsCache.find(p => p.id === luluProductId);
         if (!selectedProductConfig) {
              console.warn(`Product configuration for ID ${luluProductId} not found on backend. Using totalChapters from frontend payload.`);
