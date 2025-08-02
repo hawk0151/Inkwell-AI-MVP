@@ -1,5 +1,10 @@
 // backend/src/services/pdf.service.js
 
+// CHANGES:
+// - Modified generateAndSavePictureBookPdf to pad with blank pages if finalPageCount is below productConfig.minPageCount.
+// - Added specific logging for page count padding.
+// - Enhanced console logs with more contextual information during PDF generation.
+
 import PDFDocument from 'pdfkit';
 import axios from 'axios';
 import fs from 'fs/promises';
@@ -54,19 +59,19 @@ async function streamToBuffer(doc) {
 }
 
 export const generateCoverPdf = async (book, productConfig, coverDimensions) => {
-    console.log(`🚀 Starting dynamic cover generation for SKU: ${productConfig.luluSku}`);
+    console.log(`[PDF Service: Cover] 🚀 Starting dynamic cover generation for SKU: ${productConfig.luluSku}`);
 
     let widthMm = coverDimensions.width;
     let heightMm = coverDimensions.height;
     let widthPoints = mmToPoints(widthMm);
     let heightPoints = mmToPoints(heightMm);
     
-    console.log(`Original dimensions from Lulu (pts): Width=${widthPoints.toFixed(2)}, Height=${heightPoints.toFixed(2)}`);
+    console.log(`[PDF Service: Cover] Original dimensions from Lulu (pts): Width=${widthPoints.toFixed(2)}, Height=${heightPoints.toFixed(2)}`);
 
     if (heightPoints > widthPoints) {
-        console.warn(`⚠️ Height > Width detected. Swapping dimensions to enforce landscape orientation.`);
+        console.warn(`[PDF Service: Cover] ⚠️ Height > Width detected. Swapping dimensions to enforce landscape orientation.`);
         [widthPoints, heightPoints] = [heightPoints, widthPoints];
-        console.warn(`   Corrected dimensions (pts): Width=${widthPoints.toFixed(2)}, Height=${heightPoints.toFixed(2)}`);
+        console.warn(`[PDF Service: Cover] Corrected dimensions (pts): Width=${widthPoints.toFixed(2)}, Height=${heightPoints.toFixed(2)}`);
     }
 
     const doc = new PDFDocument({
@@ -76,21 +81,21 @@ export const generateCoverPdf = async (book, productConfig, coverDimensions) => 
     
     if (book.cover_image_url) {
         try {
-            console.log(`Fetching cover image from: ${book.cover_image_url}`);
+            console.log(`[PDF Service: Cover] Fetching cover image from: ${book.cover_image_url}`);
             const imageBuffer = await getImageBuffer(book.cover_image_url);
             doc.image(imageBuffer, 0, 0, {
                 width: widthPoints,
                 height: heightPoints,
             });
-            console.log("✅ Successfully embedded cover image.");
+            console.log("[PDF Service: Cover] ✅ Successfully embedded cover image.");
         } catch (error) {
-            console.error("❌ Failed to fetch or embed cover image.", error);
+            console.error("[PDF Service: Cover] ❌ Failed to fetch or embed cover image.", error);
             doc.rect(0, 0, widthPoints, heightPoints).fill('red');
             doc.fontSize(24).fillColor('#FFFFFF').font(ROBOTO_BOLD_PATH)
                 .text(`Error: Could not load cover image.`, 50, 50, { width: widthPoints - 100 });
         }
     } else {
-        console.warn("⚠️ No `cover_image_url` found. Generating a placeholder text-based cover.");
+        console.warn("[PDF Service: Cover] ⚠️ No `cover_image_url` found. Generating a placeholder text-based cover.");
         
         doc.rect(0, 0, widthPoints, heightPoints).fill('#313131');
         
@@ -110,7 +115,7 @@ export const generateCoverPdf = async (book, productConfig, coverDimensions) => 
                align: 'center',
                width: contentAreaWidth
            });
-        console.log("✅ Placeholder cover generated successfully.");
+        console.log("[PDF Service: Cover] ✅ Placeholder cover generated successfully.");
     }
 
     const tempPdfsDir = path.resolve(process.cwd(), 'tmp', 'pdfs');
@@ -122,7 +127,7 @@ export const generateCoverPdf = async (book, productConfig, coverDimensions) => 
     const pdfBuffer = await streamToBuffer(doc);
     await fs.writeFile(tempFilePath, pdfBuffer);
     
-    console.log(`✅ Cover PDF saved successfully to: ${tempFilePath}`);
+    console.log(`[PDF Service: Cover] ✅ Cover PDF saved successfully to: ${tempFilePath}`);
     return tempFilePath;
 };
 
@@ -192,7 +197,7 @@ export const generateAndSaveTextBookPdf = async (book, productConfig) => {
     // --- Ensure Even Page Count for Printing ---
     // This logic is crucial for physical printing requirements.
     if (pageCount % 2 !== 0) {
-        console.log("DEBUG: Page count is odd, adding a final blank page.");
+        console.log("[PDF Service: Textbook] DEBUG: Page count is odd, adding a final blank page.");
         doc.addPage();
         pageCount++;
     }
@@ -203,7 +208,7 @@ export const generateAndSaveTextBookPdf = async (book, productConfig) => {
     const pdfBuffer = await streamToBuffer(doc);
     await fs.writeFile(tempFilePath, pdfBuffer);
 
-    console.log(`PDF generated with final page count: ${pageCount}`);
+    console.log(`[PDF Service: Textbook] PDF generated with final page count: ${pageCount}`);
     return { path: tempFilePath, pageCount: pageCount };
 };
 
@@ -213,7 +218,7 @@ export const generateAndSavePictureBookPdf = async (book, events, productConfig)
         size: [width, height],
         layout: layout,
         autoFirstPage: false,
-        margins: { top: 36, bottom: 36, left: 36, right: 36 }
+        margins: { top: 36, bottom: 36, left: 36, right: 36 } // Half inch margins
     });
 
     const tempPdfsDir = path.resolve(process.cwd(), 'tmp', 'pdfs');
@@ -222,15 +227,20 @@ export const generateAndSavePictureBookPdf = async (book, events, productConfig)
 
     let pageCount = 0;
 
-    // Title Page
+    // Title Page (often the first internal page, distinct from the external cover)
     doc.addPage();
     pageCount++;
-    if (book.cover_image_url) {
+    console.log(`[PDF Service: Picture Book] Added Title Page. Current pageCount: ${pageCount}`);
+
+    // If an interior cover image URL is provided (e.g., for inside cover illustration)
+    if (book.cover_image_url) { // Assuming book.cover_image_url might be used for interior title page also
         try {
+            console.log(`[PDF Service: Picture Book] Attempting to load interior title page image from: ${book.cover_image_url}`);
             const coverImageBuffer = await getImageBuffer(book.cover_image_url);
-            doc.image(coverImageBuffer, 0, 0, { width: doc.page.width, height: doc.page.height });
+            doc.image(coverImageBuffer, 0, 0, { width: doc.page.width, height: doc.page.height, fit: [doc.page.width, doc.page.height], valign: 'center', align: 'center' });
+            console.log(`[PDF Service: Picture Book] Successfully embedded interior title page image.`);
         } catch (imgErr) {
-            console.error(`Failed to load cover image for interior from ${book.cover_image_url}`, imgErr);
+            console.error(`[PDF Service: Picture Book] Failed to load interior title page image from ${book.cover_image_url}:`, imgErr);
             doc.fontSize(40).font(ROBOTO_BOLD_PATH).text(book.title, { align: 'center' }); 
         }
     } else {
@@ -243,37 +253,82 @@ export const generateAndSavePictureBookPdf = async (book, events, productConfig)
     for (const event of events) {
         doc.addPage();
         pageCount++;
+        console.log(`[PDF Service: Picture Book] Adding event page for event ID ${event.id}. Current pageCount: ${pageCount}`);
         const imageUrl = event.uploaded_image_url || event.image_url;
+        const margin = doc.page.margins.left;
+        const contentWidth = doc.page.width - 2 * margin;
+        const contentHeight = doc.page.height - 2 * margin; // Full usable area for content
+
         if (imageUrl) {
             try {
+                console.log(`[PDF Service: Picture Book] Fetching event image from: ${imageUrl}`);
                 const imageBuffer = await getImageBuffer(imageUrl);
-                doc.image(imageBuffer, { fit: [doc.page.width - 72, doc.page.height - 150], align: 'center', valign: 'top' });
+                // Fit image within ~70% of page height, centered horizontally and vertically in top 70% area
+                const imageFitHeight = contentHeight * 0.7; 
+                doc.image(imageBuffer, margin, margin, { 
+                    fit: [contentWidth, imageFitHeight], 
+                    align: 'center', 
+                    valign: 'center' 
+                });
+                console.log(`[PDF Service: Picture Book] Successfully embedded event image from ${imageUrl}.`);
             } catch (imgErr) {
-                console.error(`Failed to load image from ${imageUrl}`, imgErr);
+                console.error(`[PDF Service: Picture Book] Failed to load event image from ${imageUrl}:`, imgErr);
+                doc.rect(margin, margin, contentWidth, contentHeight * 0.7).fill('#CCCCCC'); // Placeholder for failed image
+                doc.fontSize(12).fillColor('#333333').text('Image Load Failed', { align: 'center', valign: 'center', width: contentWidth, height: contentHeight * 0.7 });
             }
         }
-        if (event.overlay_text) {
-            doc.fontSize(24).font(ROBOTO_BOLD_PATH).text( 
-                event.overlay_text,
-                doc.page.margins.left,
-                doc.page.height - doc.page.margins.bottom - 100,
-                { align: 'center', width: doc.page.width - doc.page.margins.left * 2 }
+        
+        // Overlay text / description
+        if (event.description || event.overlay_text) {
+            const textToRender = event.overlay_text || event.description;
+            const textY = doc.y; // Current Y position after image, or top margin if no image
+            // If image was added, text should appear below it.
+            // If no image, text should appear from normal flow, but let's constrain its position.
+            const textMarginTop = imageUrl ? (margin + contentHeight * 0.7 + 10) : margin; // 10pt buffer below image
+
+            // Ensure text does not exceed bottom margin, set max height for text area
+            const maxTextHeight = doc.page.height - doc.page.margins.bottom - textMarginTop;
+
+            doc.fontSize(14).font(ROBOTO_REGULAR_PATH).fillColor('#000000').text( 
+                textToRender,
+                margin,
+                textMarginTop,
+                { 
+                    align: 'justify', 
+                    width: contentWidth,
+                    height: maxTextHeight, // Limit height to prevent overflow into margin
+                    ellipsis: true // Add ellipsis if text is too long
+                }
             );
+        }
+        // No auto page count needed for picture books as content is fixed per page
+    }
+
+    // --- Handle Page Count for Printing & Minimums ---
+    // If the generated page count is less than the product's minimum, add blank pages.
+    if (pageCount < productConfig.minPageCount) {
+        const pagesToAdd = productConfig.minPageCount - pageCount;
+        console.warn(`[PDF Service: Picture Book] ⚠️ Generated page count (${pageCount}) is below product minimum (${productConfig.minPageCount}). Adding ${pagesToAdd} blank pages.`);
+        for (let i = 0; i < pagesToAdd; i++) {
+            doc.addPage();
+            pageCount++;
         }
     }
 
-    // Ensure even page count for printing
+    // Ensure even page count for printing (after padding for minimums)
     if (pageCount % 2 !== 0) {
-        console.log("DEBUG: Page count is odd, adding a final blank page.");
+        console.log("[PDF Service: Picture Book] DEBUG: Page count is odd, adding a final blank page for printing.");
         doc.addPage();
         pageCount++;
     }
+
+    console.log(`[PDF Service: Picture Book] Final pageCount before saving: ${pageCount}`);
 
     doc.end();
 
     const pdfBuffer = await streamToBuffer(doc);
     await fs.writeFile(tempFilePath, pdfBuffer);
 
-    console.log(`Picture book PDF generated with final page count: ${pageCount}`);
+    console.log(`[PDF Service: Picture Book] PDF generated with final page count: ${pageCount}`);
     return { path: tempFilePath, pageCount: pageCount };
 };

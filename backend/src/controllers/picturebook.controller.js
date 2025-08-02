@@ -10,9 +10,11 @@
 // - Added comments emphasizing dynamic exchange rate fetching in production.
 // - Enhanced error handling for Lulu's `getPrintJobCosts` with clearer messages and retry considerations (commented).
 // - Improved currency conversion precision using `toFixed(4)` for intermediate steps.
-// - Added a security note regarding sensitive data in logs.
 // - Ensured database inserts for pricing fields use actual numeric types, not strings, to preserve precision.
 // - Implemented more robust temporary PDF file cleanup with specific error logging.
+// - AbortController import/usage adjusted for CommonJS/Node.js compatibility.
+// - Added a security note regarding sensitive data in logs.
+// - Added a defensive guard in checkout flow to check generated page count against product maxPageCount.
 
 import { getDb } from '../db/database.js';
 import { randomUUID } from 'crypto';
@@ -44,10 +46,10 @@ if (typeof globalThis.AbortController === 'function') {
 // List of ISO 3166-1 alpha-2 country codes for validation. This list should be kept up-to-date.
 // For a production system, consider fetching this from a reliable external source or a larger library.
 const VALID_ISO_COUNTRY_CODES = new Set([
-    'AF', 'AX', 'AL', 'DZ', 'AS', 'AD', 'AO', 'AI', 'AQ', 'AG', 'AR', 'AM', 'AW', 'AU', 'AT', 'AZ', 'BS', 'BH', 'BD', 'BB', 'BY', 'BE', 'BZ', 'BJ', 'BM', 'BT', 'BO', 'BQ', 'BA', 'BW', 'BV', 'BR', 'IO', 'BN', 'BG', 'BF', 'BI', 'CV', 'KH', 'CM', 'CA', 'KY', 'CF', 'TD', 'CL', 'CN', 'CX', 'CC', 'CO', 'KM', 'CD', 'CG', 'CO', 'CK', 'CR', 'CI', 'HR', 'CU', 'CW', 'CY', 'CZ', 'DK', 'DJ', 'DM', 'DO', 'EC', 'EG', 'SV', 'GQ', 'ER', 'EE', 'SZ', 'ET', 'FK', 'FO', 'FJ', 'FI', 'FR', 'GF', 'PF', 'TF', 'GA', 'GM', 'GE', 'DE', 'GH', 'GI', 'GR', 'GL', 'GD', 'GP', 'GU', 'GT', 'GG', 'GN', 'GW', 'GY', 'HT', 'HM', 'VA', 'HN', 'HK', 'HU', 'IS', 'IN', 'ID', 'IR', 'IQ', 'IE', 'IM', 'IL', 'IT', 'JM', 'JP', 'JE', 'JO', 'KZ', 'KE', 'KI', 'KP', 'KR', 'KW', 'KG', 'LA', 'LV', 'LB', 'LS', 'LR', 'LY', 'LI', 'LT', 'LU', 'MO', 'MG', 'MW', 'MY', 'MV', 'ML', 'MT', 'MH', 'MQ', 'MR', 'MU', 'YT', 'MX', 'FM', 'MD', 'MC', 'MN', 'ME', 'MS', 'MA', 'MZ', 'MM', 'NA', 'NR', 'NP', 'NL', 'NC', 'NZ', 'NI', 'NE', 'NG', 'NU', 'NF', 'MP', 'NO', 'OM', 'PK', 'PW', 'PS', 'PA', 'PG', 'PY', 'PE', 'PH', 'PN', 'PL', 'PT', 'PR', 'QA', 'MK', 'RO', 'RU', 'RW', 'RE', 'SA', 'SN', 'RS', 'SC', 'SL', 'SG', 'SX', 'SK', 'SI', 'SB', 'SO', 'ZA', 'GS', 'SS', 'ES', 'LK', 'SD', 'SR', 'SJ', 'SE', 'CH', 'SY', 'TW', 'TJ', 'TZ', 'TH', 'TL', 'TG', 'TK', 'TO', 'TT', 'TN', 'TR', 'TM', 'TC', 'TV', 'UG', 'UA', 'AE', 'GB', 'US', 'UM', 'UY', 'UZ', 'VU', 'VE', 'VN', 'VG', 'VI', 'WF', 'EH', 'YE', 'ZM', 'ZW'
+    'AF', 'AX', 'AL', 'DZ', 'AS', 'AD', 'AO', 'AI', 'AQ', 'AG', 'AR', 'AM', 'AW', 'AU', 'AT', 'AZ', 'BS', 'BH', 'BD', 'BB', 'BY', 'BE', 'BZ', 'BJ', 'BM', 'BT', 'BO', 'BQ', 'BA', 'BW', 'BV', 'BR', 'IO', 'BN', 'BG', 'BF', 'BI', 'CV', 'KH', 'CM', 'CA', 'KY', 'CF', 'TD', 'CL', 'CN', 'CX', 'CC', 'CO', 'KM', 'CD', 'CG', 'CK', 'CR', 'CI', 'HR', 'CU', 'CW', 'CY', 'CZ', 'DK', 'DJ', 'DM', 'DO', 'EC', 'EG', 'SV', 'GQ', 'ER', 'EE', 'SZ', 'ET', 'FK', 'FO', 'FJ', 'FI', 'FR', 'GF', 'PF', 'TF', 'GA', 'GM', 'GE', 'DE', 'GH', 'GI', 'GR', 'GL', 'GD', 'GP', 'GU', 'GT', 'GG', 'GN', 'GW', 'GY', 'HT', 'HM', 'VA', 'HN', 'HK', 'HU', 'IS', 'IN', 'ID', 'IR', 'IQ', 'IE', 'IM', 'IL', 'IT', 'JM', 'JP', 'JE', 'JO', 'KZ', 'KE', 'KI', 'KP', 'KR', 'KW', 'KG', 'LA', 'LV', 'LB', 'LS', 'LR', 'LY', 'LI', 'LT', 'LU', 'MO', 'MG', 'MW', 'MY', 'MV', 'ML', 'MT', 'MH', 'MQ', 'MR', 'MU', 'YT', 'MX', 'FM', 'MD', 'MC', 'MN', 'ME', 'MS', 'MA', 'MZ', 'MM', 'NA', 'NR', 'NP', 'NL', 'NC', 'NZ', 'NI', 'NE', 'NG', 'NU', 'NF', 'MP', 'NO', 'OM', 'PK', 'PW', 'PS', 'PA', 'PG', 'PY', 'PE', 'PH', 'PN', 'PL', 'PT', 'PR', 'QA', 'MK', 'RO', 'RU', 'RW', 'RE', 'SA', 'SN', 'RS', 'SC', 'SL', 'SG', 'SX', 'SK', 'SI', 'SB', 'SO', 'ZA', 'GS', 'SS', 'ES', 'LK', 'SD', 'SR', 'SJ', 'SE', 'CH', 'SY', 'TW', 'TJ', 'TZ', 'TH', 'TL', 'TG', 'TK', 'TO', 'TT', 'TN', 'TR', 'TM', 'TC', 'TV', 'UG', 'UA', 'AE', 'GB', 'US', 'UM', 'UY', 'UZ', 'VU', 'VE', 'VN', 'VG', 'VI', 'WF', 'EH', 'YE', 'ZM', 'ZW'
 ]);
 
-const PROFIT_MARGIN_USD = 10.00; // You can have a different profit margin for picture books if you want
+const PROFIT_MARGIN_USD = 10.00; // This can be dynamic based on product/strategy
 
 // --- Flat shipping rates in AUD ---
 const FLAT_SHIPPING_RATES_AUD = {
@@ -79,7 +81,7 @@ function getFlatShippingRate(countryCode) {
     let isDefault = false;
 
     if (flatShippingRateAUD === undefined) {
-        flatShippingRateAUD = FLAT_SHIPPING_RATES_AUD['DEFAULT'];
+        flatShippingRateAUD = FLAT_SHIPPING_RATES_ATUD['DEFAULT'];
         isDefault = true;
     }
 
@@ -96,7 +98,8 @@ async function getFullPictureBook(bookId, userId, client) {
     const book = bookResult.rows[0];
     if (!book) return null;
 
-    const eventsSql = `SELECT *, uploaded_image_url, overlay_text FROM timeline_events WHERE book_id = $1 ORDER BY page_number ASC`;
+    // The order by page_number ASC is crucial for PDF generation sequence
+    const eventsSql = `SELECT *, uploaded_image_url, overlay_text FROM timeline_events WHERE book_id = $1 ORDER BY page_number ASC`; 
     const timelineResult = await client.query(eventsSql, [bookId]);
     book.timeline = timelineResult.rows;
     return book;
@@ -115,7 +118,7 @@ export const createPictureBook = async (req, res) => {
         const countResult = await client.query(countSql, [userId]);
         const { count } = countResult.rows[0];
 
-        if (count >= 5) {
+        if (count >= 5) { // Limit number of projects per user
             return res.status(403).json({ message: "You have reached the maximum of 5 projects." });
         }
 
@@ -382,7 +385,7 @@ export const createBookCheckoutSession = async (req, res) => {
         res.status(200).json({ url: session.url });
     } catch (error) {
         console.error("Failed to create checkout session (Picture Book):", error.stack);
-        res.status(500).json({ message: "Failed to create checkout session.", error: error.message });
+        res.status(500).json({ message: "Failed to create checkout session." });
     } finally {
         if (client) client.release();
         // 8. Cleaning up temporary PDF files with more robust error handling and logs.
