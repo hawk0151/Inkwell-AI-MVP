@@ -1,5 +1,3 @@
-// frontend/src/pages/NovelPage.jsx
-
 import React, { useState, useEffect } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import apiClient from '../services/apiClient';
@@ -8,7 +6,6 @@ import { motion, AnimatePresence } from 'framer-motion';
 
 import { LoadingSpinner, Alert, MagicWandIcon } from '../components/common.jsx';
 
-// --- Sub-components (unchanged) ---
 const Chapter = ({ chapter, isOpen, onToggle }) => {
   const ChevronDownIcon = (props) => (
     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" {...props}>
@@ -188,13 +185,12 @@ function NovelPage() {
   const queryClient = useQueryClient();
   const { bookId: paramBookId } = useParams();
 
-  // This ensures bookId is null for new books, which is correct.
   const [bookId, setBookId] = useState(paramBookId && paramBookId !== 'new' ? paramBookId : null);
   const [bookDetails, setBookDetails] = useState(null);
   const [chapters, setChapters] = useState([]);
   const [openChapter, setOpenChapter] = useState(null);
 
-  const [isLoadingPage, setIsLoadingPage] = useState(true); // Keep true initially
+  const [isLoadingPage, setIsLoadingPage] = useState(true);
   const [isActionLoading, setIsActionLoading] = useState(false);
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const [error, setError] = useState(null);
@@ -204,36 +200,36 @@ function NovelPage() {
     queryKey: ['allBookOptions'],
     queryFn: fetchBookOptions,
     staleTime: Infinity,
-    enabled: true,
   });
 
   const [selectedProductForNew, setSelectedProductForNew] = useState(null);
 
+  // Load existing book if paramBookId is present and not "new"
   useEffect(() => {
-    // If book options are still loading, wait.
     if (isLoadingBookOptions) return;
 
-    // Case 1: Loading an existing book
+    // Reset error and loading at start
+    setError(null);
+
     if (paramBookId && paramBookId !== 'new') {
-      // Only fetch if bookDetails haven't been loaded yet for this ID
+      // Only fetch if we don't have details or different book loaded
       if (!bookDetails || bookDetails.id !== paramBookId) {
-        setIsLoadingPage(true); // Indicate loading for existing book
-        apiClient
-          .get(`/text-books/${paramBookId}`)
-          .then((detailsRes) => {
-            const bookData = detailsRes.data.book;
-            const fetchedChapters = detailsRes.data.chapters;
+        setIsLoadingPage(true);
+        apiClient.get(`/text-books/${paramBookId}`)
+          .then((res) => {
+            const bookData = res.data.book;
+            const fetchedChapters = res.data.chapters || [];
+
             setBookDetails(bookData);
             setChapters(fetchedChapters);
+            setBookId(paramBookId);
             setIsStoryComplete(fetchedChapters.length >= (bookData.total_chapters || 1));
+            setOpenChapter(fetchedChapters.length > 0 ? fetchedChapters[fetchedChapters.length - 1].chapter_number : null);
 
-            if (fetchedChapters.length > 0) {
-              setOpenChapter(fetchedChapters[fetchedChapters.length - 1].chapter_number);
-            }
-
+            // Set selectedProductForNew from bookData or fallback
             const product = allBookOptions?.find((p) => p.id === bookData.luluProductId);
             if (product) {
-              setSelectedProductForNew(product); // Set for display purposes if needed later
+              setSelectedProductForNew(product);
             } else {
               setSelectedProductForNew({
                 id: bookData.luluProductId,
@@ -241,68 +237,57 @@ function NovelPage() {
                 type: bookData.type || 'textBook',
                 price: bookData.price || 0,
                 defaultPageCount: bookData.prompt_details?.pageCount || 66,
-                wordsPerPage: bookData.prompt_details?.wordsPerPage || 250,
+                defaultWordsPerPage: bookData.prompt_details?.wordsPerPage || 250,
                 totalChapters: bookData.total_chapters || 6,
               });
             }
-            setBookId(paramBookId);
+
             setIsLoadingPage(false);
           })
           .catch((err) => {
-            console.error('Error loading existing project:', err);
+            console.error('Error loading book:', err);
             setError(err.response?.data?.message || 'Could not load your project.');
             setIsLoadingPage(false);
           });
-      } else if (bookDetails && isLoadingPage) { // If bookDetails already loaded, just ensure loading is off
+      } else {
+        // Details already loaded for this bookId
         setIsLoadingPage(false);
       }
-    }
-    // Case 2: New book creation flow (paramBookId is 'new')
-    else if (paramBookId === 'new') {
-      // Ensure we are NOT showing prompt form if bookDetails are already set (means book was created)
+    } else if (paramBookId === 'new' || !paramBookId) {
+      // New book flow
+
       if (bookDetails) {
+        // Already created bookDetails => done loading
         setIsLoadingPage(false);
         return;
       }
 
-      // If we have selectedProductId from location.state and book options are available,
-      // AND selectedProductForNew is not yet set.
+      // We need selectedProductForNew from location.state or error if missing
       if (location.state?.selectedProductId && allBookOptions && !selectedProductForNew) {
         const product = allBookOptions.find((p) => p.id === location.state.selectedProductId);
         if (product) {
           setSelectedProductForNew(product);
-          setIsLoadingPage(false); // Ready to show prompt form
+          setIsLoadingPage(false);
         } else {
           setError('Invalid book format selected. Please go back and choose a format.');
           setIsLoadingPage(false);
         }
-      }
-      // If no selectedProductId in state (e.g., direct /novel/new access), show error.
-      else if (!location.state?.selectedProductId && !selectedProductForNew) {
-        setError('To create a new novel, please select a book format first.');
+      } else if (selectedProductForNew) {
+        // product already selected, ready to show prompt form
         setIsLoadingPage(false);
+      } else {
+        // no product selected and no product id => show error
+        if (isLoadingPage) {
+          setError('To create a new novel, please select a book format first.');
+          setIsLoadingPage(false);
+        }
       }
-      // If selectedProductForNew is already set from a previous render, and bookDetails are null,
-      // ensure isLoadingPage is false to display the prompt form.
-      else if (selectedProductForNew && !bookDetails && isLoadingPage) {
-        setIsLoadingPage(false);
-      }
-    }
-    // Fallback: If paramBookId is not 'new' and not an existing ID, show error or redirect
-    else if (!paramBookId && !bookId && !location.state?.selectedProductId) {
-      setError('To create a new novel, please select a book format first.');
-      setIsLoadingPage(false);
-    }
-    // Final catch-all to turn off loading if data is ready but isLoadingPage is still true.
-    else if ((bookId && bookDetails || selectedProductForNew && paramBookId === 'new' && !bookDetails) && isLoadingPage) {
-      setIsLoadingPage(false);
     }
   }, [
     paramBookId,
     allBookOptions,
     isLoadingBookOptions,
     location.state?.selectedProductId,
-    bookId,
     bookDetails,
     selectedProductForNew,
     isLoadingPage,
@@ -311,7 +296,6 @@ function NovelPage() {
   const handleCreateBook = async (formData) => {
     setIsActionLoading(true);
     setError(null);
-    const { title, ...restOfPromptDetails } = formData;
 
     if (!selectedProductForNew || !selectedProductForNew.id) {
       setError('Internal error: Book format not selected during creation.');
@@ -319,9 +303,11 @@ function NovelPage() {
       return;
     }
 
+    const { title, ...restOfPromptDetails } = formData;
+
     const aiGenerationParams = {
       pageCount: selectedProductForNew.defaultPageCount,
-      wordsPerPage: selectedProductForNew.defaultWordsPerPage,
+      wordsPerPage: selectedProductForNew.defaultWordsPerPage, // fixed key name
       totalChapters: selectedProductForNew.totalChapters,
     };
 
@@ -338,12 +324,12 @@ function NovelPage() {
           title: bookData.title,
           luluProductId: bookData.luluProductId,
           prompt_details: promptDetails,
-          total_chapters: aiGenerationParams.totalChapters, // Ensure total_chapters is set from config
+          total_chapters: aiGenerationParams.totalChapters,
         }
       );
       setChapters([{ chapter_number: 1, content: response.data.firstChapter }]);
       setOpenChapter(1);
-      setIsStoryComplete(1 >= aiGenerationParams.totalChapters); // Check if story is complete after 1st chapter
+      setIsStoryComplete(1 >= aiGenerationParams.totalChapters);
 
       navigate(`/novel/${response.data.bookId}`, { replace: true });
     } catch (err) {
@@ -356,15 +342,21 @@ function NovelPage() {
   const handleGenerateNextChapter = async () => {
     setIsActionLoading(true);
     setError(null);
+
     try {
       const response = await apiClient.post(`/text-books/${bookId}/generate-chapter`);
       const newChapterData = {
         chapter_number: response.data.chapterNumber,
         content: response.data.newChapter,
       };
-      setChapters((prev) => [...prev, newChapterData]);
+
+      setChapters((prev) => {
+        const updatedChapters = [...prev, newChapterData];
+        setIsStoryComplete(updatedChapters.length >= (bookDetails?.total_chapters || 1));
+        return updatedChapters;
+      });
+
       setOpenChapter(newChapterData.chapter_number);
-      setIsStoryComplete(chapters.length + 1 >= (bookDetails?.total_chapters || 1));
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to generate the next chapter.');
     } finally {
@@ -379,6 +371,7 @@ function NovelPage() {
   const handleFinalizeAndPurchase = async () => {
     setIsCheckingOut(true);
     setError(null);
+
     try {
       const response = await apiClient.post(`/text-books/${bookId}/checkout`);
       window.location.href = response.data.url;
@@ -388,18 +381,15 @@ function NovelPage() {
     }
   };
 
-  // Primary rendering logic
   if (error) return <Alert title="Error">{error}</Alert>;
   if (isErrorBookOptions) return <Alert title="Error">Could not load book options.</Alert>;
   if (isLoadingPage || isLoadingBookOptions) return <LoadingSpinner text="Getting your book ready..." />;
-
 
   // Show PromptForm if on /novel/new and have selectedProductForNew but no bookDetails yet
   if (paramBookId === 'new' && selectedProductForNew && !bookDetails) {
     return <PromptForm isLoading={isActionLoading} onSubmit={handleCreateBook} productName={selectedProductForNew?.name || 'Novel'} />;
   }
 
-  // If bookId exists (either existing or newly created) and bookDetails are loaded
   if (bookId && bookDetails) {
     const totalChaptersToDisplay = bookDetails.total_chapters || selectedProductForNew?.totalChapters || 1;
 
@@ -474,7 +464,6 @@ function NovelPage() {
     );
   }
 
-  // Fallback if no condition met (should be rare with good state management)
   return null;
 }
 
