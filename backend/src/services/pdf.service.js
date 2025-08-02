@@ -18,7 +18,6 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = pathToFileURL(workerPath).href;
 const mmToPoints = (mm) => mm * (72 / 25.4);
 
 // Define paths to the new font files
-// Ensure Roboto-Regular.ttf and Roboto-Bold.ttf are in backend/src/fonts/
 const ROBOTO_REGULAR_PATH = path.join(__dirname, '../fonts/Roboto-Regular.ttf');
 const ROBOTO_BOLD_PATH = path.join(__dirname, '../fonts/Roboto-Bold.ttf');
 
@@ -32,17 +31,17 @@ const getProductDimensions = (luluConfigId) => {
     let widthMm, heightMm, layout;
 
     switch (productConfig.trimSize) {
-        case '5.75x8.75':
+        case '5.75x8.75': // Novella interior
             widthMm = 146.05;
             heightMm = 222.25;
             layout = 'portrait';
             break;
-        case '8.27x11.69':
+        case '8.27x11.69': // A4 Novel interior
             widthMm = 209.55;
             heightMm = 296.9;
             layout = 'portrait';
             break;
-        case '6.14x9.21':
+        case '6.14x9.21': // Royal Hardcover interior
             widthMm = 156;
             heightMm = 234;
             layout = 'portrait';
@@ -82,64 +81,76 @@ async function streamToBuffer(doc) {
     });
 }
 
+/**
+ * Generates a dynamic, correctly oriented wraparound cover PDF.
+ * This function removes previous hardcoding and uses the live dimensions from the Lulu API.
+ * It also fetches the book's cover image and embeds it.
+ */
 export const generateCoverPdf = async (book, productConfig, coverDimensions) => {
-    // Hardcoding dimensions for the Novella (0550X0850BWSTDPB060UC444GXX) based on Lulu's rejection message.
-    let actualCoverWidthMm;
-    let actualCoverHeightMm;
-    let actualLayout;
+    console.log(`🚀 Starting dynamic cover generation for SKU: ${productConfig.luluSku}`);
 
-    if (productConfig.luluSku === '0550X0850BWSTDPB060UC444GXX') {
-        // Lulu expects: 11.396"-11.521" x 8.688"-8.812"
-        // Let's pick a value within the range, converted to mm.
-        // Approx mid-point: 11.4585" x 8.75"
-        actualCoverWidthMm = 290.945; // Corresponds to 11.4585 inches
-        actualCoverHeightMm = 222.25; // Corresponds to 8.75 inches
-        actualLayout = 'portrait'; // Assuming portrait for a typical book cover
-        
-        console.warn(`⚠️ generateCoverPdf: Using hardcoded dimensions for SKU ${productConfig.luluSku} to bypass Lulu API issue.`);
-        console.warn(`   Hardcoded dimensions: ${actualCoverWidthMm}mm x ${actualCoverHeightMm}mm`);
-    } else {
-        // Fallback to the original logic if it's a different product.
-        // NOTE: This will still use the 'fallback dimensions' if getCoverDimensionsFromApi fails for other SKUs.
-        actualCoverWidthMm = coverDimensions.width;
-        actualCoverHeightMm = coverDimensions.height;
-        actualLayout = coverDimensions.layout;
-        console.warn(`⚠️ generateCoverPdf: Using dimensions from 'coverDimensions' for SKU ${productConfig.luluSku}.`);
+    // --- START: DYNAMIC & ROBUST COVER GENERATION LOGIC ---
+
+    // 1. Get raw dimensions in millimeters from the Lulu API response.
+    let widthMm = coverDimensions.width;
+    let heightMm = coverDimensions.height;
+    
+    // 2. Convert dimensions to PDF points.
+    let widthPoints = mmToPoints(widthMm);
+    let heightPoints = mmToPoints(heightMm);
+    
+    console.log(`Original dimensions from Lulu (pts): Width=${widthPoints.toFixed(2)}, Height=${heightPoints.toFixed(2)}`);
+
+    // 3. **CRITICAL FIX**: Ensure landscape orientation for wraparound cover.
+    // A wraparound cover's width must be greater than its height. If Lulu returns swapped values, we correct them.
+    if (heightPoints > widthPoints) {
+        console.warn(`⚠️ Height > Width detected. Swapping dimensions to enforce landscape orientation.`);
+        [widthPoints, heightPoints] = [heightPoints, widthPoints]; // Swap the values
+        console.warn(`   Corrected dimensions (pts): Width=${widthPoints.toFixed(2)}, Height=${heightPoints.toFixed(2)}`);
     }
 
-    const docWidthPoints = mmToPoints(actualCoverWidthMm);
-    const docHeightPoints = mmToPoints(actualCoverHeightMm);
-
+    // 4. Create the PDF document with the corrected, precise dimensions.
+    // Note: We do not set 'layout' and instead let the `size` array define the orientation.
     const doc = new PDFDocument({
-        size: [docWidthPoints, docHeightPoints],
-        layout: actualLayout,
+        size: [widthPoints, heightPoints],
         margins: { top: 0, bottom: 0, left: 0, right: 0 }
     });
     
+    // 5. Fetch the actual cover image for the book.
+    if (!book.cover_image_url) {
+        throw new Error("Cannot generate cover PDF: `book.cover_image_url` is missing.");
+    }
+
+    try {
+        console.log(`Fetching cover image from: ${book.cover_image_url}`);
+        const imageBuffer = await getImageBuffer(book.cover_image_url);
+        // Embed the image to fill the entire cover dimensions.
+        doc.image(imageBuffer, 0, 0, {
+            width: widthPoints,
+            height: heightPoints,
+        });
+        console.log("✅ Successfully embedded cover image.");
+    } catch (error) {
+        console.error("❌ Failed to fetch or embed cover image.", error);
+        // Create a fallback visual error message on the PDF itself for easier debugging.
+        doc.rect(0, 0, widthPoints, heightPoints).fill('red');
+        doc.fontSize(24).fillColor('#FFFFFF').font(ROBOTO_BOLD_PATH)
+            .text(`Error: Could not load cover image from URL.`, 50, 50, { width: widthPoints - 100 });
+    }
+
+    // --- END: DYNAMIC LOGIC ---
+
+    // Save the generated PDF to a temporary file, maintaining the existing pattern.
     const tempPdfsDir = path.resolve(process.cwd(), 'tmp', 'pdfs');
     await fs.mkdir(tempPdfsDir, { recursive: true });
-    const tempFilePath = path.join(tempPdfsDir, `cover_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.pdf`);
-
-    doc.rect(0, 0, doc.page.width, doc.page.height).fill('#313131');
-    const safetyMarginPoints = 0.25 * 72;
-    const contentAreaWidth = doc.page.width - (2 * safetyMarginPoints);
-
-    // Using custom font files for explicit embedding
-    doc.fontSize(48).fillColor('#FFFFFF').font(ROBOTO_BOLD_PATH) 
-       .text(book.title, safetyMarginPoints, doc.page.height / 4, {
-           align: 'center', width: contentAreaWidth
-       });
-    doc.moveDown(1);
-    doc.fontSize(24).fillColor('#CCCCCC').font(ROBOTO_REGULAR_PATH) 
-       .text('Inkwell AI', {
-           align: 'center', width: contentAreaWidth
-       });
-
+    const tempFilePath = path.join(tempPdfsDir, `cover_${Date.now()}_${book.id}.pdf`);
+    
     doc.end();
 
     const pdfBuffer = await streamToBuffer(doc);
     await fs.writeFile(tempFilePath, pdfBuffer);
     
+    console.log(`✅ Cover PDF saved successfully to: ${tempFilePath}`);
     return tempFilePath;
 };
 
