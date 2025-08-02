@@ -6,8 +6,9 @@
 // - Corrected typo in getFlatShippingRate for FLAT_SHIPPING_RATES_AUD lookup.
 // - FIX: Added JSON.parse for book.prompt_details in generateNextChapter to correctly retrieve saved prompt parameters.
 // - FIX: Integrated new finalizePdfPageCount helper to handle PDF padding and even-page count using pdf-lib after initial content generation.
-// - NEW FIX: Added robust logging for full Lulu print cost response and a more defensive check for print_costs structure.
+// - FIX: Added robust logging for full Lulu print cost response and a more defensive check for print_costs structure.
 // - ADDED phone_number field to shipping address for Lulu API.
+// - CRITICAL FIX: Corrected the path to retrieve Lulu print cost from 'line_item_costs[0].total_cost_incl_tax' instead of 'print_costs.total_cost_incl_tax'.
 
 import { getDb } from '../db/database.js';
 import { randomUUID } from 'crypto';
@@ -561,4 +562,4 @@ export const toggleTextBookPrivacy = async (req, res) => {
     } finally {
         if (client) client.release();
     }
-}; 
+};
