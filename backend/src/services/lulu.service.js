@@ -1,78 +1,67 @@
-// backend/src/services/lulu.service.js
-
 import axios from 'axios';
 import { Buffer } from 'buffer';
 import dns from 'dns/promises';
 
+// --- MODIFIED: Updated with your final, cost-effective SKUs and corrected trim sizes. ---
 export const LULU_PRODUCT_CONFIGURATIONS = [
     {
-        id: 'NOVBOOK_BW_5.5x8.5',
-        luluSku: '0550X0850BWSTDPB060UC444GXX',
-        name: 'Novella (5.75 x 8.75")',
+        id: 'NOVBOOK_BW_5.25x8.25',
+        luluSku: '0500X0800BWSTDSS060UC444MXX',
+        name: 'Novella (5.25 x 8.25" Paperback)',
         type: 'textBook',
-        trimSize: '5.75x8.75',
-        basePrice: 5.49,
-        // --- NEW AI GENERATION PARAMETERS START ---
-        defaultPageCount: 66, 
-        defaultWordsPerPage: 250, 
+        trimSize: '5.25x8.25',
+        basePrice: 5.99,
+        defaultPageCount: 40,
+        defaultWordsPerPage: 250,
         totalChapters: 6,
-        category: 'novel' // Added for frontend filtering
-        // --- NEW AI GENERATION PARAMETERS END ---
+        category: 'novel'
     },
     {
-        id: 'A4STORY_FC_8.27x11.69',
-        luluSku: '0827X1169BWPRELW060UC444GNG',
-        name: 'A4 Story Book (8.27 x 11.69")',
-        type: 'pictureBook',
-        trimSize: '8.27x11.69',
-        basePrice: 7.5,
-        // --- NEW AI GENERATION PARAMETERS START ---
-        defaultPageCount: 30, 
-        defaultWordsPerPage: 100, 
-        totalChapters: 1,
-        category: 'pictureBook' // Added for frontend filtering
-        // --- NEW AI GENERATION PARAMETERS END ---
-    },
-    {
-        id: 'ROYAL_HARDCOVER_6.14x9.21',
-        luluSku: '0614X0921BWPRELW060UC444GNG',
-        name: 'Royal Hardcover (6.14 x 9.21")',
+        id: 'A4NOVEL_PB_8.52x11.94',
+        luluSku: '0827X1169BWSTDPB060UC444MXX',
+        name: 'A4 Novel (8.52 x 11.94" Paperback)',
         type: 'textBook',
-        trimSize: '6.14x9.21',
-        basePrice: 12.0,
-        // --- NEW AI GENERATION PARAMETERS START ---
-        defaultPageCount: 100, 
-        defaultWordsPerPage: 300, 
+        trimSize: '8.52x11.94',
+        basePrice: 15.99,
+        defaultPageCount: 80,
+        defaultWordsPerPage: 400,
+        totalChapters: 8,
+        category: 'novel'
+    },
+    {
+        id: 'ROYAL_HARDCOVER_6.39x9.46',
+        luluSku: '0614X0921BWSTDCW060UC444MXX',
+        name: 'Royal Hardcover (6.39 x 9.46")',
+        type: 'textBook',
+        trimSize: '6.39x9.46',
+        basePrice: 24.99,
+        defaultPageCount: 100,
+        defaultWordsPerPage: 300,
         totalChapters: 10,
-        category: 'novel' // Added for frontend filtering
-        // --- NEW AI GENERATION PARAMETERS END ---
+        category: 'novel'
     },
     {
         id: 'A4PREMIUM_FC_8.27x11.69',
-        luluSku: '0827X1169FCPRELW080CW444MNG',
+        luluSku: '0827X1169PFSTDPB080GC444MXX', // Example premium picture book SKU
         name: 'A4 Premium Picture Book (8.27 x 11.69")',
         type: 'pictureBook',
         trimSize: '8.27x11.69',
-        basePrice: 15.0,
-        // --- NEW AI GENERATION PARAMETERS START ---
-        defaultPageCount: 40, 
-        defaultWordsPerPage: 120, 
+        basePrice: 15.0, // Corrected 'price' to 'basePrice' for consistency
+        defaultPageCount: 40,
+        defaultWordsPerPage: 120,
         totalChapters: 1,
-        category: 'pictureBook' // Added for frontend filtering
-        // --- NEW AI GENERATION PARAMETERS END ---
+        category: 'pictureBook'
     }
 ];
+// --- END MODIFIED ---
 
 export const getPrintOptions = () => {
-    // --- DEBUG LOGS START ---
-    console.log("DEBUG getPrintOptions: LULU_PRODUCT_CONFIGURATIONS status:", 
+    console.log("DEBUG getPrintOptions: LULU_PRODUCT_CONFIGURATIONS status:",
         LULU_PRODUCT_CONFIGURATIONS && LULU_PRODUCT_CONFIGURATIONS.length > 0 ? "POPULATED" : "EMPTY/UNDEFINED");
     if (LULU_PRODUCT_CONFIGURATIONS) {
         console.log("DEBUG getPrintOptions: First product config (if any):", LULU_PRODUCT_CONFIGURATIONS[0]);
     }
-    // --- DEBUG LOGS END ---
 
-    // --- MODIFIED: Return additional AI generation parameters and category ---
     const options = LULU_PRODUCT_CONFIGURATIONS.map(p => ({
         id: p.id,
         name: p.name,
@@ -81,14 +70,10 @@ export const getPrintOptions = () => {
         defaultPageCount: p.defaultPageCount,
         defaultWordsPerPage: p.defaultWordsPerPage,
         totalChapters: p.totalChapters,
-        category: p.category // Return the new category field
+        category: p.category
     }));
-    // --- END MODIFIED ---
 
-    // --- DEBUG LOGS START ---
     console.log("DEBUG getPrintOptions: Options array being returned:", options);
-    // --- DEBUG LOGS END ---
-
     return options;
 };
 
@@ -191,7 +176,7 @@ export async function getCoverDimensionsFromApi(podPackageId, pageCount) {
         return coverDimensionsCache.get(cacheKey);
     }
 
-    const endpoint = 'https://api.lulu.com/cover-dimensions/'; 
+    const endpoint = 'https://api.lulu.com/cover-dimensions/';
 
     try {
         await ensureHostnameResolvable(endpoint);
@@ -207,8 +192,8 @@ export async function getCoverDimensionsFromApi(podPackageId, pageCount) {
             return await axios.post(
                 endpoint,
                 {
-                    pod_package_id: podPackageId, 
-                    interior_page_count: pageCount 
+                    pod_package_id: podPackageId,
+                    interior_page_count: pageCount
                 },
                 {
                     headers: {
@@ -221,7 +206,7 @@ export async function getCoverDimensionsFromApi(podPackageId, pageCount) {
         }, 3, 300);
 
         const dimensions = response.data;
-        
+
         const ptToMm = (pt) => pt * (25.4 / 72);
 
         if (typeof dimensions.width === 'undefined' || typeof dimensions.height === 'undefined' || dimensions.unit !== 'pt') {
@@ -231,15 +216,15 @@ export async function getCoverDimensionsFromApi(podPackageId, pageCount) {
 
         const widthMm = ptToMm(parseFloat(dimensions.width));
         const heightMm = ptToMm(parseFloat(dimensions.height));
-        let bleedMm = 3.175; 
-        let spineThicknessMm = 0; 
-        
+        let bleedMm = 3.175;
+        let spineThicknessMm = 0;
+
         const result = {
             width: widthMm,
             height: heightMm,
-            layout: widthMm > heightMm ? 'landscape' : 'portrait', 
-            bleed: bleedMm, 
-            spineThickness: spineThicknessMm 
+            layout: widthMm > heightMm ? 'landscape' : 'portrait',
+            bleed: bleedMm,
+            spineThickness: spineThicknessMm
         };
 
         coverDimensionsCache.set(cacheKey, result);
@@ -250,6 +235,55 @@ export async function getCoverDimensionsFromApi(podPackageId, pageCount) {
         throw new Error(`Failed to get cover dimensions for SKU ${podPackageId} with ${pageCount} pages. Lulu API error: ${error.response ? JSON.stringify(error.response.data) : error.message}`);
     }
 }
+
+// --- NEWLY ADDED: Function to get dynamic print and shipping costs from Lulu. ---
+/**
+ * Fetches the estimated costs for a print job, including shipping.
+ * @param {Array<object>} lineItems - The items to be printed, e.g., [{ pod_package_id: '...', page_count: 100 }]
+ * @param {object} shippingAddress - The destination shipping address.
+ * @returns {Promise<object>} A promise that resolves to the cost calculation response from Lulu.
+ */
+export const getPrintJobCosts = async (lineItems, shippingAddress) => {
+    const endpoint = `${process.env.LULU_API_BASE_URL.replace(/\/$/, '')}/print-job-cost-calculations/`;
+
+    try {
+        await ensureHostnameResolvable(endpoint);
+        const token = await getLuluAuthToken();
+
+        const payload = {
+            line_items: lineItems,
+            shipping_address: shippingAddress,
+            shipping_level: "MAIL" // Using the most common/cheapest option as default
+        };
+
+        console.log("DEBUG: Requesting print job cost calculation from Lulu...");
+
+        const response = await retryWithBackoff(async () => {
+            return await axios.post(endpoint, payload, {
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                timeout: 15000
+            });
+        });
+
+        console.log("✅ Successfully retrieved print job costs from Lulu.");
+        return response.data;
+
+    } catch (error) {
+        if (error.response) {
+            console.error("❌ Error getting print job costs from Lulu (API response):", {
+                status: error.response.status,
+                data: error.response.data
+            });
+        } else {
+            console.error("❌ Error getting print job costs from Lulu (network/unknown):", error.message);
+        }
+        throw new Error(`Failed to get print job costs. Lulu API error: ${error.response ? JSON.stringify(error.response.data) : error.message}`);
+    }
+};
+// --- END NEWLY ADDED ---
 
 export const createLuluPrintJob = async (orderDetails, shippingInfo) => {
     try {
@@ -272,7 +306,7 @@ export const createLuluPrintJob = async (orderDetails, shippingInfo) => {
         const payload = {
             contact_email: shippingInfo.email,
             external_id: `inkwell-order-${orderDetails.id}`,
-            shipping_level: "MAIL", 
+            shipping_level: "MAIL",
             shipping_address: {
                 name: shippingInfo.name,
                 street1: shippingInfo.street1,
