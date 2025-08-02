@@ -1,5 +1,3 @@
-// backend/src/controllers/textbook.controller.js
-
 import { getDb } from '../db/database.js';
 import { randomUUID } from 'crypto';
 import { generateStoryFromApi } from '../services/gemini.service.js';
@@ -24,22 +22,36 @@ async function getFullTextBook(bookId, userId, client) {
 
 export const createTextBook = async (req, res) => {
     let client;
-    const { title, promptDetails, luluProductId } = req.body;
+    const { title, promptDetails, luluProductId } = req.body; // promptDetails now contains pageCount, wordsPerPage, totalChapters
     const userId = req.userId;
 
-    if (!title || !promptDetails || !luluProductId) {
-        return res.status(400).json({ message: 'Missing title, prompt details, or product ID.' });
+    // --- VALIDATION START ---
+    // Perform basic validation for promptDetails existence and required fields for story generation
+    if (!title || !promptDetails || !luluProductId || typeof promptDetails.pageCount === 'undefined' || typeof promptDetails.wordsPerPage === 'undefined' || typeof promptDetails.totalChapters === 'undefined') {
+        console.error('Validation Error: Missing title, product ID, or required prompt details for story generation.', { title, promptDetails, luluProductId });
+        return res.status(400).json({ message: 'Missing title, product ID, or required story generation parameters (pageCount, wordsPerPage, totalChapters).' });
     }
+    // --- VALIDATION END ---
 
     try {
         const pool = await getDb();
         client = await pool.connect();
 
         if (!printOptionsCache) {
-            printOptionsCache = await getPrintOptions();
+            printOptionsCache = await getPrintOptions(); // Cache all book options for product lookup
         }
         
-        const totalChaptersForBook = 6;
+        // --- MODIFIED: Use totalChapters from promptDetails, not hardcoded value ---
+        const totalChaptersForBook = promptDetails.totalChapters;
+        // Ensure this matches the product config's totalChapters
+        const selectedProductConfig = printOptionsCache.find(p => p.id === luluProductId);
+        if (!selectedProductConfig || selectedProductConfig.totalChapters !== totalChaptersForBook) {
+            // This is a safety check. If totalChapters from frontend doesn't match backend config
+            console.warn(`Frontend totalChapters (${totalChaptersForBook}) for product ${luluProductId} does not match backend config (${selectedProductConfig?.totalChapters}). Using frontend value.`);
+            // Alternatively, you could force selectedProductConfig.totalChapters here.
+            // For now, we'll trust frontend's promptDetails.totalChapters as it aligns with UI.
+        }
+        // --- END MODIFIED ---
 
         const bookId = randomUUID();
         const currentDate = new Date().toISOString();
@@ -48,7 +60,7 @@ export const createTextBook = async (req, res) => {
         await client.query(bookSql, [bookId, userId, title, JSON.stringify(promptDetails), luluProductId, currentDate, currentDate, totalChaptersForBook]);
 
         const firstChapterText = await generateStoryFromApi({
-            ...promptDetails,
+            ...promptDetails, // This now correctly includes pageCount, wordsPerPage, totalChapters
             chapterNumber: 1,
             totalChapters: totalChaptersForBook,
         });
@@ -60,7 +72,7 @@ export const createTextBook = async (req, res) => {
             message: 'Project created and first chapter generated.',
             bookId: bookId,
             firstChapter: firstChapterText,
-            totalChapters: totalChaptersForBook,
+            totalChapters: totalChaptersForBook, // Send back the correct totalChapters
         });
     } catch (error) {
         console.error('Error creating text book:', error);
@@ -87,14 +99,23 @@ export const generateNextChapter = async (req, res) => {
 
         const previousChaptersText = chapters.map(c => c.content).join('\n\n---\n\n');
         const nextChapterNumber = chapters.length + 1;
-        const promptDetails = JSON.parse(book.prompt_details);
-        const isFinalChapter = nextChapterNumber === book.total_chapters;
+        const promptDetails = JSON.parse(book.prompt_details); // prompt_details from DB (snake_case)
+        const isFinalChapter = nextChapterNumber >= book.total_chapters; // Use book.total_chapters from DB
+
+        // --- VALIDATION START ---
+        // Ensure promptDetails from DB has required AI generation parameters
+        if (typeof promptDetails.pageCount === 'undefined' || typeof promptDetails.wordsPerPage === 'undefined' || typeof promptDetails.totalChapters === 'undefined') {
+            const errorMessage = `Missing AI generation parameters in stored promptDetails for book ${bookId}.`;
+            console.error('Validation Error:', errorMessage, promptDetails);
+            return res.status(500).json({ message: 'Stored book data is missing required AI parameters for chapter generation.' });
+        }
+        // --- VALIDATION END ---
 
         const newChapterText = await generateStoryFromApi({
-            ...promptDetails,
+            ...promptDetails, 
             previousChaptersText: previousChaptersText,
             chapterNumber: nextChapterNumber,
-            totalChapters: book.total_chapters,
+            totalChapters: book.total_chapters, // Use book.total_chapters from DB
             isFinalChapter: isFinalChapter,
         });
 
@@ -107,7 +128,7 @@ export const generateNextChapter = async (req, res) => {
             message: `Chapter ${nextChapterNumber} generated.`,
             newChapter: newChapterText,
             chapterNumber: nextChapterNumber,
-            isStoryComplete: isFinalChapter,
+            isStoryComplete: isFinalChapter, // Send back completion status
         });
     } catch (error) {
         console.error(`Error generating chapter for book ${bookId}:`, error);
@@ -134,9 +155,14 @@ export const getTextBooks = async (req, res) => {
         if (!printOptionsCache) {
             printOptionsCache = await getPrintOptions();
         }
+        // MODIFIED: Ensure productName and type are correctly mapped from printOptionsCache
         const booksWithData = books.map(book => {
             const productConfig = printOptionsCache.find(p => p.id === book.lulu_product_id);
-            return { ...book, productName: productConfig ? productConfig.name : 'Unknown Book', type: 'textBook' };
+            return { 
+                ...book, 
+                productName: productConfig ? productConfig.name : 'Unknown Book', 
+                type: productConfig ? productConfig.type : 'textBook' // Default to textBook if type unknown
+            };
         });
         res.status(200).json(booksWithData);
     } catch (error) {
@@ -213,7 +239,10 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
             console.log("✅ Successfully retrieved cover dimensions from Lulu API.");
         } catch (error) {
             console.warn("⚠️ Lulu API call for cover dimensions failed. Proceeding with fallback dimensions.");
-            coverDimensions = { width: 291.57, height: 222.25, layout: 'landscape' };
+            // These fallback dimensions are for a specific novel size (approx 5.5x8.5)
+            // They were previously hardcoded to 291.57 x 222.25 which led to Lulu rejections
+            // If the API continues to fail, this fallback needs to become a dynamic calculation based on trimSize and pageCount.
+            coverDimensions = { width: 290.945, height: 222.25, layout: 'portrait' }; // Using the dimensions that worked for Novella
             isFallback = true;
         }
         
@@ -228,7 +257,6 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
         );
         console.log(`Created pending order record ${orderId} with fallback status: ${isFallback}.`);
 
-        // FIXED: The call now passes all required arguments: productDetails, userId, orderId, bookId, bookType
         const session = await createStripeCheckoutSession(
             { name: book.title, description: `Inkwell AI Custom Book`, price: selectedProductConfig.basePrice },
             req.userId,
