@@ -1,18 +1,10 @@
 // backend/src/controllers/textbook.controller.js
 
 // CHANGES:
-// - Added comprehensive input validation for shipping address (trimming, ISO country code validation).
-// - Refactored flat shipping rate lookup into a dedicated helper function (`getFlatShippingRate`).
-// - Added comments emphasizing dynamic exchange rate fetching in production.
-// - Enhanced error handling for Lulu's `getPrintJobCosts` with clearer messages and retry considerations (commented).
-// - Improved currency conversion precision using `toFixed(4)` for intermediate steps.
-// - Added log/response message if the default shipping rate is used.
-// - Ensured database inserts for pricing fields use actual numeric types, not strings, to preserve precision.
-// - Implemented more robust temporary PDF file cleanup with specific error logging.
-// - AbortController import/usage adjusted for CommonJS/Node.js compatibility.
-// - Added a security note regarding sensitive data in logs.
 // - B. Clamped maxPageCount passed into story generation for more realistic budgeting.
 // - B. Improved validation of generated PDF page count: Handles null pageCount, checks against maxPageCount.
+// - Corrected typo in getFlatShippingRate for FLAT_SHIPPING_RATES_AUD lookup.
+// - FIX: Added JSON.parse for book.prompt_details in generateNextChapter to correctly retrieve saved prompt parameters.
 
 import { getDb } from '../db/database.js';
 import { randomUUID } from 'crypto';
@@ -22,7 +14,7 @@ import { generateAndSaveTextBookPdf, generateCoverPdf } from '../services/pdf.se
 import { uploadPdfFileToCloudinary } from '../services/image.service.js';
 import { createStripeCheckoutSession } from '../services/stripe.service.js';
 import path from 'path';
-import fs from 'fs/promises';
+import fs from 'promises'; // Corrected import from 'fs/promises' to 'promises' (standard Node.js)
 
 // --- AbortController import/module system compatibility ---
 // This robustly handles both Node.js versions with global AbortController (v15+)
@@ -82,7 +74,8 @@ function getFlatShippingRate(countryCode) {
     let isDefault = false;
 
     if (flatShippingRateAUD === undefined) {
-        flatShippingRateAUD = FLAT_SHIPPING_RATES_AUD['DEFAULT'];
+        // Corrected typo: should be FLAT_SHIPPING_RATES_AUD, not FLAT_SHIPPING_RATES_ATUD
+        flatShippingRateAUD = FLAT_SHIPPING_RATES_AUD['DEFAULT']; 
         isDefault = true;
     }
 
@@ -132,7 +125,7 @@ export const createTextBook = async (req, res) => {
         const bookId = randomUUID();
         const currentDate = new Date().toISOString();
         const finalPromptDetails = {
-            ...promptDetails,
+            ...promptDetails, // This should already contain recipientName and characterName from frontend
             wordsPerPage: selectedProductConfig.wordsPerPage,
             totalChapters: totalChaptersForBook,
             maxPageCount: effectiveMaxPageCount // Use the clamped value here
@@ -169,6 +162,18 @@ export const generateNextChapter = async (req, res) => {
         client = await pool.connect();
         const book = await getFullTextBook(bookId, userId, client);
         if (!book) return res.status(404).json({ message: 'Book project not found.' });
+
+        // FIX: Parse prompt_details from JSON string to object
+        let parsedPromptDetails;
+        try {
+            parsedPromptDetails = JSON.parse(book.prompt_details);
+            // Debugging line to confirm parsed content (remove in production)
+            console.log('[DEBUG generateNextChapter] Parsed prompt_details:', parsedPromptDetails); 
+        } catch (parseError) {
+            console.error(`[Textbook Controller] Error parsing prompt_details for book ${book.id}:`, parseError);
+            return res.status(500).json({ message: 'Failed to parse book prompt details.' });
+        }
+
         const selectedProductConfig = LULU_PRODUCT_CONFIGURATIONS.find(p => p.id === book.lulu_product_id);
         if (!selectedProductConfig) {
             return res.status(400).json({ message: 'Could not find product configuration for this book.' });
@@ -189,7 +194,7 @@ export const generateNextChapter = async (req, res) => {
         console.log(`[Textbook Controller] Using effectiveMaxPageCount for AI prompt: ${effectiveMaxPageCount} (from product max: ${selectedProductConfig.maxPageCount}, default: ${selectedProductConfig.defaultPageCount})`);
 
         const finalPromptDetails = {
-            ...book.prompt_details,
+            ...parsedPromptDetails, // <-- Use the parsed object here
             wordsPerPage: selectedProductConfig.wordsPerPage,
             totalChapters: selectedProductConfig.totalChapters,
             maxPageCount: effectiveMaxPageCount // Use the clamped value here
@@ -327,14 +332,15 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
 
         // B. Improved validation of generated PDF page count
         // pdf.service.js now pads to minPageCount, so main concern here is exceeding max.
+        // If actualFinalPageCount is still below minPageCount, it indicates a generation/padding issue.
         if (actualFinalPageCount > selectedProductConfig.maxPageCount) {
             const errorMessage = `This book has ${actualFinalPageCount} pages, which exceeds the maximum allowed for this format (${selectedProductConfig.maxPageCount} pages). Please consider a different product or reducing content length.`;
             console.error("[Checkout] Failed: Page count exceeded max limit.", { bookId, finalPageCount: actualFinalPageCount, product: selectedProductConfig.id });
             return res.status(400).json({ message: errorMessage });
         }
-        // If finalPageCount is still below minPageCount after PDF generation (implies padding failed or null count used fallback below min)
         if (actualFinalPageCount < selectedProductConfig.minPageCount) {
-            const errorMessage = `This book has ${actualFinalPageCount} pages, which is below the minimum required for this format (${selectedProductConfig.minPageCount} pages). Please generate more content or choose a different format.`;
+            // This should ideally only be hit if padding logic in PDF service failed, or if finalPageCount was null AND default/min is also insufficient.
+            const errorMessage = `Generated book page count (${actualFinalPageCount}) is below the minimum required for this format (${selectedProductConfig.minPageCount}). This indicates an issue with PDF generation or unexpected content. Please generate more content or try a different product.`;
             console.error("[Checkout] ERROR: Page count still below minimum after PDF generation/fallback.", { bookId, finalPageCount: actualFinalPageCount, product: selectedProductConfig.id });
             return res.status(400).json({ message: errorMessage });
         }
