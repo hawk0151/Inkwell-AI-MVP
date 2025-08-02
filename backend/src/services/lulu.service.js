@@ -150,7 +150,7 @@ export async function getLuluAuthToken() {
             );
         }, 3, 500);
         luluAccessToken = response.data.access_token;
-        tokenExpiry = Date.now() + (response.data.expires_in * 1000) - 5000; // 5 seconds buffer
+        accessTokenExpiry = Date.now() + (response.data.expires_in * 1000) - 5000; // 5 seconds buffer
         console.log('Lulu access token obtained (Legacy Method).');
         return luluAccessToken;
     } catch (error) {
@@ -227,55 +227,49 @@ export async function getPrintJobCosts(lineItems, shippingAddress, shippingLevel
     }
 }
 
-export async function createLuluPrintJob(orderDetails, shippingInfo, shippingLevel = "MAIL") { // Added shippingLevel parameter
+export async function getCoverDimensionsFromApi(podPackageId, pageCount) {
+    const endpoint = `${LULU_API_BASE_URL.replace(/\/$/, '')}/cover-dimensions/`;
+    try {
+        await ensureHostnameResolvable(endpoint);
+    } catch (dnsErr) {
+        console.error('DNS resolution issue before fetching cover dimensions:', dnsErr.message);
+        throw new Error(`Network/DNS error when trying to reach Lulu for cover dimensions: ${dnsErr.message}`);
+    }
     try {
         const token = await getLuluAuthToken();
-        const printJobUrl = `${LULU_API_BASE_URL.replace(/\/$/, '')}/print-jobs/`;
-        await ensureHostnameResolvable(printJobUrl);
-        const payload = {
-            contact_email: shippingInfo.email, // Assume email is part of shippingInfo now
-            external_id: `inkwell-order-${orderDetails.id}`,
-            shipping_level: shippingLevel, // Use the passed shippingLevel
-            shipping_address: {
-                name: shippingInfo.name,
-                street1: shippingInfo.street1,
-                street2: shippingInfo.street2 || '', // Ensure optional street2 is handled
-                city: shippingInfo.city,
-                postcode: shippingInfo.postcode,
-                country_code: shippingInfo.country_code,
-                state_code: shippingInfo.state_code || '', // Ensure optional state_code is handled
-                phone_number: shippingInfo.phone_number,
-                email: shippingInfo.email // Ensure email is passed here for Lulu's records
-            },
-            line_items: [{
-                title: orderDetails.book_title,
-                quantity: 1,
-                pod_package_id: orderDetails.lulu_product_id,
-                cover: { source_url: orderDetails.cover_pdf_url },
-                interior: { source_url: orderDetails.interior_pdf_url }
-            }],
-        };
-        console.log("DEBUG: Submitting print job to Lulu...");
         const response = await retryWithBackoff(async () => {
-            return await axios.post(printJobUrl, payload, {
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
-                },
-                timeout: 60000
-            });
-        }, 3, 500); // Using retryWithBackoff with 3 attempts and 500ms base delay
-        console.log("✅ Successfully created Lulu print job:", response.data.id);
-        return response.data;
-    } catch (error) {
-        if (error.response) {
-            console.error("❌ Error creating Lulu Print Job (API response):", {
-                status: error.response.status,
-                data: error.response.data
-            });
-        } else {
-            console.error("❌ Error creating Lulu Print Job (network/unknown):", error.message);
+            return await axios.post(
+                endpoint,
+                { pod_package_id: podPackageId, interior_page_count: pageCount },
+                {
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    timeout: 10000
+                }
+            );
+        }, 3, 300);
+        const dimensions = response.data;
+        const ptToMm = (pt) => pt * (25.4 / 72);
+        if (typeof dimensions.width === 'undefined' || typeof dimensions.height === 'undefined' || dimensions.unit !== 'pt') {
+            console.error('Unexpected Lulu API response structure for cover dimensions:', JSON.stringify(dimensions, null, 2));
+            throw new Error('Unexpected Lulu API response for cover dimensions. Missing expected fields (width, height) or unit is not "pt".');
         }
-        throw new Error('Failed to create Lulu Print Job.');
+        const widthMm = ptToMm(parseFloat(dimensions.width));
+        const heightMm = ptToMm(parseFloat(dimensions.height));
+        const result = {
+            width: widthMm,
+            height: heightMm,
+            layout: widthMm > heightMm ? 'landscape' : 'portrait',
+            bleed: 3.175,
+            spineThickness: 0
+        };
+        // coverDimensionsCache.set(cacheKey, result); // Cache key is not used, fix or remove
+        return result;
+    } catch (error) {
+        console.error('Error getting cover dimensions from Lulu API (cover-dimensions endpoint):',
+            error.response ? JSON.stringify(error.response.data) : error.message);
+        throw new Error(`Failed to get cover dimensions for SKU ${podPackageId} with ${pageCount} pages. Lulu API error: ${error.response ? JSON.stringify(error.response.data) : error.message}`);
     }
 }
