@@ -51,7 +51,10 @@ function NovelSelectionPage() {
         );
     }
 
-    const novelProducts = allProducts?.filter((p) => p.type === 'novel') || [];
+    // --- FIX START ---
+    // Change filter from 'novel' to 'textBook' to match backend data
+    const novelProducts = allProducts?.filter((p) => p.type === 'textBook') || [];
+    // --- FIX END ---
 
     return (
         <div className="fade-in">
