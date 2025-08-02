@@ -265,6 +265,13 @@ function NovelPage() {
 
         const bookData = { title, promptDetails, luluProductId: selectedProductForNew.id };
 
+        // --- ADD DEBUG LOGS START ---
+        console.log("DEBUG handleCreateBook: selectedProductForNew:", selectedProductForNew);
+        console.log("DEBUG handleCreateBook: AI params from selectedProductForNew:", aiGenerationParams);
+        console.log("DEBUG handleCreateBook: Full promptDetails being sent:", promptDetails);
+        console.log("DEBUG handleCreateBook: Full bookData being sent to backend:", bookData);
+        // --- ADD DEBUG LOGS END ---
+
         try {
             const response = await apiClient.post('/text-books', bookData);
             queryClient.invalidateQueries({ queryKey: ['projects'] });
@@ -290,6 +297,7 @@ function NovelPage() {
             };
             setChapters((prev) => [...prev, newChapterData]);
             
+            // MODIFIED: Automatically open the new chapter after it's generated
             setOpenChapter(newChapterData.chapter_number);
 
             if (response.data.isStoryComplete) {
@@ -302,6 +310,7 @@ function NovelPage() {
         }
     };
     
+    // NEW: Handler function to open/close chapters
     const handleToggleChapter = (chapterNumber) => {
         setOpenChapter(openChapter === chapterNumber ? null : chapterNumber);
     };
