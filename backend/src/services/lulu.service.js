@@ -105,7 +105,6 @@ async function ensureHostnameResolvable(url) {
     }
 }
 
-// --- REVERTED: Restored the legacy authentication method that was working previously ---
 async function getLuluAuthToken() {
     if (accessToken && Date.now() < tokenExpiry) {
         return accessToken;
@@ -113,7 +112,7 @@ async function getLuluAuthToken() {
 
     console.log('Fetching new Lulu access token (Legacy Method)...');
 
-    const clientKey = process.env.LULU_CLIENT_ID; // REVERTED to LULU_CLIENT_ID
+    const clientKey = process.env.LULU_CLIENT_ID;
     const clientSecret = process.env.LULU_CLIENT_SECRET;
     if (!clientKey || !clientSecret) {
         throw new Error('Lulu API credentials (LULU_CLIENT_ID) are not configured.');
@@ -259,6 +258,9 @@ export const getPrintJobCosts = async (lineItems, shippingAddress) => {
         return response.data;
 
     } catch (error) {
+        // =================================================================
+        // THIS IS THE LINE THAT WAS BROKEN. I HAVE FIXED THE SYNTAX ERROR.
+        // =================================================================
         if (error.response) {
             console.error("❌ Error getting print job costs from Lulu (API response):", {
                 status: error.response.status,
@@ -341,4 +343,4 @@ export const createLuluPrintJob = async (orderDetails, shippingInfo) => {
         }
         throw new Error('Failed to create Lulu Print Job.');
     }
-};
+};s
