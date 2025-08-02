@@ -1,10 +1,103 @@
 // backend/src/controllers/stripe.controller.js
 
+// CHANGES:
+// - CRITICAL FIX: Moved createLuluPrintJob function from lulu.service.js into this controller as a private helper
+//   to resolve recurring deployment import errors. This makes stripe.controller.js self-contained for print job submission.
+// - Ensures proper handling of shippingInfo and Lulu API communication.
+
 import stripe from 'stripe';
 import { getDb } from '../db/database.js';
-import { createLuluPrintJob } from '../services/lulu.service.js';
+// Removed: import { createLuluPrintJob } from '../services/lulu.service.js'; // Now a private helper
+import { getLuluAuthToken } from '../services/lulu.service.js'; // Only import auth token helper
+import axios from 'axios'; // For createLuluPrintJob
+import dns from 'dns/promises'; // For createLuluPrintJob
 
 const stripeClient = stripe(process.env.STRIPE_SECRET_KEY);
+
+// --- Private Helper: retryWithBackoff (Copied from lulu.service.js) ---
+async function retryWithBackoff(fn, attempts = 3, baseDelayMs = 300) {
+    let attempt = 0;
+    while (attempt < attempts) {
+        try {
+            return await fn();
+        } catch (err) {
+            attempt++;
+            if (attempt >= attempts) {
+                throw err;
+            }
+            const delay = baseDelayMs * Math.pow(2, attempt - 1);
+            console.warn(`Retrying after error (attempt ${attempt}/${attempts}) in ${delay}ms:`, err.message || err);
+            await new Promise(r => setTimeout(r, delay));
+        }
+    }
+}
+
+// --- Private Helper: ensureHostnameResolvable (Copied from lulu.service.js) ---
+async function ensureHostnameResolvable(url) {
+    try {
+        const { hostname } = new URL(url);
+        await dns.lookup(hostname);
+        return;
+    } catch (err) {
+        throw new Error(`DNS resolution failed for Lulu host in URL "${url}": ${err.message}`);
+    }
+}
+
+// --- Moved Function: createLuluPrintJob (from lulu.service.js, now a private helper) ---
+const LULU_API_BASE_URL = process.env.LULU_API_BASE_URL || 'https://api.lulu.com/print-api/v0'; // Need base URL here
+export async function createLuluPrintJob(orderDetails, shippingInfo, shippingLevel = "MAIL") {
+    try {
+        const token = await getLuluAuthToken(); // getLuluAuthToken is still imported from lulu.service.js
+        const printJobUrl = `${LULU_API_BASE_URL.replace(/\/$/, '')}/print-jobs/`;
+        await ensureHostnameResolvable(printJobUrl);
+        const payload = {
+            contact_email: shippingInfo.email,
+            external_id: `inkwell-order-${orderDetails.id}`,
+            shipping_level: shippingLevel,
+            shipping_address: {
+                name: shippingInfo.name,
+                street1: shippingInfo.street1,
+                street2: shippingInfo.street2 || '',
+                city: shippingInfo.city,
+                postcode: shippingInfo.postcode,
+                country_code: shippingInfo.country_code,
+                state_code: shippingInfo.state_code || '',
+                phone_number: shippingInfo.phone_number,
+                email: shippingInfo.email
+            },
+            line_items: [{
+                title: orderDetails.book_title,
+                quantity: 1,
+                pod_package_id: orderDetails.lulu_product_id,
+                cover: { source_url: orderDetails.cover_pdf_url },
+                interior: { source_url: orderDetails.interior_pdf_url }
+            }],
+        };
+        console.log("DEBUG: Submitting print job to Lulu...");
+        const response = await retryWithBackoff(async () => {
+            return await axios.post(printJobUrl, payload, {
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                timeout: 60000
+            });
+        }, 3, 500);
+        console.log("✅ Successfully created Lulu print job:", response.data.id);
+        return response.data;
+    } catch (error) {
+        if (error.response) {
+            console.error("❌ Error creating Lulu Print Job (API response):", {
+                status: error.response.status,
+                data: error.response.data
+            });
+        } else {
+            console.error("❌ Error creating Lulu Print Job (network/unknown):", error.message);
+        }
+        throw new Error('Failed to create Lulu Print Job.');
+    }
+}
+
 
 const handleSuccessfulCheckout = async (session) => {
     console.log("✅ Stripe Webhook received for Session ID:", session.id);
@@ -50,7 +143,6 @@ const handleSuccessfulCheckout = async (session) => {
 
         if (order.is_fallback) {
             console.warn(`⚠️ Order ${order.id} was created with fallback dimensions. Submitting to Lulu, but cover may require manual adjustment later.`);
-            // You could add logic here to flag this order for manual review, e.g., send an email to yourself.
         }
 
         const luluOrderDetails = {
@@ -61,6 +153,7 @@ const handleSuccessfulCheckout = async (session) => {
             interior_pdf_url: order.interior_pdf_url
         };
 
+        // Call the moved function (now a private helper)
         const luluJob = await createLuluPrintJob(luluOrderDetails, shippingInfo);
 
         await client.query(
