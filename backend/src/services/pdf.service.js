@@ -6,6 +6,7 @@
 // - Introduced finalizePdfPageCount helper which loads PDF, pads it, ensures even page count, and returns final page count.
 // - CRITICAL FIX: Ensure pdf-lib's addPage() uses consistent dimensions from the original PDF's first page to resolve 'printable_normalization' warning.
 // - CRITICAL FIX: Added robust validation of page dimensions within finalizePdfPageCount to prevent NaN errors when adding pages to PDF-Lib document.
+// - NEW DIAGNOSTIC: Added granular logging for page dimensions within finalizePdfPageCount to pinpoint NaN origin.
 
 import PDFDocument from 'pdfkit'; // For creating PDFs
 import { PDFDocument as PDFLibDocument } from 'pdf-lib'; // For reading/modifying PDFs
@@ -313,24 +314,32 @@ export const finalizePdfPageCount = async (filePath, productConfig, currentConte
 
         // Get the dimensions of the first page of the *content* PDF to ensure consistency
         let contentPageWidth, contentPageHeight;
-        if (pdfDoc.getPages().length > 0) {
-            const firstContentPage = pdfDoc.getPages()[0];
+        const firstContentPage = pdfDoc.getPages()[0]; 
+
+        console.log(`[PDF Service: Finalize] DEBUG: Initial pdfDoc pages count: ${pdfDoc.getPages().length}`);
+        console.log(`[PDF Service: Finalize] DEBUG: First content page object:`, firstContentPage);
+
+
+        if (firstContentPage) {
             const size = firstContentPage.getSize();
             contentPageWidth = size.width;
             contentPageHeight = size.height;
+            console.log(`[PDF Service: Finalize] DEBUG: Got dimensions from first page: W=${contentPageWidth}, H=${contentPageHeight}`);
         } else {
-            // Fallback if the content PDF is unexpectedly empty (shouldn't happen with 39 content pages)
-            console.warn(`[PDF Service: Finalize] Content PDF is empty. Falling back to product dimensions for padding pages.`);
-            const { width, height } = getProductDimensions(productConfig.id);
+            // Fallback if the content PDF is unexpectedly empty (shouldn't happen with content pages)
+            console.warn(`[PDF Service: Finalize] Content PDF is empty or first page missing. Falling back to product dimensions for padding pages.`);
+            const { width, height } = getProductDimensions(productConfig.id); // Get product's default dimensions in points
             contentPageWidth = width;
             contentPageHeight = height;
+            console.log(`[PDF Service: Finalize] DEBUG: Falling back to product dimensions: W=${contentPageWidth}, H=${contentPageHeight}`);
         }
 
         // Ensure dimensions are valid numbers
         if (isNaN(contentPageWidth) || isNaN(contentPageHeight)) {
-             console.error(`[PDF Service: Finalize] Critical Error: Content page dimensions are NaN (Width: ${contentPageWidth}, Height: ${contentPageHeight}). Falling back to A4 default for padding to prevent crash.`);
+             console.error(`[PDF Service: Finalize] Critical Error: Content page dimensions are NaN (Width: ${contentPageWidth}, Height: ${contentPageHeight}) even after initial attempts. Falling back to A4 default for padding to prevent crash.`);
              contentPageWidth = mmToPoints(210); // A4 width in points
              contentPageHeight = mmToPoints(297); // A4 height in points
+             console.log(`[PDF Service: Finalize] DEBUG: Hardcoding A4 fallback: W=${contentPageWidth}, H=${contentPageHeight}`);
         }
         const consistentPageSize = { width: contentPageWidth, height: contentPageHeight };
 
