@@ -17,6 +17,12 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = pathToFileURL(workerPath).href;
 
 const mmToPoints = (mm) => mm * (72 / 25.4);
 
+// Define paths to the new font files
+// Ensure Roboto-Regular.ttf and Roboto-Bold.ttf are in backend/src/fonts/
+const ROBOTO_REGULAR_PATH = path.join(__dirname, '../fonts/Roboto-Regular.ttf');
+const ROBOTO_BOLD_PATH = path.join(__dirname, '../fonts/Roboto-Bold.ttf');
+
+
 const getProductDimensions = (luluConfigId) => {
     const productConfig = LULU_PRODUCT_CONFIGURATIONS.find(p => p.id === luluConfigId);
     if (!productConfig) {
@@ -77,9 +83,7 @@ async function streamToBuffer(doc) {
 }
 
 export const generateCoverPdf = async (book, productConfig, coverDimensions) => {
-    // --- TEMPORARY FIX START ---
     // Hardcoding dimensions for the Novella (0550X0850BWSTDPB060UC444GXX) based on Lulu's rejection message.
-    // This bypasses the problematic getCoverDimensionsFromApi for now.
     let actualCoverWidthMm;
     let actualCoverHeightMm;
     let actualLayout;
@@ -111,7 +115,6 @@ export const generateCoverPdf = async (book, productConfig, coverDimensions) => 
         layout: actualLayout,
         margins: { top: 0, bottom: 0, left: 0, right: 0 }
     });
-    // --- TEMPORARY FIX END ---
     
     const tempPdfsDir = path.resolve(process.cwd(), 'tmp', 'pdfs');
     await fs.mkdir(tempPdfsDir, { recursive: true });
@@ -121,12 +124,13 @@ export const generateCoverPdf = async (book, productConfig, coverDimensions) => 
     const safetyMarginPoints = 0.25 * 72;
     const contentAreaWidth = doc.page.width - (2 * safetyMarginPoints);
 
-    doc.fontSize(48).fillColor('#FFFFFF').font('Helvetica-Bold')
+    // Using custom font files for explicit embedding
+    doc.fontSize(48).fillColor('#FFFFFF').font(ROBOTO_BOLD_PATH) 
        .text(book.title, safetyMarginPoints, doc.page.height / 4, {
            align: 'center', width: contentAreaWidth
        });
     doc.moveDown(1);
-    doc.fontSize(24).fillColor('#CCCCCC').font('Helvetica')
+    doc.fontSize(24).fillColor('#CCCCCC').font(ROBOTO_REGULAR_PATH) 
        .text('Inkwell AI', {
            align: 'center', width: contentAreaWidth
        });
@@ -151,22 +155,17 @@ export const generateAndSaveTextBookPdf = async (book, productConfig, addFinalBl
     await fs.mkdir(tempPdfsDir, { recursive: true });
     const tempFilePath = path.join(tempPdfsDir, `interior_textbook_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.pdf`);
 
-    // --- FONT FIX START ---
-    // Changed font for title from 'Times-Roman' to 'Helvetica-Bold'
-    doc.fontSize(28).font('Helvetica-Bold').text(book.title, { align: 'center' });
+    // Using custom font files for explicit embedding
+    doc.fontSize(28).font(ROBOTO_BOLD_PATH).text(book.title, { align: 'center' }); 
     doc.moveDown(4);
-    // Changed font for generic text from default to 'Helvetica'
-    doc.fontSize(16).font('Helvetica').text('A Story by Inkwell AI', { align: 'center' });
+    doc.fontSize(16).font(ROBOTO_REGULAR_PATH).text('A Story by Inkwell AI', { align: 'center' }); 
 
     for (const chapter of book.chapters) {
         doc.addPage();
-        // Changed font for chapter title from 'Times-Bold' to 'Helvetica-Bold'
-        doc.fontSize(18).font('Helvetica-Bold').text(`Chapter ${chapter.chapter_number}`, { align: 'center' });
+        doc.fontSize(18).font(ROBOTO_BOLD_PATH).text(`Chapter ${chapter.chapter_number}`, { align: 'center' }); 
         doc.moveDown(2);
-        // Changed font for chapter content from 'Times-Roman' to 'Helvetica'
-        doc.fontSize(12).font('Helvetica').text(chapter.content, { align: 'justify' });
+        doc.fontSize(12).font(ROBOTO_REGULAR_PATH).text(chapter.content, { align: 'justify' }); 
     }
-    // --- FONT FIX END ---
     
     if (addFinalBlankPage) {
         console.log("DEBUG: Adding a final blank page to make page count even.");
@@ -200,12 +199,14 @@ export const generateAndSavePictureBookPdf = async (book, events, productConfig,
             doc.image(coverImageBuffer, 0, 0, { width: doc.page.width, height: doc.page.height });
         } catch (imgErr) {
             console.error(`Failed to load cover image for interior from ${book.cover_image_url}`, imgErr);
-            doc.fontSize(40).font('Helvetica-Bold').text(book.title, { align: 'center' });
+            // Fallback text using custom font
+            doc.fontSize(40).font(ROBOTO_BOLD_PATH).text(book.title, { align: 'center' }); 
         }
     } else {
-        doc.fontSize(40).font('Helvetica-Bold').text(book.title, { align: 'center' });
+        // Using custom font
+        doc.fontSize(40).font(ROBOTO_BOLD_PATH).text(book.title, { align: 'center' }); 
         doc.moveDown(2);
-        doc.fontSize(18).font('Helvetica').text('A Personalized Story from Inkwell AI', { align: 'center' });
+        doc.fontSize(18).font(ROBOTO_REGULAR_PATH).text('A Personalized Story from Inkwell AI', { align: 'center' }); 
     }
 
     for (const event of events) {
@@ -220,7 +221,8 @@ export const generateAndSavePictureBookPdf = async (book, events, productConfig,
             }
         }
         if (event.overlay_text) {
-            doc.fontSize(24).font('Helvetica-Bold').text(
+            // Using custom font
+            doc.fontSize(24).font(ROBOTO_BOLD_PATH).text( 
                 event.overlay_text,
                 doc.page.margins.left,
                 doc.page.height - doc.page.margins.bottom - 100,
