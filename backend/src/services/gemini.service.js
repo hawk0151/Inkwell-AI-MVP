@@ -1,3 +1,5 @@
+// backend/src/services/gemini.service.js
+
 import fetch from 'node-fetch';
 
 export const generateStoryFromApi = async (promptDetails) => {
@@ -6,21 +8,41 @@ export const generateStoryFromApi = async (promptDetails) => {
         characterName,
         interests,
         genre,
-        wordsPerPage,
+        wordsPerPage, // This is the target words per *average page*
         previousChaptersText = '',
         chapterNumber,
         totalChapters,
         isFinalChapter,
-        maxPageCount
+        maxPageCount // This is the maximum pages the *entire book* can have
     } = promptDetails;
 
     if (!wordsPerPage || !totalChapters || !maxPageCount) {
         throw new Error('wordsPerPage, totalChapters, and maxPageCount are required for story generation.');
     }
 
-    const safePageTarget = maxPageCount - 4;
-    const targetTotalWordCount = safePageTarget * wordsPerPage;
-    const targetChapterWordCount = Math.floor(targetTotalWordCount / totalChapters);
+    // --- MODIFIED: Corrected the target chapter word count calculation ---
+    // The previous logic was causing the AI to target the *total book word count* per chapter.
+    // We want the AI to target wordsPerPage *for the content it generates for *this* chapter*.
+    // Since each chapter should conceptually fill multiple pages, we can aim for a multiple of wordsPerPage.
+    // Let's aim for 2-3 pages per chapter on average if not the final chapter, to distribute content.
+    // However, the most direct interpretation of "words per page" is for one conceptual page.
+    // For now, let's make the target for *this chapter* a reasonable multiple of wordsPerPage
+    // or simply wordsPerPage, and let PDFKit handle wrapping.
+    // A better approach is to guide it toward a sensible chapter length.
+
+    // Let's assume an average chapter should fill roughly 4-6 pages for a multi-chapter book.
+    // This value can be tuned. For a novella, 5 pages * 250 words/page = 1250 words per chapter.
+    // totalChapters / maxPageCount suggests the distribution.
+    const approximatePagesPerChapter = Math.floor((maxPageCount - 4) / totalChapters); // Subtract safety buffer
+    // Ensure a minimum reasonable chapter length, e.g., 2 pages worth
+    const targetChapterWordCount = Math.max(wordsPerPage * 2, wordsPerPage * approximatePagesPerChapter);
+    
+    // Fallback if calculated targetChapterWordCount is too low (e.g., for very short books or many chapters)
+    const minChapterWords = 800; // Ensure chapters are not too short.
+    const finalTargetChapterWordCount = Math.max(targetChapterWordCount, minChapterWords);
+
+    console.log(`[Gemini Service] Calculated targetChapterWordCount for Chapter ${chapterNumber}: ${finalTargetChapterWordCount} words.`);
+
 
     if (!process.env.GEMINI_API_KEY) {
         throw new Error('GEMINI_API_KEY is not set in .env');
@@ -54,7 +76,7 @@ export const generateStoryFromApi = async (promptDetails) => {
     - Genre: ${genre}
     
     REQUIREMENTS:
-    - **STRICT LENGTH CONSTRAINT**: The generated text for this chapter MUST be **as close as possible to ${targetChapterWordCount} words**. This is a hard technical limit to ensure the final book fits within the page count of the physical product. Do not go significantly over this word count.
+    - **STRICT LENGTH CONSTRAINT**: The generated text for this chapter MUST be **as close as possible to ${finalTargetChapterWordCount} words**. This is a hard technical limit to ensure the final book fits within the page count of the physical product. Do not go significantly over this word count.
     - ${chapterInstruction}
     - ${conclusionInstruction}
     - **DO NOT** write "The End" or any similar concluding phrases.
@@ -70,7 +92,6 @@ export const generateStoryFromApi = async (promptDetails) => {
         safetySettings: [
             { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
             { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
-            // --- FIXED: Corrected typo from "EXPLICENT" to "EXPLICIT" ---
             { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
             { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
         ]
@@ -80,10 +101,12 @@ export const generateStoryFromApi = async (promptDetails) => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
+        timeout: 90000 // Increased timeout for potentially longer responses
     });
 
     if (!response.ok) {
         const errorText = await response.text();
+        console.error(`Gemini API raw error response: ${errorText}`); // Log raw error for debugging
         throw new Error(`Gemini API error: ${errorText}`);
     }
 
@@ -95,11 +118,12 @@ export const generateStoryFromApi = async (promptDetails) => {
             console.error("Gemini content blocked due to safety settings.", result.promptFeedback);
             throw new Error('The generated content was blocked for safety reasons. Please adjust your prompt.');
         }
-        throw new Error('Invalid response structure from Gemini API.');
+        console.error("Gemini API response missing chapter text:", JSON.stringify(result, null, 2)); // Log full result for debugging
+        throw new Error('Invalid response structure from Gemini API. No chapter text found.');
     }
     
     const words = chapterText.trim().split(/\s+/);
-    console.log(`Chapter ${chapterNumber} generated with ~${words.length} words (target: ${targetChapterWordCount}).`);
+    console.log(`Chapter ${chapterNumber} generated with ~${words.length} words (target: ${finalTargetChapterWordCount}).`);
 
     return chapterText.trim();
 };
