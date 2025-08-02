@@ -101,6 +101,7 @@ const PromptForm = ({ isLoading, onSubmit, productName }) => {
               placeholder="e.g., The Adventures of Captain Alistair"
               className="w-full p-3 text-base bg-slate-700 border border-slate-600 rounded-lg shadow-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition text-white"
               required
+            />
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-300 mb-1">Who is this book for?</label>
@@ -111,6 +112,8 @@ const PromptForm = ({ isLoading, onSubmit, productName }) => {
               onChange={handleChange}
               placeholder="e.g., My Dad"
               className="w-full p-3 text-base bg-slate-700 border border-slate-600 rounded-lg shadow-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition text-white"
+              required
+            />
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-300 mb-1">Main character's name?</label>
@@ -121,6 +124,8 @@ const PromptForm = ({ isLoading, onSubmit, productName }) => {
               onChange={handleChange}
               placeholder="e.g., Captain Alistair"
               className="w-full p-3 text-base bg-slate-700 border border-slate-600 rounded-lg shadow-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition text-white"
+              required
+            />
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-300 mb-1">What do they love?</label>
@@ -130,6 +135,8 @@ const PromptForm = ({ isLoading, onSubmit, productName }) => {
               onChange={handleChange}
               placeholder="e.g., Sailing, classic cars, and the color yellow"
               className="w-full h-24 p-3 text-base bg-slate-700 border border-slate-600 rounded-lg shadow-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition text-white"
+              required
+            />
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-300 mb-1">Choose a genre</label>
@@ -203,8 +210,7 @@ function NovelPage() {
   const [selectedProductForNew, setSelectedProductForNew] = useState(null);
 
   useEffect(() => {
-    // If book options are still loading, and it's a new flow, wait.
-    // If it's an existing book, we also wait for book options (for product fallback).
+    // If book options are still loading, wait.
     if (isLoadingBookOptions) return;
 
     // Case 1: Loading an existing book
@@ -296,7 +302,7 @@ function NovelPage() {
     allBookOptions,
     isLoadingBookOptions,
     location.state?.selectedProductId,
-    bookId, // Crucial: paramBookId determines bookId, so react to it
+    bookId,
     bookDetails,
     selectedProductForNew,
     isLoadingPage,
@@ -332,12 +338,12 @@ function NovelPage() {
           title: bookData.title,
           luluProductId: bookData.luluProductId,
           prompt_details: promptDetails,
-          total_chapters: aiGenerationParams.totalChapters,
+          total_chapters: aiGenerationParams.totalChapters, // Ensure total_chapters is set from config
         }
       );
       setChapters([{ chapter_number: 1, content: response.data.firstChapter }]);
       setOpenChapter(1);
-      setIsStoryComplete(1 >= aiGenerationParams.totalChapters);
+      setIsStoryComplete(1 >= aiGenerationParams.totalChapters); // Check if story is complete after 1st chapter
 
       navigate(`/novel/${response.data.bookId}`, { replace: true });
     } catch (err) {
