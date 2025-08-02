@@ -190,7 +190,6 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
     let client;
     let tempInteriorPdfPath = null, tempCoverPdfPath = null, initialTempPdfPath = null;
 
-    // --- MODIFIED: Relaxed validation to allow for countries without states/provinces ---
     if (!shippingAddress || !shippingAddress.name || !shippingAddress.street1 || !shippingAddress.city || !shippingAddress.postcode || !shippingAddress.country_code) {
         return res.status(400).json({ message: 'Address must include name, street, city, postal code, and country.' });
     }
@@ -233,7 +232,6 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
 
         console.log("Fetching dynamic costs from Lulu...");
         const lineItems = [{ pod_package_id: luluSku, page_count: finalPageCount }];
-        // Ensure state_code is passed, even if it's an empty string for countries that don't need it.
         const luluShippingAddress = { ...shippingAddress, state_code: shippingAddress.state_code || '' };
         const luluCosts = await getPrintJobCosts(lineItems, luluShippingAddress);
         
@@ -272,7 +270,13 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
 
     } catch (error) {
         console.error(`Failed to create checkout session: ${error.stack}`);
-        res.status(500).json({ message: 'Failed to create checkout session.', error: error.message });
+        // --- MODIFIED FOR DEBUGGING ---
+        // This change sends the detailed error message back to the frontend.
+        res.status(500).json({ 
+            message: 'Failed to create checkout session.', 
+            detailedError: error.message 
+        });
+        // --- END MODIFICATION ---
     } finally {
         if (client) client.release();
         if (tempInteriorPdfPath) await fs.unlink(tempInteriorPdfPath).catch(console.error);

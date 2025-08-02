@@ -238,7 +238,7 @@ const ShippingAddressForm = ({ isOpen, onClose, onSubmit, isLoading }) => {
                                 <input name="postcode" value={address.postcode} onChange={handleChange} placeholder="Postal Code" required className="w-1/2 p-3 bg-slate-700 border border-slate-600 rounded-lg text-white" />
                             </div>
                             <div className="flex space-x-4">
-                                <input name="state_code" value={address.state_code} onChange={handleChange} placeholder="State/Province" required className="w-1/2 p-3 bg-slate-700 border border-slate-600 rounded-lg text-white" />
+                                <input name="state_code" value={address.state_code} onChange={handleChange} placeholder="State/Province" className="w-1/2 p-3 bg-slate-700 border border-slate-600 rounded-lg text-white" />
                                 <select name="country_code" value={address.country_code} onChange={handleChange} required className="w-1/2 p-3 bg-slate-700 border border-slate-600 rounded-lg text-white">
                                     {allowedCountries.map(c => <option key={c.code} value={c.code}>{c.name}</option>)}
                                 </select>
@@ -474,12 +474,10 @@ function NovelPage() {
         setOpenChapter(openChapter === chapterNumber ? null : chapterNumber);
     };
 
-    // --- MODIFIED: This function now just opens the modal ---
     const handleFinalizeAndPurchase = () => {
         setIsShippingModalOpen(true);
     };
 
-    // --- NEW: This function handles the API call after address submission ---
     const handleShippingSubmit = async (shippingAddress) => {
         setIsCheckingOut(true);
         setError(null);
@@ -488,7 +486,12 @@ function NovelPage() {
             window.location.href = response.data.url;
         } catch (err) {
             console.error('handleShippingSubmit: Could not proceed to checkout:', err);
-            setError(err.response?.data?.message || 'Could not proceed to checkout.');
+            // --- MODIFIED FOR DEBUGGING ---
+            // Look for the new detailedError field from the backend and display it.
+            const detailedError = err.response?.data?.detailedError;
+            console.error('DETAILED ERROR FROM BACKEND:', detailedError);
+            setError(detailedError || err.response?.data?.message || 'Could not proceed to checkout.');
+            // --- END MODIFICATION ---
             setIsCheckingOut(false);
             setIsShippingModalOpen(false);
         }
@@ -521,7 +524,7 @@ function NovelPage() {
 
         return (
             <>
-                {/* --- NEW: Render the shipping modal here --- */}
+                {/* --- Render the shipping modal here --- */}
                 <ShippingAddressForm
                     isOpen={isShippingModalOpen}
                     onClose={() => setIsShippingModalOpen(false)}
