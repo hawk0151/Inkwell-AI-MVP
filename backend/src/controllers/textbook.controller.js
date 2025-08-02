@@ -5,7 +5,9 @@
 // - B. Improved validation of generated PDF page count: Handles null pageCount, checks against maxPageCount.
 // - Corrected typo in getFlatShippingRate for FLAT_SHIPPING_RATES_AUD lookup.
 // - FIX: Added JSON.parse for book.prompt_details in generateNextChapter to correctly retrieve saved prompt parameters.
-// - NEW FIX: Integrated new finalizePdfPageCount helper to handle PDF padding and even-page count using pdf-lib after initial content generation.
+// - FIX: Integrated new finalizePdfPageCount helper to handle PDF padding and even-page count using pdf-lib after initial content generation.
+// - NEW FIX: Added robust logging for full Lulu print cost response and a more defensive check for print_costs structure.
+// - ADDED phone_number field to shipping address for Lulu API.
 
 import { getDb } from '../db/database.js';
 import { randomUUID } from 'crypto';
@@ -350,6 +352,12 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
             console.error("[Checkout] Failed: Page count exceeded max limit.", { bookId, finalPageCount: actualFinalPageCount, product: selectedProductConfig.id });
             return res.status(400).json({ message: errorMessage });
         }
+        if (actualFinalPageCount < selectedProductConfig.minPageCount) {
+            // This should ideally only be hit if padding logic in PDF service failed, or if finalPageCount was null AND default/min is also insufficient.
+            const errorMessage = `Generated book page count (${actualFinalPageCount}) is below the minimum required for this format (${selectedProductConfig.minPageCount}). This indicates an issue with PDF generation or unexpected content. Please generate more content or try a different product.`;
+            console.error("[Checkout] ERROR: Page count still below minimum after PDF generation/fallback.", { bookId, finalPageCount: actualFinalPageCount, product: selectedProductConfig.id });
+            return res.status(400).json({ message: errorMessage });
+        }
 
 
         const interiorPdfUrl = await uploadPdfFileToCloudinary(tempInteriorPdfPath, `inkwell-ai/user_${req.userId}/books`, `book_${bookId}_interior`);
@@ -387,10 +395,18 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
         try {
             // 4. Error handling for Lulu’s getPrintJobCosts
             luluCostsResponse = await getPrintJobCosts(printCostLineItems, luluShippingAddressForCost);
+            // DEBUG: Log the full Lulu response here to inspect its structure
+            console.log('[DEBUG Checkout] Full Lulu costs response for inspection:', JSON.stringify(luluCostsResponse, null, 2));
         } catch (luluError) {
             console.error(`[Checkout] Error fetching print costs from Lulu: ${luluError.message}. This might require a retry strategy or clearer user feedback.`);
             // CONSIDER: Implement retry logic here using a library like 'p-retry'
             return res.status(503).json({ message: 'Failed to get print costs from publishing partner. Please try again shortly.', error: luluError.message });
+        }
+
+        // Defensive check before parsing Lulu's response for print costs
+        if (!luluCostsResponse || !luluCostsResponse.print_costs || luluCostsResponse.print_costs.total_cost_incl_tax === undefined || typeof luluCostsResponse.print_costs.total_cost_incl_tax !== 'number') {
+            console.error("[Checkout] Lulu API response missing expected 'print_costs.total_cost_incl_tax' structure or invalid type:", luluCostsResponse);
+            throw new Error("Failed to retrieve valid print costs from Lulu API: Unexpected response structure or missing cost.");
         }
 
         const luluPrintCostUSD = parseFloat(luluCostsResponse.print_costs.total_cost_incl_tax);
@@ -545,4 +561,4 @@ export const toggleTextBookPrivacy = async (req, res) => {
     } finally {
         if (client) client.release();
     }
-};
+}; 
