@@ -6,7 +6,7 @@
 // - Introduced finalizePdfPageCount helper which loads PDF, pads it, ensures even page count, and returns final page count.
 // - CRITICAL FIX: Ensure pdf-lib's addPage() uses consistent dimensions from the original PDF's first page to resolve 'printable_normalization' warning.
 // - CRITICAL FIX: Added robust validation of page dimensions within finalizePdfPageCount to prevent NaN errors when adding pages to PDF-Lib document.
-// - DIAGNOSTIC/WORKAROUND: Hardcoded page dimensions when calling pdfDoc.addPage() in finalizePdfPageCount to further diagnose NaN error origin.
+// - DIAGNOSTIC/WORKAROUND: Now passes page dimensions as a [width, height] array to pdfDoc.addPage() to bypass potential object interpretation issues causing NaN error.
 
 import PDFDocument from 'pdfkit'; // For creating PDFs
 import { PDFDocument as PDFLibDocument } from 'pdf-lib'; // For reading/modifying PDFs
@@ -337,7 +337,9 @@ export const finalizePdfPageCount = async (filePath, productConfig, currentConte
              contentPageHeight = mmToPoints(297); // A4 height in points
              console.log(`[PDF Service: Finalize] DEBUG: Hardcoding A4 fallback: W=${contentPageWidth}, H=${contentPageHeight}`);
         }
-        const consistentPageSize = { width: contentPageWidth, height: contentPageHeight };
+        
+        // --- FIX: Pass page dimensions as an array [width, height] to pdfDoc.addPage() ---
+        const consistentPageSizeArray = [contentPageWidth, contentPageHeight];
 
 
         // --- Defensive Padding for Minimum Page Count ---
@@ -350,7 +352,7 @@ export const finalizePdfPageCount = async (filePath, productConfig, currentConte
         if (pagesToAddForMin > 0) {
             console.warn(`[PDF Service: Finalize] ⚠️ Current page count (${finalPageCount}) is below product minimum (${productConfig.minPageCount}). Adding ${pagesToAddForMin} blank pages.`);
             for (let i = 0; i < pagesToAddForMin; i++) {
-                pdfDoc.addPage(consistentPageSize); // Add page with explicit consistent size
+                pdfDoc.addPage(consistentPageSizeArray); // Add page with explicit consistent size (as array)
             }
             finalPageCount = pdfDoc.getPageCount(); // Update count after adding pages
         }
@@ -358,7 +360,7 @@ export const finalizePdfPageCount = async (filePath, productConfig, currentConte
         // --- Ensure Even Page Count for Printing ---
         if (finalPageCount % 2 !== 0) {
             console.log(`[PDF Service: Finalize] DEBUG: Current page count (${finalPageCount}) is odd. Adding a final blank page for printing.`);
-            pdfDoc.addPage(consistentPageSize); // Add blank page with explicit consistent size
+            pdfDoc.addPage(consistentPageSizeArray); // Add blank page with explicit consistent size (as array)
             finalPageCount = pdfDoc.getPageCount(); // Update count after adding page
         }
 
