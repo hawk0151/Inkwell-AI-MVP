@@ -9,12 +9,9 @@
 // - REFINEMENT: Used sanitized previousChaptersText in prompt.
 // - REFINEMENT: Refined post-generation cleanup regex for more conservative removal.
 // - REFINEMENT: Separated logging for different cleanup types.
-// - FIX: Prompt engineered to prevent excessive repetition of 'recipientName' (personalized child character's name)
-//   by explicitly instructing the AI to use pronouns after initial mentions.
-// - FIX: Added fallback for 'recipientName' in prompt if it's undefined or empty,
-//   and added a warning log to help diagnose the upstream data issue.
-// - FIX: Added fallback for 'characterName' in prompt if it's undefined or empty,
-//   and added a warning log to help diagnose the upstream data issue for this field.
+// - FIX: Added fallback for 'recipientName' and 'characterName' in prompt if they are undefined or empty.
+// - CRITICAL CHANGE: Reworked prompt to treat 'recipientName' ONLY as the reader/owner of the book,
+//   NOT as a character in the story. The story will now feature 'characterName' (the adult) and a generic, unnamed child.
 
 import fetch from 'node-fetch';
 
@@ -36,8 +33,8 @@ if (typeof globalThis.AbortController === 'function') {
 
 export const generateStoryFromApi = async (promptDetails) => {
     const {
-        recipientName, // This is the personalized child character's name in the story
-        characterName, // This is the adult character's name (e.g., Peter)
+        recipientName, // Now ONLY the name of the book's reader/owner
+        characterName, // The main character in the story (e.g., Peter)
         characterGender, // This refers to the gender of 'characterName'
         interests,
         genre,
@@ -52,9 +49,9 @@ export const generateStoryFromApi = async (promptDetails) => {
     // --- FIX: Add a robust check for recipientName with a fallback ---
     const actualRecipientName = (typeof recipientName === 'string' && recipientName.trim() !== '') 
                                 ? recipientName.trim() 
-                                : 'the child'; // Fallback name for child character
+                                : 'dear reader'; // Fallback for the book's reader/owner
 
-    if (actualRecipientName === 'the child' && (typeof recipientName !== 'string' || recipientName.trim() === '')) {
+    if (actualRecipientName === 'dear reader' && (typeof recipientName !== 'string' || recipientName.trim() === '')) {
         console.warn(`[Gemini Service] Chapter ${chapterNumber}: recipientName was undefined or empty. Using fallback: "${actualRecipientName}". This indicates a potential upstream data issue.`);
     }
 
@@ -128,7 +125,6 @@ export const generateStoryFromApi = async (promptDetails) => {
     }
 
     // 7. Pronoun defaults: Default to neutral if gender is not specified or recognized
-    // This applies to 'characterName' (e.g., Peter), not 'recipientName'
     const characterPronounSubject = characterGender === 'male' ? 'he' : characterGender === 'female' ? 'she' : 'they';
     const characterPronounObject = characterGender === 'male' ? 'him' : characterGender === 'female' ? 'her' : 'them';
     const characterPronounPossessive = characterGender === 'male' ? 'his' : characterGender === 'female' ? 'her' : 'their';
@@ -138,16 +134,17 @@ export const generateStoryFromApi = async (promptDetails) => {
 OUTPUT ONLY THE CHAPTER PROSE, NOTHING ELSE.
 
 ROLE: You are a professional novelist writing a continuous, multi-chapter story for a children's personalized book.
-You MUST adhere strictly to the provided names and pronouns.
+This story is for a reader named "${actualRecipientName}". The reader is NOT a character in the story and should NEVER be directly mentioned in the narrative.
+You MUST adhere strictly to the provided names and pronouns for characters.
 
 PREVIOUS CHAPTERS (for context only - DO NOT REGENERATE):
 ${sanitizedPreviousChaptersText}
 
-TASK: Write ONLY chapter ${chapterNumber} of a story for a reader named ${actualRecipientName}.
+TASK: Write ONLY chapter ${chapterNumber} of a story.
 
 STORY DETAILS:
-- Adult Character: ${actualCharacterName} (Pronouns: ${characterPronounSubject}/${characterPronounObject}/${characterPronounPossessive})
-- The personalized child character in the story is named: "${actualRecipientName}".
+- Main Character: ${actualCharacterName} (Pronouns: ${characterPronounSubject}/${characterPronounObject}/${characterPronounPossessive})
+- A child character is present in the story, but they are NOT named. Refer to them as "the child," "the little one," or use appropriate pronouns.
 - Themes & Interests: ${interests}
 - Genre: ${genre}
 
@@ -157,10 +154,11 @@ REQUIREMENTS:
 - ${conclusionInstruction}
 - **DO NOT** write "The End" or any similar concluding phrases.
 - **DO NOT** include any titles or chapter headings like "Chapter ${chapterNumber}".
-- **IMPORTANT: NEVER use placeholders or text in brackets.** Always use the actual names and pronouns provided.
-    - **When referring to the personalized child character, use their name "${actualRecipientName}" initially, then use natural, flowing pronouns (e.g., "he", "she", "they", "him", "her", "them", "his", "her", "their") to avoid repetition. DO NOT repeat the full name "${actualRecipientName}" excessively when a pronoun would be more natural.**
-    - **ALWAYS** refer to the adult character by their actual name: "${actualCharacterName}".
-    - When referring to the adult character, use the correct pronouns: "${characterPronounSubject}", "${characterPronounObject}", "${characterPronounPossessive}".
+- **IMPORTANT: NEVER use placeholders or text in brackets.** Always use actual names/terms.
+    - **NEVER** mention the reader's name ("${actualRecipientName}") in the story. The reader is the audience, not a character.
+    - **ALWAYS** refer to the main character by their actual name: "${actualCharacterName}".
+    - When referring to the main character, use the correct pronouns: "${characterPronounSubject}", "${characterPronounObject}", "${characterPronounPossessive}".
+    - When referring to the child character, use generic terms like "the child", "the little one", or appropriate pronouns. DO NOT assign them a specific name.
 - Continue the story seamlessly from the "PREVIOUS CHAPTERS".
 - Begin immediately with the story text for chapter ${chapterNumber}.
 - Ensure fluid narrative progression and character consistency.
