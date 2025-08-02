@@ -105,7 +105,6 @@ async function ensureHostnameResolvable(url) {
     }
 }
 
-// --- MODIFIED: Switched to the official Lulu authentication method ---
 async function getLuluAuthToken() {
     if (accessToken && Date.now() < tokenExpiry) {
         return accessToken;
@@ -113,13 +112,14 @@ async function getLuluAuthToken() {
 
     console.log('Fetching new Lulu access token (Official Method)...');
 
-    const clientKey = process.env.LULU_CLIENT_KEY; // Using LULU_CLIENT_KEY
+    const clientKey = process.env.LULU_CLIENT_KEY;
     const clientSecret = process.env.LULU_CLIENT_SECRET;
     if (!clientKey || !clientSecret) {
         throw new Error('Lulu API credentials (LULU_CLIENT_KEY, LULU_CLIENT_SECRET) are not configured.');
     }
 
-    const authUrl = 'https://api.lulu.com/auth/realms/glassthompson/protocol/openid-connect/token';
+    // --- MODIFIED: Corrected the realm name from 'glassthompson' to 'glasstree' ---
+    const authUrl = 'https://api.lulu.com/auth/realms/glasstree/protocol/openid-connect/token';
     
     await ensureHostnameResolvable(authUrl);
 
@@ -249,7 +249,7 @@ export const getPrintJobCosts = async (lineItems, shippingAddress) => {
         console.log("✅ Successfully retrieved print job costs from Lulu.");
         return response.data;
 
-    } catch (error) {
+    } catch (error).
         if (error.response) {
             console.error("❌ Error getting print job costs from Lulu (API response):", {
                 status: error.response.status,
