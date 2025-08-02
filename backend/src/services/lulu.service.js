@@ -105,49 +105,59 @@ async function ensureHostnameResolvable(url) {
     }
 }
 
+// --- REVERTED: Restored the legacy authentication method that was working previously ---
 async function getLuluAuthToken() {
     if (accessToken && Date.now() < tokenExpiry) {
         return accessToken;
     }
 
-    console.log('Fetching new Lulu access token (Official Method)...');
+    console.log('Fetching new Lulu access token (Legacy Method)...');
 
-    const clientKey = process.env.LULU_CLIENT_KEY;
+    const clientKey = process.env.LULU_CLIENT_ID; // REVERTED to LULU_CLIENT_ID
     const clientSecret = process.env.LULU_CLIENT_SECRET;
     if (!clientKey || !clientSecret) {
-        throw new Error('Lulu API credentials (LULU_CLIENT_KEY, LULU_CLIENT_SECRET) are not configured.');
+        throw new Error('Lulu API credentials (LULU_CLIENT_ID) are not configured.');
     }
 
-    const authUrl = 'https://api.lulu.com/auth/realms/glasstree/protocol/openid-connect/token';
-    
+    const baseUrl = process.env.LULU_API_BASE_URL;
+    if (!baseUrl) {
+        throw new Error('LULU_API_BASE_URL is not set in environment.');
+    }
+
+    const authUrl = `${baseUrl.replace(/\/$/, '')}/auth/realms/glasstree/protocol/openid-connect/token`;
+    const basicAuth = Buffer.from(`${clientKey}:${clientSecret}`).toString('base64');
+
     await ensureHostnameResolvable(authUrl);
 
     try {
         const response = await retryWithBackoff(async () => {
             return await axios.post(
                 authUrl,
-                new URLSearchParams({
-                    'grant_type': 'client_credentials',
-                    'client_key': clientKey,
-                    'client_secret': clientSecret
-                }),
+                'grant_type=client_credentials',
                 {
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                        'Authorization': `Basic ${basicAuth}`
+                    },
                     timeout: 10000
                 }
             );
-        });
+        }, 3, 500);
 
         accessToken = response.data.access_token;
         tokenExpiry = Date.now() + (response.data.expires_in * 1000) - 5000;
-        console.log('Lulu access token obtained (Official Method).');
+        console.log('Lulu access token obtained (Legacy Method).');
         return accessToken;
     } catch (error) {
-        console.error('Authentication error fetching Lulu token:', {
-            status: error.response?.status,
-            data: error.response?.data
-        });
-        throw new Error('Failed to authenticate with Lulu API using the official method.');
+        if (error.response) {
+            console.error('Authentication error fetching Lulu token:', {
+                status: error.response.status,
+                data: error.response.data
+            });
+        } else {
+            console.error('Unknown error fetching Lulu token:', error.message);
+        }
+        throw new Error('Failed to authenticate with Lulu API.');
     }
 }
 
@@ -248,7 +258,7 @@ export const getPrintJobCosts = async (lineItems, shippingAddress) => {
         console.log("✅ Successfully retrieved print job costs from Lulu.");
         return response.data;
 
-    } catch (error) { // --- FIXED: Replaced period '.' with opening curly brace '{' ---
+    } catch (error) {
         if (error.response) {
             console.error("❌ Error getting print job costs from Lulu (API response):", {
                 status: error.response.status,
