@@ -2,7 +2,6 @@ import axios from 'axios';
 import { Buffer } from 'buffer';
 import dns from 'dns/promises';
 
-// --- MODIFIED: Updated with your final, cost-effective SKUs and corrected trim sizes. ---
 export const LULU_PRODUCT_CONFIGURATIONS = [
     {
         id: 'NOVBOOK_BW_5.25x8.25',
@@ -42,18 +41,17 @@ export const LULU_PRODUCT_CONFIGURATIONS = [
     },
     {
         id: 'A4PREMIUM_FC_8.27x11.69',
-        luluSku: '0827X1169PFSTDPB080GC444MXX', // Example premium picture book SKU
+        luluSku: '0827X1169PFSTDPB080GC444MXX',
         name: 'A4 Premium Picture Book (8.27 x 11.69")',
         type: 'pictureBook',
         trimSize: '8.27x11.69',
-        basePrice: 15.0, // Corrected 'price' to 'basePrice' for consistency
+        basePrice: 15.0,
         defaultPageCount: 40,
         defaultWordsPerPage: 120,
         totalChapters: 1,
         category: 'pictureBook'
     }
 ];
-// --- END MODIFIED ---
 
 export const getPrintOptions = () => {
     console.log("DEBUG getPrintOptions: LULU_PRODUCT_CONFIGURATIONS status:",
@@ -107,63 +105,50 @@ async function ensureHostnameResolvable(url) {
     }
 }
 
+// --- MODIFIED: Switched to the official Lulu authentication method ---
 async function getLuluAuthToken() {
     if (accessToken && Date.now() < tokenExpiry) {
         return accessToken;
     }
 
-    console.log('Fetching new Lulu access token (Legacy Method)...');
+    console.log('Fetching new Lulu access token (Official Method)...');
 
-    const clientKey = process.env.LULU_CLIENT_ID;
+    const clientKey = process.env.LULU_CLIENT_KEY; // Using LULU_CLIENT_KEY
     const clientSecret = process.env.LULU_CLIENT_SECRET;
     if (!clientKey || !clientSecret) {
-        throw new Error('Lulu API credentials are not configured.');
+        throw new Error('Lulu API credentials (LULU_CLIENT_KEY, LULU_CLIENT_SECRET) are not configured.');
     }
 
-    const baseUrl = process.env.LULU_API_BASE_URL;
-    if (!baseUrl) {
-        throw new Error('LULU_API_BASE_URL is not set in environment.');
-    }
-
-    const authUrl = `${baseUrl.replace(/\/$/, '')}/auth/realms/glasstree/protocol/openid-connect/token`;
-    const basicAuth = Buffer.from(`${clientKey}:${clientSecret}`).toString('base64');
-
+    const authUrl = 'https://api.lulu.com/auth/realms/glassthompson/protocol/openid-connect/token';
+    
     await ensureHostnameResolvable(authUrl);
 
     try {
         const response = await retryWithBackoff(async () => {
             return await axios.post(
                 authUrl,
-                'grant_type=client_credentials',
+                new URLSearchParams({
+                    'grant_type': 'client_credentials',
+                    'client_key': clientKey,
+                    'client_secret': clientSecret
+                }),
                 {
-                    headers: {
-                        'Content-Type': 'application/x-www-form-urlencoded',
-                        'Authorization': `Basic ${basicAuth}`
-                    },
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                     timeout: 10000
                 }
             );
-        }, 3, 500);
+        });
 
         accessToken = response.data.access_token;
         tokenExpiry = Date.now() + (response.data.expires_in * 1000) - 5000;
-        console.log('Lulu access token obtained (Legacy Method).');
+        console.log('Lulu access token obtained (Official Method).');
         return accessToken;
     } catch (error) {
-        if (error.message && error.message.includes('DNS resolution failed')) {
-            console.error('Network/DNS error while fetching Lulu token:', error.message);
-            throw new Error('Network/DNS error fetching Lulu auth token.');
-        }
-
-        if (error.response) {
-            console.error('Authentication error fetching Lulu token:', {
-                status: error.response.status,
-                data: error.response.data
-            });
-        } else {
-            console.error('Unknown error fetching Lulu token:', error.message);
-        }
-        throw new Error('Failed to authenticate with Lulu API.');
+        console.error('Authentication error fetching Lulu token:', {
+            status: error.response?.status,
+            data: error.response?.data
+        });
+        throw new Error('Failed to authenticate with Lulu API using the official method.');
     }
 }
 
@@ -206,7 +191,7 @@ export async function getCoverDimensionsFromApi(podPackageId, pageCount) {
         }, 3, 300);
 
         const dimensions = response.data;
-
+        
         const ptToMm = (pt) => pt * (25.4 / 72);
 
         if (typeof dimensions.width === 'undefined' || typeof dimensions.height === 'undefined' || dimensions.unit !== 'pt') {
@@ -216,15 +201,15 @@ export async function getCoverDimensionsFromApi(podPackageId, pageCount) {
 
         const widthMm = ptToMm(parseFloat(dimensions.width));
         const heightMm = ptToMm(parseFloat(dimensions.height));
-        let bleedMm = 3.175;
-        let spineThicknessMm = 0;
-
+        let bleedMm = 3.175; 
+        let spineThicknessMm = 0; 
+        
         const result = {
             width: widthMm,
             height: heightMm,
-            layout: widthMm > heightMm ? 'landscape' : 'portrait',
-            bleed: bleedMm,
-            spineThickness: spineThicknessMm
+            layout: widthMm > heightMm ? 'landscape' : 'portrait', 
+            bleed: bleedMm, 
+            spineThickness: spineThicknessMm 
         };
 
         coverDimensionsCache.set(cacheKey, result);
@@ -236,13 +221,6 @@ export async function getCoverDimensionsFromApi(podPackageId, pageCount) {
     }
 }
 
-// --- NEWLY ADDED: Function to get dynamic print and shipping costs from Lulu. ---
-/**
- * Fetches the estimated costs for a print job, including shipping.
- * @param {Array<object>} lineItems - The items to be printed, e.g., [{ pod_package_id: '...', page_count: 100 }]
- * @param {object} shippingAddress - The destination shipping address.
- * @returns {Promise<object>} A promise that resolves to the cost calculation response from Lulu.
- */
 export const getPrintJobCosts = async (lineItems, shippingAddress) => {
     const endpoint = `${process.env.LULU_API_BASE_URL.replace(/\/$/, '')}/print-job-cost-calculations/`;
 
@@ -253,7 +231,7 @@ export const getPrintJobCosts = async (lineItems, shippingAddress) => {
         const payload = {
             line_items: lineItems,
             shipping_address: shippingAddress,
-            shipping_level: "MAIL" // Using the most common/cheapest option as default
+            shipping_level: "MAIL"
         };
 
         console.log("DEBUG: Requesting print job cost calculation from Lulu...");
@@ -283,7 +261,6 @@ export const getPrintJobCosts = async (lineItems, shippingAddress) => {
         throw new Error(`Failed to get print job costs. Lulu API error: ${error.response ? JSON.stringify(error.response.data) : error.message}`);
     }
 };
-// --- END NEWLY ADDED ---
 
 export const createLuluPrintJob = async (orderDetails, shippingInfo) => {
     try {
@@ -306,7 +283,7 @@ export const createLuluPrintJob = async (orderDetails, shippingInfo) => {
         const payload = {
             contact_email: shippingInfo.email,
             external_id: `inkwell-order-${orderDetails.id}`,
-            shipping_level: "MAIL",
+            shipping_level: "MAIL", 
             shipping_address: {
                 name: shippingInfo.name,
                 street1: shippingInfo.street1,
