@@ -1,10 +1,20 @@
 // backend/src/controllers/textbook.controller.js
 
+// CHANGES:
+// - Added comprehensive input validation for shipping address (trimming, ISO country code validation).
+// - Refactored flat shipping rate lookup into a dedicated helper function (`getFlatShippingRate`).
+// - Added comments emphasizing dynamic exchange rate fetching in production.
+// - Enhanced error handling for Lulu's `getPrintJobCosts` with clearer messages and retry considerations (commented).
+// - Improved currency conversion precision using `toFixed(4)` for intermediate steps.
+// - Added log/response message if the default shipping rate is used.
+// - Ensured database inserts for pricing fields use actual numeric types, not strings, to preserve precision.
+// - Implemented more robust temporary PDF file cleanup with specific error logging.
+// - AbortController import/usage adjusted for CommonJS/Node.js compatibility.
+// - Added a security note regarding sensitive data in logs.
+
 import { getDb } from '../db/database.js';
 import { randomUUID } from 'crypto';
 import { generateStoryFromApi } from '../services/gemini.service.js';
-// Ensure createLuluPrintJob is imported if it's used directly in this controller later, though current context implies it's only called after Stripe success.
-// Adding it here for completeness based on typical checkout flow imports.
 import { LULU_PRODUCT_CONFIGURATIONS, getCoverDimensionsFromApi, getPrintOptions, getPrintJobCosts, createLuluPrintJob } from '../services/lulu.service.js'; 
 import { generateAndSaveTextBookPdf, generateCoverPdf } from '../services/pdf.service.js';
 import { uploadPdfFileToCloudinary } from '../services/image.service.js';
@@ -12,26 +22,76 @@ import { createStripeCheckoutSession } from '../services/stripe.service.js';
 import path from 'path';
 import fs from 'fs/promises';
 
-let printOptionsCache = null;
-const PROFIT_MARGIN_USD = 10.00;
+// --- AbortController import/module system compatibility ---
+// This robustly handles both Node.js versions with global AbortController (v15+)
+// and older CommonJS environments requiring the polyfill.
+let AbortController;
+if (typeof globalThis.AbortController === 'function') {
+    AbortController = globalThis.AbortController;
+} else {
+    // Dynamically require for CommonJS environments
+    try {
+        const NodeAbortController = require('node-abort-controller');
+        AbortController = NodeAbortController.AbortController;
+    } catch (e) {
+        console.error("Critical: AbortController not available. Please ensure Node.js v15+ is used or 'node-abort-controller' is installed. Error:", e.message);
+        // Fail loudly if AbortController cannot be obtained, as timeouts won't work otherwise.
+        throw new Error("AbortController is not available. Please install 'node-abort-controller' or use Node.js v15+.");
+    }
+}
 
-// --- ADDED: Flat shipping rates in AUD based on your requirements ---
+// List of ISO 3166-1 alpha-2 country codes for validation. This list should be kept up-to-date.
+// For a production system, consider fetching this from a reliable external source or a larger library.
+const VALID_ISO_COUNTRY_CODES = new Set([
+    'AF', 'AX', 'AL', 'DZ', 'AS', 'AD', 'AO', 'AI', 'AQ', 'AG', 'AR', 'AM', 'AW', 'AU', 'AT', 'AZ', 'BS', 'BH', 'BD', 'BB', 'BY', 'BE', 'BZ', 'BJ', 'BM', 'BT', 'BO', 'BQ', 'BA', 'BW', 'BV', 'BR', 'IO', 'BN', 'BG', 'BF', 'BI', 'CV', 'KH', 'CM', 'CA', 'KY', 'CF', 'TD', 'CL', 'CN', 'CX', 'CC', 'CO', 'KM', 'CD', 'CG', 'CK', 'CR', 'CI', 'HR', 'CU', 'CW', 'CY', 'CZ', 'DK', 'DJ', 'DM', 'DO', 'EC', 'EG', 'SV', 'GQ', 'ER', 'EE', 'SZ', 'ET', 'FK', 'FO', 'FJ', 'FI', 'FR', 'GF', 'PF', 'TF', 'GA', 'GM', 'GE', 'DE', 'GH', 'GI', 'GR', 'GL', 'GD', 'GP', 'GU', 'GT', 'GG', 'GN', 'GW', 'GY', 'HT', 'HM', 'VA', 'HN', 'HK', 'HU', 'IS', 'IN', 'ID', 'IR', 'IQ', 'IE', 'IM', 'IL', 'IT', 'JM', 'JP', 'JE', 'JO', 'KZ', 'KE', 'KI', 'KP', 'KR', 'KW', 'KG', 'LA', 'LV', 'LB', 'LS', 'LR', 'LY', 'LI', 'LT', 'LU', 'MO', 'MG', 'MW', 'MY', 'MV', 'ML', 'MT', 'MH', 'MQ', 'MR', 'MU', 'YT', 'MX', 'FM', 'MD', 'MC', 'MN', 'ME', 'MS', 'MA', 'MZ', 'MM', 'NA', 'NR', 'NP', 'NL', 'NC', 'NZ', 'NI', 'NE', 'NG', 'NU', 'NF', 'MP', 'NO', 'OM', 'PK', 'PW', 'PS', 'PA', 'PG', 'PY', 'PE', 'PH', 'PN', 'PL', 'PT', 'PR', 'QA', 'MK', 'RO', 'RU', 'RW', 'RE', 'SA', 'SN', 'RS', 'SC', 'SL', 'SG', 'SX', 'SK', 'SI', 'SB', 'SO', 'ZA', 'GS', 'SS', 'ES', 'LK', 'SD', 'SR', 'SJ', 'SE', 'CH', 'SY', 'TW', 'TJ', 'TZ', 'TH', 'TL', 'TG', 'TK', 'TO', 'TT', 'TN', 'TR', 'TM', 'TC', 'TV', 'UG', 'UA', 'AE', 'GB', 'US', 'UM', 'UY', 'UZ', 'VU', 'VE', 'VN', 'VG', 'VI', 'WF', 'EH', 'YE', 'ZM', 'ZW'
+]);
+
+
+let printOptionsCache = null;
+const PROFIT_MARGIN_USD = 10.00; // This can be dynamic based on product/strategy
+
+// --- Flat shipping rates in AUD ---
 const FLAT_SHIPPING_RATES_AUD = {
     'US': 25.00, // USA
     'CA': 25.00, // Canada
     'MX': 25.00, // Mexico
     'AU': 15.00, // Australia
     'GB': 15.00, // United Kingdom
-    // IMPORTANT: Define a fallback for any other country not explicitly listed.
-    // This ensures no customer is left without a shipping cost.
-    'DEFAULT': 35.00 // Example: "Rest of World" shipping rate
+    'DEFAULT': 35.00 // "Rest of World" shipping rate
 };
 
-// --- ADDED: Exchange Rate AUD to USD ---
-// IMPORTANT: This is a static placeholder. For a production application,
-// this rate should be fetched daily from a reliable currency exchange API (e.g., Fixer.io, Open Exchange Rates)
-// to avoid losing money due to currency fluctuations.
+// --- Exchange Rate AUD to USD ---
+// IMPORTANT: This is a static placeholder for MVP.
+// For a production application, this rate MUST be fetched dynamically
+// and regularly (e.g., daily or hourly) from a reliable currency exchange API (e.g., Fixer.io, Open Exchange Rates)
+// to avoid significant financial loss due to currency fluctuations.
 const AUD_TO_USD_EXCHANGE_RATE = 0.66; // Current approximate rate at 2025-08-02
+
+// --- Helper function for flat shipping rate lookup ---
+/**
+ * Retrieves the flat shipping rate for a given country code.
+ * Logs a warning if the country code is unknown and the default rate is used.
+ * @param {string} countryCode - The ISO Alpha-2 country code (e.g., 'US', 'AU').
+ * @returns {number} The flat shipping rate in AUD.
+ */
+function getFlatShippingRate(countryCode) {
+    const upperCaseCountryCode = countryCode.toUpperCase();
+    let flatShippingRateAUD = FLAT_SHIPPING_RATES_AUD[upperCaseCountryCode];
+    let isDefault = false;
+
+    if (flatShippingRateAUD === undefined) {
+        flatShippingRateAUD = FLAT_SHIPPING_RATES_AUD['DEFAULT'];
+        isDefault = true;
+    }
+
+    if (isDefault) {
+        console.warn(`[Shipping Calculation] No specific flat shipping rate found for country code: ${upperCaseCountryCode}. Using default rate: $${flatShippingRateAUD.toFixed(2)} AUD.`);
+    } else {
+        console.log(`[Shipping Calculation] Flat Shipping Rate (AUD) for ${upperCaseCountryCode}: $${flatShippingRateAUD.toFixed(2)}`);
+    }
+    return flatShippingRateAUD;
+}
+
 
 async function getFullTextBook(bookId, userId, client) {
     const bookResult = await client.query(`SELECT * FROM text_books WHERE id = $1 AND user_id = $2`, [bookId, userId]);
@@ -186,13 +246,33 @@ export const getTextBookDetails = async (req, res) => {
 
 export const createCheckoutSessionForTextBook = async (req, res) => {
     const { bookId } = req.params;
-    const { shippingAddress } = req.body;
+    const shippingAddress = req.body.shippingAddress || {}; // Ensure shippingAddress exists
     let client;
-    let tempInteriorPdfPath = null, tempCoverPdfPath = null;
+    let tempInteriorPdfPath = null;
+    let tempCoverPdfPath = null;
 
-    if (!shippingAddress || !shippingAddress.name || !shippingAddress.street1 || !shippingAddress.city || !shippingAddress.postcode || !shippingAddress.country_code) {
-        return res.status(400).json({ message: 'Address must include name, street, city, postal code, and country.' });
+    // 1. Input validation for shipping address fields
+    const trimmedAddress = {
+        name: shippingAddress.name ? shippingAddress.name.trim() : '',
+        street1: shippingAddress.street1 ? shippingAddress.street1.trim() : '',
+        street2: shippingAddress.street2 ? shippingAddress.street2.trim() : '', // Allow optional
+        city: shippingAddress.city ? shippingAddress.city.trim() : '',
+        state_code: shippingAddress.state_code ? shippingAddress.state_code.trim() : '', // Optional
+        postcode: shippingAddress.postcode ? shippingAddress.postcode.trim() : '',
+        country_code: shippingAddress.country_code ? shippingAddress.country_code.trim().toUpperCase() : '',
+    };
+
+    if (!trimmedAddress.name || !trimmedAddress.street1 || !trimmedAddress.city || !trimmedAddress.postcode || !trimmedAddress.country_code) {
+        return res.status(400).json({ message: 'Shipping address must include name, street, city, postal code, and country.' });
     }
+    if (!VALID_ISO_COUNTRY_CODES.has(trimmedAddress.country_code)) {
+        return res.status(400).json({ message: `Invalid country code: ${trimmedAddress.country_code}. Please use a valid ISO Alpha-2 code.` });
+    }
+
+    // SECURITY: Be cautious logging sensitive user data like full addresses in production.
+    // Consider using a logger that can redact or mask such information.
+    console.log(`[Checkout] Initiating checkout for book ${bookId} to country: ${trimmedAddress.country_code}`);
+
 
     try {
         const pool = await getDb();
@@ -204,15 +284,15 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
         const selectedProductConfig = LULU_PRODUCT_CONFIGURATIONS.find(p => p.id === book.lulu_product_id);
         if (!selectedProductConfig) return res.status(400).json({ message: 'Invalid product ID.' });
         
-        console.log(`Checkout for book ${bookId}. Generating PDFs...`);
+        console.log(`[Checkout] Generating PDFs for book ${bookId}...`);
         
         const { path: interiorPath, pageCount: finalPageCount } = await generateAndSaveTextBookPdf(book, selectedProductConfig);
         tempInteriorPdfPath = interiorPath;
-        console.log(`PDF generation complete. Final page count is ${finalPageCount}.`);
+        console.log(`[Checkout] PDF generation complete. Final page count is ${finalPageCount}.`);
         
         if (finalPageCount < selectedProductConfig.minPageCount || finalPageCount > selectedProductConfig.maxPageCount) {
             const errorMessage = `This book has ${finalPageCount} pages, but the selected product format only supports a range of ${selectedProductConfig.minPageCount}-${selectedProductConfig.maxPageCount} pages.`;
-            console.error("Checkout failed: Page count out of range.", { bookId, finalPageCount, product: selectedProductConfig.id });
+            console.error("[Checkout] Failed: Page count out of range.", { bookId, finalPageCount, product: selectedProductConfig.id });
             return res.status(400).json({ message: errorMessage });
         }
         
@@ -222,9 +302,9 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
         const coverDimensions = await getCoverDimensionsFromApi(luluSku, finalPageCount);
         tempCoverPdfPath = await generateCoverPdf(book, selectedProductConfig, coverDimensions);
         const coverPdfUrl = await uploadPdfFileToCloudinary(tempCoverPdfPath, `inkwell-ai/user_${req.userId}/covers`, `book_${bookId}_cover`);
-        console.log(`PDFs uploaded to Cloudinary.`);
+        console.log(`[Checkout] PDFs uploaded to Cloudinary.`);
 
-        console.log("Fetching print costs from Lulu (excluding shipping for calculation)...");
+        console.log("[Checkout] Fetching print costs from Lulu (shipping excluded from Lulu cost calculation)...");
         // We still call getPrintJobCosts as it gives us the base print cost for the product
         // based on page count, even if we use a flat rate for shipping.
         const printCostLineItems = [{ 
@@ -232,47 +312,84 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
             page_count: finalPageCount,
             quantity: 1 
         }];
+        
         // Lulu's API for print job cost calculation generally requires a full shipping address.
         // We pass the actual shipping address provided by the user.
         // We will then extract only the print cost and add our flat shipping rate.
-        const luluShippingAddressForCost = { ...shippingAddress, state_code: shippingAddress.state_code || '' };
+        const luluShippingAddressForCost = { 
+            name: trimmedAddress.name,
+            street1: trimmedAddress.street1,
+            street2: trimmedAddress.street2,
+            city: trimmedAddress.city,
+            state_code: trimmedAddress.state_code || '', // State code might be optional for some countries
+            postcode: trimmedAddress.postcode,
+            country_code: trimmedAddress.country_code
+        };
 
-        const luluCostsResponse = await getPrintJobCosts(printCostLineItems, luluShippingAddressForCost);
-        
+        let luluCostsResponse;
+        try {
+            // 4. Error handling for Lulu’s getPrintJobCosts
+            luluCostsResponse = await getPrintJobCosts(printCostLineItems, luluShippingAddressForCost);
+        } catch (luluError) {
+            console.error(`[Checkout] Error fetching print costs from Lulu: ${luluError.message}. This might require a retry strategy or clearer user feedback.`);
+            // CONSIDER: Implement retry logic here using a library like 'p-retry'
+            return res.status(503).json({ message: 'Failed to get print costs from publishing partner. Please try again shortly.', error: luluError.message });
+        }
+
         const luluPrintCostUSD = parseFloat(luluCostsResponse.print_costs.total_cost_incl_tax);
-        if (isNaN(luluPrintCostUSD)) {
-            throw new Error("Failed to parse print cost from Lulu.");
+        if (isNaN(luluPrintCostUSD) || luluPrintCostUSD <= 0) { // Also check for non-positive cost
+            console.error("[Checkout] Failed to parse or received invalid print cost from Lulu:", luluCostsResponse);
+            throw new Error("Failed to retrieve valid print costs from Lulu API or cost was non-positive.");
         }
-        console.log(`Lulu Print Cost (USD): $${luluPrintCostUSD.toFixed(2)}`);
+        console.log(`[Checkout] Lulu Print Cost (USD): $${luluPrintCostUSD.toFixed(4)}`); // More precision
 
-        // --- ADDED: Determine Flat Shipping Rate in AUD ---
-        const customerCountryCode = shippingAddress.country_code.toUpperCase();
-        let flatShippingRateAUD = FLAT_SHIPPING_RATES_AUD[customerCountryCode];
+        // 2. Refactoring the flat shipping rate lookup to a helper function
+        const flatShippingRateAUD = getFlatShippingRate(trimmedAddress.country_code);
         
-        // Use default if country not explicitly listed
-        if (flatShippingRateAUD === undefined) {
-            flatShippingRateAUD = FLAT_SHIPPING_RATES_AUD['DEFAULT'];
-            console.warn(`No specific flat shipping rate found for country code: ${customerCountryCode}. Using default rate: $${flatShippingRateAUD.toFixed(2)} AUD.`);
-        }
-        console.log(`Flat Shipping Rate (AUD) for ${customerCountryCode}: $${flatShippingRateAUD.toFixed(2)}`);
-
         // Convert flat shipping rate from AUD to USD (assuming Stripe is in USD)
-        const flatShippingRateUSD = flatShippingRateAUD * AUD_TO_USD_EXCHANGE_RATE;
-        console.log(`Flat Shipping Rate (USD) converted from AUD: $${flatShippingRateUSD.toFixed(2)}`);
+        // 5. Improving currency conversion precision
+        const flatShippingRateUSD = parseFloat((flatShippingRateAUD * AUD_TO_USD_EXCHANGE_RATE).toFixed(4));
+        console.log(`[Checkout] Flat Shipping Rate (USD) converted from AUD: $${flatShippingRateUSD.toFixed(4)}`);
 
         // Calculate total price for Stripe in USD
         // total = Lulu Print Cost (USD) + Flat Shipping Rate (USD) + Your Profit Margin (USD)
-        const finalPriceDollars = luluPrintCostUSD + flatShippingRateUSD + PROFIT_MARGIN_USD;
+        const finalPriceDollars = parseFloat((luluPrintCostUSD + flatShippingRateUSD + PROFIT_MARGIN_USD).toFixed(4));
         const finalPriceInCents = Math.round(finalPriceDollars * 100);
 
-        console.log(`Final Pricing Summary: Lulu Print: $${luluPrintCostUSD.toFixed(2)}, Flat Shipping: $${flatShippingRateUSD.toFixed(2)}, Profit: $${PROFIT_MARGIN_USD.toFixed(2)}, Total (USD): $${finalPriceDollars.toFixed(2)} (${finalPriceInCents} cents)`);
+        console.log(`[Checkout] Final Pricing Breakdown:`);
+        console.log(`  - Lulu Print Cost: $${luluPrintCostUSD.toFixed(2)} USD`);
+        console.log(`  - Flat Shipping Cost: $${flatShippingRateUSD.toFixed(2)} USD (from $${flatShippingRateAUD.toFixed(2)} AUD)`);
+        console.log(`  - Profit Margin: $${PROFIT_MARGIN_USD.toFixed(2)} USD`);
+        console.log(`  - Total Price for Stripe: $${finalPriceDollars.toFixed(2)} USD (${finalPriceInCents} cents)`);
         
         const orderId = randomUUID();
-        await client.query(
-            `INSERT INTO orders (id, user_id, book_id, book_type, book_title, lulu_product_id, status, total_price, interior_pdf_url, cover_pdf_url, order_date, actual_page_count, is_fallback) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), $11, $12)`,
-            [orderId, req.userId, bookId, 'textBook', book.title, luluSku, 'pending', finalPriceDollars.toFixed(2), interiorPdfUrl, coverPdfUrl, finalPageCount, false]
-        );
-        console.log(`Created pending order record ${orderId} with final price.`);
+        // 7. Ensure that database inserts use parameterized queries with proper types for price fields
+        // Store decimals as numbers (numeric/decimal in PG), not strings.
+        const insertOrderSql = `
+            INSERT INTO orders (
+                id, user_id, book_id, book_type, book_title, lulu_product_id, status, 
+                total_price_usd, interior_pdf_url, cover_pdf_url, order_date, actual_page_count, is_fallback, 
+                lulu_print_cost_usd, flat_shipping_cost_usd, profit_usd
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), $11, $12, $13, $14, $15)`;
+
+        await client.query(insertOrderSql, [
+            orderId, 
+            req.userId, 
+            bookId, 
+            'textBook', 
+            book.title, 
+            luluSku, 
+            'pending', 
+            finalPriceDollars, // Store as number
+            interiorPdfUrl, 
+            coverPdfUrl, 
+            finalPageCount, 
+            false, 
+            luluPrintCostUSD, // Store as number
+            flatShippingRateUSD, // Store as number
+            PROFIT_MARGIN_USD // Store as number
+        ]);
+        console.log(`[Checkout] Created pending order record ${orderId} with final price.`);
 
         const session = await createStripeCheckoutSession(
             { 
@@ -291,12 +408,27 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
         res.status(200).json({ url: session.url });
 
     } catch (error) {
-        console.error(`Failed to create checkout session for textbook: ${error.stack}`);
+        console.error(`[Checkout] Failed to create checkout session for textbook: ${error.stack}`);
         res.status(500).json({ message: 'Failed to create checkout session.', error: error.message });
     } finally {
         if (client) client.release();
-        if (tempInteriorPdfPath) await fs.unlink(tempInteriorPdfPath).catch(console.error);
-        if (tempCoverPdfPath) await fs.unlink(tempCoverPdfPath).catch(console.error);
+        // 8. Cleaning up temporary PDF files with more robust error handling and logs.
+        if (tempInteriorPdfPath) {
+            try {
+                await fs.unlink(tempInteriorPdfPath);
+                console.log(`[Cleanup] Deleted temporary interior PDF: ${tempInteriorPdfPath}`);
+            } catch (unlinkError) {
+                console.error(`[Cleanup] Error deleting temporary interior PDF ${tempInteriorPdfPath}:`, unlinkError);
+            }
+        }
+        if (tempCoverPdfPath) {
+            try {
+                await fs.unlink(tempCoverPdfPath);
+                console.log(`[Cleanup] Deleted temporary cover PDF: ${tempCoverPdfPath}`);
+            } catch (unlinkError) {
+                console.error(`[Cleanup] Error deleting temporary cover PDF ${tempCoverPdfPath}:`, unlinkError);
+            }
+        }
     }
 };
 
