@@ -17,11 +17,10 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = pathToFileURL(workerPath).href;
 
 const mmToPoints = (mm) => mm * (72 / 25.4);
 
-// Define paths to the new font files
 const ROBOTO_REGULAR_PATH = path.join(__dirname, '../fonts/Roboto-Regular.ttf');
 const ROBOTO_BOLD_PATH = path.join(__dirname, '../fonts/Roboto-Bold.ttf');
 
-
+// --- MODIFIED: Updated to handle the new trim sizes from lulu.service.js ---
 const getProductDimensions = (luluConfigId) => {
     const productConfig = LULU_PRODUCT_CONFIGURATIONS.find(p => p.id === luluConfigId);
     if (!productConfig) {
@@ -31,22 +30,32 @@ const getProductDimensions = (luluConfigId) => {
     let widthMm, heightMm, layout;
 
     switch (productConfig.trimSize) {
-        case '5.75x8.75': // Novella interior
-            widthMm = 146.05;
-            heightMm = 222.25;
+        // New Novella Size
+        case '5.25x8.25':
+            widthMm = 133.35;
+            heightMm = 209.55;
             layout = 'portrait';
             break;
-        case '8.27x11.69': // A4 Novel interior
+        // New A4 Novel Size
+        case '8.52x11.94':
+            widthMm = 216.41;
+            heightMm = 303.28;
+            layout = 'portrait';
+            break;
+        // New Royal Hardcover Size
+        case '6.39x9.46':
+            widthMm = 162.31;
+            heightMm = 240.28;
+            layout = 'portrait';
+            break;
+        // Picture Book Size (assuming it's unchanged)
+        case '8.27x11.69':
             widthMm = 209.55;
             heightMm = 296.9;
             layout = 'portrait';
             break;
-        case '6.14x9.21': // Royal Hardcover interior
-            widthMm = 156;
-            heightMm = 234;
-            layout = 'portrait';
-            break;
         default:
+            // This was the error source. It will no longer be triggered for our main products.
             throw new Error(`Unknown trim size ${productConfig.trimSize} for interior PDF dimensions.`);
     }
 
@@ -81,17 +90,9 @@ async function streamToBuffer(doc) {
     });
 }
 
-/**
- * Generates a dynamic, correctly oriented wraparound cover PDF.
- * This function is now resilient: it uses the book's cover image if available,
- * otherwise it creates a placeholder text-based cover to prevent crashes.
- */
 export const generateCoverPdf = async (book, productConfig, coverDimensions) => {
     console.log(`🚀 Starting dynamic cover generation for SKU: ${productConfig.luluSku}`);
 
-    // --- START: DYNAMIC & ROBUST COVER GENERATION LOGIC ---
-
-    // 1. Convert Lulu's dimensions to points and enforce landscape orientation.
     let widthMm = coverDimensions.width;
     let heightMm = coverDimensions.height;
     let widthPoints = mmToPoints(widthMm);
@@ -101,19 +102,16 @@ export const generateCoverPdf = async (book, productConfig, coverDimensions) => 
 
     if (heightPoints > widthPoints) {
         console.warn(`⚠️ Height > Width detected. Swapping dimensions to enforce landscape orientation.`);
-        [widthPoints, heightPoints] = [heightPoints, widthPoints]; // Swap the values
+        [widthPoints, heightPoints] = [heightPoints, widthPoints];
         console.warn(`   Corrected dimensions (pts): Width=${widthPoints.toFixed(2)}, Height=${heightPoints.toFixed(2)}`);
     }
 
-    // 2. Create the PDF document with the corrected, precise dimensions.
     const doc = new PDFDocument({
         size: [widthPoints, heightPoints],
         margins: { top: 0, bottom: 0, left: 0, right: 0 }
     });
     
-    // 3. **CRITICAL FIX**: Check for cover image and provide a fallback.
     if (book.cover_image_url) {
-        // If a cover image URL exists, use it.
         try {
             console.log(`Fetching cover image from: ${book.cover_image_url}`);
             const imageBuffer = await getImageBuffer(book.cover_image_url);
@@ -124,20 +122,16 @@ export const generateCoverPdf = async (book, productConfig, coverDimensions) => 
             console.log("✅ Successfully embedded cover image.");
         } catch (error) {
             console.error("❌ Failed to fetch or embed cover image.", error);
-            // If image fetch fails, draw an error message on the PDF.
             doc.rect(0, 0, widthPoints, heightPoints).fill('red');
             doc.fontSize(24).fillColor('#FFFFFF').font(ROBOTO_BOLD_PATH)
                 .text(`Error: Could not load cover image.`, 50, 50, { width: widthPoints - 100 });
         }
     } else {
-        // **FALLBACK**: If no cover image URL, generate a simple text-based placeholder cover.
-        // This prevents the checkout from ever crashing at this step.
         console.warn("⚠️ No `cover_image_url` found. Generating a placeholder text-based cover.");
         
-        // Use the previous placeholder style
-        doc.rect(0, 0, widthPoints, heightPoints).fill('#313131'); // Dark grey background
+        doc.rect(0, 0, widthPoints, heightPoints).fill('#313131');
         
-        const safetyMarginPoints = 0.25 * 72; // 0.25 inch margin
+        const safetyMarginPoints = 0.25 * 72;
         const contentAreaWidth = widthPoints - (2 * safetyMarginPoints);
 
         doc.fontSize(48).fillColor('#FFFFFF').font(ROBOTO_BOLD_PATH)
@@ -155,8 +149,6 @@ export const generateCoverPdf = async (book, productConfig, coverDimensions) => 
            });
         console.log("✅ Placeholder cover generated successfully.");
     }
-
-    // --- END: DYNAMIC LOGIC ---
 
     const tempPdfsDir = path.resolve(process.cwd(), 'tmp', 'pdfs');
     await fs.mkdir(tempPdfsDir, { recursive: true });
