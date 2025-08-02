@@ -2,11 +2,12 @@
 
 // CHANGES:
 // - Replaced manual pageCount tracking with true PDF page count obtained via pdf-lib.
-// - Removed redundant doc.addPage() calls within chapter loops to allow content to flow naturally across pages.
 // - Implemented padding with blank pages in both textbook and picture book PDF generation to meet minPageCount requirements.
 // - Added resilient fallback for pdf-lib failures, returning pageCount: null.
 // - Updated logging to reflect "true page count" where applicable.
-// - FIX: Ensured estimatedPageCountBeforePadding is a valid number (defaulting to 0) to correctly trigger padding logic.
+// - Fixed padding logic by ensuring estimatedPageCountBeforePadding is a valid number.
+// - NEW FIX: Removed explicit doc.addPage() for chapters (after the first one) to allow continuous text flow across pages,
+//   only adding new pages when content naturally overflows.
 
 import PDFDocument from 'pdfkit'; // For creating PDFs
 import { PDFDocument as PDFLibDocument } from 'pdf-lib'; // For reading PDFs
@@ -157,11 +158,10 @@ export const generateAndSaveTextBookPdf = async (book, productConfig) => {
 
     // --- Chapter Pages ---
     // PDFKit will automatically add pages as content overflows.
-    // We explicitly add a new page *for each chapter after the first*,
-    // to ensure chapters start on a new page as is common in books.
+    // NEW FIX: Removed explicit doc.addPage() for chapters (after the first one) to allow continuous text flow.
     for (const [index, chapter] of book.chapters.entries()) {
-        if (index > 0) { // For Chapter 2 onwards, add a new page
-            doc.addPage();
+        if (index > 0) { // For Chapter 2 onwards, we will add a new line after the previous content
+            doc.moveDown(4); // Add some space before the next chapter header if on the same page
         }
         // Log current page count as understood by PDFKit at this moment (may not be final until doc.end())
         console.log(`[PDF Service: Textbook] Starting Chapter ${chapter.chapter_number} on PDFKit page: ${doc.page.count || 0}`);
