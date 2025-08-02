@@ -83,64 +83,81 @@ async function streamToBuffer(doc) {
 
 /**
  * Generates a dynamic, correctly oriented wraparound cover PDF.
- * This function removes previous hardcoding and uses the live dimensions from the Lulu API.
- * It also fetches the book's cover image and embeds it.
+ * This function is now resilient: it uses the book's cover image if available,
+ * otherwise it creates a placeholder text-based cover to prevent crashes.
  */
 export const generateCoverPdf = async (book, productConfig, coverDimensions) => {
     console.log(`🚀 Starting dynamic cover generation for SKU: ${productConfig.luluSku}`);
 
     // --- START: DYNAMIC & ROBUST COVER GENERATION LOGIC ---
 
-    // 1. Get raw dimensions in millimeters from the Lulu API response.
+    // 1. Convert Lulu's dimensions to points and enforce landscape orientation.
     let widthMm = coverDimensions.width;
     let heightMm = coverDimensions.height;
-    
-    // 2. Convert dimensions to PDF points.
     let widthPoints = mmToPoints(widthMm);
     let heightPoints = mmToPoints(heightMm);
     
     console.log(`Original dimensions from Lulu (pts): Width=${widthPoints.toFixed(2)}, Height=${heightPoints.toFixed(2)}`);
 
-    // 3. **CRITICAL FIX**: Ensure landscape orientation for wraparound cover.
-    // A wraparound cover's width must be greater than its height. If Lulu returns swapped values, we correct them.
     if (heightPoints > widthPoints) {
         console.warn(`⚠️ Height > Width detected. Swapping dimensions to enforce landscape orientation.`);
         [widthPoints, heightPoints] = [heightPoints, widthPoints]; // Swap the values
         console.warn(`   Corrected dimensions (pts): Width=${widthPoints.toFixed(2)}, Height=${heightPoints.toFixed(2)}`);
     }
 
-    // 4. Create the PDF document with the corrected, precise dimensions.
-    // Note: We do not set 'layout' and instead let the `size` array define the orientation.
+    // 2. Create the PDF document with the corrected, precise dimensions.
     const doc = new PDFDocument({
         size: [widthPoints, heightPoints],
         margins: { top: 0, bottom: 0, left: 0, right: 0 }
     });
     
-    // 5. Fetch the actual cover image for the book.
-    if (!book.cover_image_url) {
-        throw new Error("Cannot generate cover PDF: `book.cover_image_url` is missing.");
-    }
+    // 3. **CRITICAL FIX**: Check for cover image and provide a fallback.
+    if (book.cover_image_url) {
+        // If a cover image URL exists, use it.
+        try {
+            console.log(`Fetching cover image from: ${book.cover_image_url}`);
+            const imageBuffer = await getImageBuffer(book.cover_image_url);
+            doc.image(imageBuffer, 0, 0, {
+                width: widthPoints,
+                height: heightPoints,
+            });
+            console.log("✅ Successfully embedded cover image.");
+        } catch (error) {
+            console.error("❌ Failed to fetch or embed cover image.", error);
+            // If image fetch fails, draw an error message on the PDF.
+            doc.rect(0, 0, widthPoints, heightPoints).fill('red');
+            doc.fontSize(24).fillColor('#FFFFFF').font(ROBOTO_BOLD_PATH)
+                .text(`Error: Could not load cover image.`, 50, 50, { width: widthPoints - 100 });
+        }
+    } else {
+        // **FALLBACK**: If no cover image URL, generate a simple text-based placeholder cover.
+        // This prevents the checkout from ever crashing at this step.
+        console.warn("⚠️ No `cover_image_url` found. Generating a placeholder text-based cover.");
+        
+        // Use the previous placeholder style
+        doc.rect(0, 0, widthPoints, heightPoints).fill('#313131'); // Dark grey background
+        
+        const safetyMarginPoints = 0.25 * 72; // 0.25 inch margin
+        const contentAreaWidth = widthPoints - (2 * safetyMarginPoints);
 
-    try {
-        console.log(`Fetching cover image from: ${book.cover_image_url}`);
-        const imageBuffer = await getImageBuffer(book.cover_image_url);
-        // Embed the image to fill the entire cover dimensions.
-        doc.image(imageBuffer, 0, 0, {
-            width: widthPoints,
-            height: heightPoints,
-        });
-        console.log("✅ Successfully embedded cover image.");
-    } catch (error) {
-        console.error("❌ Failed to fetch or embed cover image.", error);
-        // Create a fallback visual error message on the PDF itself for easier debugging.
-        doc.rect(0, 0, widthPoints, heightPoints).fill('red');
-        doc.fontSize(24).fillColor('#FFFFFF').font(ROBOTO_BOLD_PATH)
-            .text(`Error: Could not load cover image from URL.`, 50, 50, { width: widthPoints - 100 });
+        doc.fontSize(48).fillColor('#FFFFFF').font(ROBOTO_BOLD_PATH)
+           .text(book.title, safetyMarginPoints, heightPoints / 4, {
+               align: 'center',
+               width: contentAreaWidth
+           });
+        
+        doc.moveDown(1);
+
+        doc.fontSize(24).fillColor('#CCCCCC').font(ROBOTO_REGULAR_PATH)
+           .text('Inkwell AI', {
+               align: 'center',
+               width: contentAreaWidth
+           });
+        console.log("✅ Placeholder cover generated successfully.");
     }
 
     // --- END: DYNAMIC LOGIC ---
 
-    // Save the generated PDF to a temporary file, maintaining the existing pattern.
     const tempPdfsDir = path.resolve(process.cwd(), 'tmp', 'pdfs');
     await fs.mkdir(tempPdfsDir, { recursive: true });
     const tempFilePath = path.join(tempPdfsDir, `cover_${Date.now()}_${book.id}.pdf`);
@@ -166,7 +183,6 @@ export const generateAndSaveTextBookPdf = async (book, productConfig, addFinalBl
     await fs.mkdir(tempPdfsDir, { recursive: true });
     const tempFilePath = path.join(tempPdfsDir, `interior_textbook_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.pdf`);
 
-    // Using custom font files for explicit embedding
     doc.fontSize(28).font(ROBOTO_BOLD_PATH).text(book.title, { align: 'center' }); 
     doc.moveDown(4);
     doc.fontSize(16).font(ROBOTO_REGULAR_PATH).text('A Story by Inkwell AI', { align: 'center' }); 
@@ -210,11 +226,9 @@ export const generateAndSavePictureBookPdf = async (book, events, productConfig,
             doc.image(coverImageBuffer, 0, 0, { width: doc.page.width, height: doc.page.height });
         } catch (imgErr) {
             console.error(`Failed to load cover image for interior from ${book.cover_image_url}`, imgErr);
-            // Fallback text using custom font
             doc.fontSize(40).font(ROBOTO_BOLD_PATH).text(book.title, { align: 'center' }); 
         }
     } else {
-        // Using custom font
         doc.fontSize(40).font(ROBOTO_BOLD_PATH).text(book.title, { align: 'center' }); 
         doc.moveDown(2);
         doc.fontSize(18).font(ROBOTO_REGULAR_PATH).text('A Personalized Story from Inkwell AI', { align: 'center' }); 
@@ -232,7 +246,6 @@ export const generateAndSavePictureBookPdf = async (book, events, productConfig,
             }
         }
         if (event.overlay_text) {
-            // Using custom font
             doc.fontSize(24).font(ROBOTO_BOLD_PATH).text( 
                 event.overlay_text,
                 doc.page.margins.left,
