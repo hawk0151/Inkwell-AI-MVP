@@ -1,5 +1,8 @@
+// backend/src/controllers/picturebook.controller.js
+
 import { getDb } from '../db/database.js';
 import { randomUUID } from 'crypto';
+// --- MODIFIED: Removed getPdfPageCount from imports ---
 import { generateAndSavePictureBookPdf, generateCoverPdf } from '../services/pdf.service.js';
 import { LULU_PRODUCT_CONFIGURATIONS, getPrintOptions, getCoverDimensionsFromApi, getPrintJobCosts } from '../services/lulu.service.js';
 import { createStripeCheckoutSession } from '../services/stripe.service.js';
@@ -25,18 +28,23 @@ export const createPictureBook = async (req, res) => {
     try {
         const pool = await getDb();
         client = await pool.connect();
+
         const { title, luluProductId } = req.body;
         const userId = req.userId;
+
         const countSql = `SELECT COUNT(*) as count FROM picture_books WHERE user_id = $1`;
         const countResult = await client.query(countSql, [userId]);
         const { count } = countResult.rows[0];
+
         if (count >= 5) {
             return res.status(403).json({ message: "You have reached the maximum of 5 projects." });
         }
+
         const bookId = randomUUID();
         const currentDate = new Date().toISOString();
         const sql = `INSERT INTO picture_books (id, user_id, title, date_created, last_modified, lulu_product_id) VALUES ($1, $2, $3, $4, $5, $6)`;
         await client.query(sql, [bookId, userId, title, currentDate, currentDate, luluProductId]);
+
         res.status(201).json({ bookId: bookId });
     } catch (err) {
         console.error("Error creating picture book:", err.message);
@@ -51,12 +59,15 @@ export const getPictureBook = async (req, res) => {
     try {
         const pool = await getDb();
         client = await pool.connect();
+
         const { bookId } = req.params;
         const userId = req.userId;
+        
         const book = await getFullPictureBook(bookId, userId, client);
         if (!book) {
             return res.status(404).json({ message: 'Project not found.' });
         }
+        
         res.status(200).json({ book, timeline: book.timeline });
     } catch (err) {
         console.error("Error fetching project:", err.message);
@@ -71,6 +82,7 @@ export const getPictureBooks = async (req, res) => {
     try {
         const pool = await getDb();
         client = await pool.connect();
+
         const userId = req.userId;
         const sql = `
             SELECT pb.id, pb.title, pb.last_modified, pb.is_public, pb.cover_image_url, pb.lulu_product_id
@@ -79,6 +91,7 @@ export const getPictureBooks = async (req, res) => {
             ORDER BY pb.last_modified DESC`;
         const booksResult = await client.query(sql, [userId]);
         const books = booksResult.rows;
+
         const printOptionsCache = await getPrintOptions();
         const booksWithType = books.map(book => {
             const productConfig = printOptionsCache.find(p => p.id === book.lulu_product_id);
@@ -98,12 +111,16 @@ export const addTimelineEvent = async (req, res) => {
     try {
         const pool = await getDb();
         client = await pool.connect();
+
         const { bookId } = req.params;
         const { page_number, event_date = null, description = null, image_url = null, image_style = null, uploaded_image_url = null, overlay_text = null } = req.body;
+
         if (page_number === undefined || page_number === null) {
             return res.status(400).json({ message: "Page number is a required field." });
         }
+
         const finalImageUrl = uploaded_image_url || image_url;
+
         const sql = `
             INSERT INTO timeline_events (book_id, page_number, event_date, description, image_url, image_style, uploaded_image_url, overlay_text)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -117,7 +134,9 @@ export const addTimelineEvent = async (req, res) => {
             last_modified = CURRENT_TIMESTAMP;
         `;
         await client.query(sql, [bookId, page_number, event_date, description, finalImageUrl, image_style, uploaded_image_url, overlay_text]);
+
         await client.query(`UPDATE picture_books SET last_modified = $1 WHERE id = $2`, [new Date().toISOString(), bookId]);
+
         res.status(201).json({ message: 'Event saved.' });
     } catch (err) {
         console.error("Error in addTimelineEvent:", err.message);
@@ -148,11 +167,17 @@ export const createBookCheckoutSession = async (req, res) => {
         const selectedProductConfig = LULU_PRODUCT_CONFIGURATIONS.find(p => p.id === book.lulu_product_id);
         if (!selectedProductConfig) return res.status(500).json({ message: "Picture book product configuration not found." });
         
+        // --- MODIFIED: Use the new memory-efficient PDF generation method for Picture Books ---
+        // This function now returns both the path and the pageCount directly.
         const { path: interiorPath, pageCount: finalPageCount } = await generateAndSavePictureBookPdf(book, book.timeline, selectedProductConfig);
         tempInteriorPdfPath = interiorPath;
+        // The page count is now returned directly, no need for getPdfPageCount.
+        console.log(`Picture book PDF generation complete. Final page count is ${finalPageCount}.`);
         
         if (finalPageCount < selectedProductConfig.minPageCount || finalPageCount > selectedProductConfig.maxPageCount) {
             const errorMessage = `This picture book has ${finalPageCount} pages, but the selected product format only supports ${selectedProductConfig.minPageCount}-${selectedProductConfig.maxPageCount} pages.`;
+            // --- ADDED: More detailed error logging for out-of-range page count ---
+            console.error("Checkout failed for picture book: Page count out of range.", { bookId, finalPageCount, product: selectedProductConfig.id });
             return res.status(400).json({ message: errorMessage });
         }
 
@@ -188,7 +213,7 @@ export const createBookCheckoutSession = async (req, res) => {
 
         res.status(200).json({ url: session.url });
     } catch (error) {
-        console.error("Failed to create checkout session:", error);
+        console.error("Failed to create checkout session (Picture Book):", error); // --- MODIFIED: Specific error log for picture book ---
         res.status(500).json({ message: "Failed to create checkout session." });
     } finally {
         if (client) client.release();
@@ -203,13 +228,17 @@ export const deletePictureBook = async (req, res) => {
         const pool = await getDb();
         client = await pool.connect();
         await client.query('BEGIN');
+
         const { bookId } = req.params;
         const userId = req.userId;
+
         const bookResult = await client.query(`SELECT id FROM picture_books WHERE id = $1 AND user_id = $2`, [bookId, userId]);
         const book = bookResult.rows[0];
         if (!book) return res.status(404).json({ message: 'Project not found.' });
+
         await client.query(`DELETE FROM timeline_events WHERE book_id = $1`, [bookId]);
         await client.query(`DELETE FROM picture_books WHERE id = $1`, [bookId]);
+
         await client.query('COMMIT');
         res.status(200).json({ message: 'Project deleted successfully.' });
     } catch (err) {
@@ -225,17 +254,22 @@ export const deleteTimelineEvent = async (req, res) => {
     let client;
     const { bookId, pageNumber } = req.params;
     const userId = req.userId;
+
     try {
         const pool = await getDb();
         client = await pool.connect();
+
         const bookResult = await client.query(`SELECT id FROM picture_books WHERE id = $1 AND user_id = $2`, [bookId, userId]);
         const book = bookResult.rows[0];
         if (!book) {
             return res.status(404).json({ message: 'Project not found or you do not have permission to edit it.' });
         }
+
         await client.query(`DELETE FROM timeline_events WHERE book_id = $1 AND page_number = $2`, [bookId, pageNumber]);
+        // Shift page numbers for subsequent events
         await client.query(`UPDATE timeline_events SET page_number = page_number - 1 WHERE book_id = $1 AND page_number > $2`, [bookId, pageNumber]);
         await client.query(`UPDATE picture_books SET last_modified = $1 WHERE id = $2`, [new Date().toISOString(), bookId]);
+
         res.status(200).json({ message: `Page ${pageNumber} deleted successfully and subsequent pages re-ordered.` });
     } catch (err) {
         console.error(`Error in deleteTimelineEvent controller:`, err.message);
@@ -250,21 +284,27 @@ export const togglePictureBookPrivacy = async (req, res) => {
     const { bookId } = req.params;
     const userId = req.userId;
     const { is_public } = req.body;
+
     if (typeof is_public !== 'boolean') {
         return res.status(400).json({ message: 'is_public must be a boolean value.' });
     }
+
     try {
         const pool = await getDb();
         client = await pool.connect();
+
         const bookResult = await client.query(`SELECT id, user_id FROM picture_books WHERE id = $1`, [bookId]);
         const book = bookResult.rows[0];
+
         if (!book) {
             return res.status(404).json({ message: 'Project not found.' });
         }
         if (book.user_id !== userId) {
             return res.status(403).json({ message: 'You are not authorized to edit this project.' });
         }
+
         await client.query(`UPDATE picture_books SET is_public = $1 WHERE id = $2`, [is_public, bookId]);
+
         res.status(200).json({
             message: `Book status successfully set to ${is_public ? 'public' : 'private'}.`,
             is_public: is_public
