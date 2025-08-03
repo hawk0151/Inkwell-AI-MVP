@@ -2,7 +2,8 @@
 
 import { getDb } from '../db/database.js';
 import Stripe from 'stripe';
-import { LULU_PRODUCT_CONFIGURATIONS, getPrintOptions, createLuluPrintJob } from '../services/lulu.service.js';
+// --- MODIFIED: Imported the new getPrintJobStatus function ---
+import { LULU_PRODUCT_CONFIGURATIONS, getPrintOptions, createLuluPrintJob, getPrintJobStatus } from '../services/lulu.service.js';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
@@ -231,7 +232,6 @@ export const getOrderDetails = async (req, res) => {
     }
 };
 
-// NEW: Function to get order details by Stripe Session ID
 export const getOrderBySessionId = async (req, res) => {
     let client;
     const { sessionId } = req.params;
@@ -317,5 +317,22 @@ export const updateOrderLuluData = async (req, res) => {
         res.status(500).json({ message: 'Failed to update Lulu order data.' });
     } finally {
         if (client) client.release();
+    }
+};
+
+// --- NEW: Controller function to handle fetching Lulu status ---
+export const getLuluOrderStatus = async (req, res) => {
+    const { luluJobId } = req.params;
+
+    if (!luluJobId || luluJobId === 'null') { // Also check for string "null"
+        return res.status(400).json({ message: 'Lulu Job ID is not available for this order yet.' });
+    }
+
+    try {
+        const statusData = await getPrintJobStatus(luluJobId);
+        res.status(200).json(statusData);
+    } catch (error) {
+        console.error(`Error in getLuluOrderStatus controller for job ${luluJobId}:`, error);
+        res.status(500).json({ message: 'Failed to retrieve order status from Lulu.' });
     }
 };

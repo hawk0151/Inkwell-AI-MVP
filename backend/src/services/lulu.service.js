@@ -318,3 +318,44 @@ export const createLuluPrintJob = async (orderDetails, shippingInfo) => {
         throw new Error('Failed to create Lulu Print Job.');
     }
 };
+
+// --- NEW: Function to get real-time status of a print job from Lulu ---
+export const getPrintJobStatus = async (luluJobId) => {
+    console.log(`Fetching status for Lulu Job ID: ${luluJobId}`);
+    try {
+        const token = await getLuluAuthToken();
+        const baseUrl = process.env.LULU_API_BASE_URL;
+        if (!baseUrl) {
+            throw new Error('LULU_API_BASE_URL is not configured.');
+        }
+        const statusUrl = `${baseUrl.replace(/\/$/, '')}/print-jobs/${luluJobId}/`;
+        await ensureHostnameResolvable(statusUrl);
+
+        const response = await retryWithBackoff(async () => {
+            return await axios.get(statusUrl, {
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                timeout: 15000
+            });
+        });
+        
+        console.log(`✅ Successfully fetched status for Lulu job ${luluJobId}.`);
+        // We only need a subset of the data for the frontend
+        return {
+            status: response.data.status?.name || 'Unknown',
+            tracking_urls: response.data.line_items?.[0]?.tracking_urls || []
+        };
+    } catch (error) {
+        if (error.response) {
+            console.error(`❌ Error fetching status for Lulu Job ${luluJobId} (API response):`, {
+                status: error.response.status,
+                data: error.response.data
+            });
+        } else {
+            console.error(`❌ Error fetching status for Lulu Job ${luluJobId} (network/unknown):`, error.message);
+        }
+        throw new Error(`Failed to fetch status for Lulu job ${luluJobId}.`);
+    }
+};
