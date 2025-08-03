@@ -1,4 +1,5 @@
-// backend/src/api/order.routes.js
+console.log('--- ORDER ROUTES FILE LOADED (VERSION: TEST-123) ---'); // <-- DEBUGGING LINE ADDED
+
 import express from 'express';
 import { protect } from '../middleware/auth.middleware.js';
 // --- MODIFIED: Import the new getLuluOrderStatus function ---
