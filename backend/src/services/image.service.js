@@ -1,10 +1,14 @@
 // backend/src/services/image.service.js
 
+// CHANGES:
+// - FIXED: Enhanced public_id generation for `uploadImageToCloudinary` to be more descriptive and ensure uniqueness.
+// - FIXED: Explicitly set `resource_type: 'image'` for generated images to avoid 'auto' detection issues.
+
 import axios from 'axios';
 import { v2 as cloudinary } from 'cloudinary';
 import { randomUUID } from 'crypto';
-import path from 'path';
-import FormData from 'form-data';
+import path from 'path'; // Still used for path.basename in original uploadImageToCloudinary for filename extraction, if needed.
+import FormData from 'form-data'; // Needed for multipart/form-data
 
 console.log("DEBUG: Cloudinary config values from process.env:");
 console.log("CLOUDINARY_CLOUD_NAME:", process.env.CLOUDINARY_CLOUD_NAME ? "SET" : "NOT SET");
@@ -77,16 +81,17 @@ export const generateImageFromApi = async (prompt, style) => {
     return base64GeneratedImage;
 };
 
-// Fixed: Added access_mode: 'public' for general image uploads too
 export const uploadImageToCloudinary = (fileBuffer, folder, fileFormat = 'auto') => {
     return new Promise((resolve, reject) => {
-        const publicId = randomUUID(); // Generate a unique ID
+        // REVISED: More specific public_id for AI generated images
+        const uniqueSuffix = randomUUID().substring(0, 8);
+        const finalPublicId = `${folder.split('/').pop()}_generated_${uniqueSuffix}`; // e.g., 'generated_5256e374'
 
         const uploadOptions = {
             upload_preset: process.env.CLOUDINARY_UPLOAD_PRESET,
             folder: folder,
-            resource_type: 'auto', 
-            public_id: publicId, 
+            resource_type: 'image', // <--- EXPLICITLY SET TO 'image'
+            public_id: finalPublicId, // Use the new specific publicId
             type: 'upload',
             access_mode: 'public'
         };
@@ -102,26 +107,34 @@ export const uploadImageToCloudinary = (fileBuffer, folder, fileFormat = 'auto')
             fileFormat: fileFormat // Also log the passed fileFormat
         });
 
-
+        // The fileFormat logic below is primarily for user uploads,
+        // as AI generates JPEG base64 and we explicitly set resource_type: 'image' above.
+        // For AI generated images, fileFormat will typically be 'auto' or 'jpeg' implicitly.
         if (fileFormat === 'pdf') {
             console.warn("WARN: Using uploadImageToCloudinary for PDF. Consider using uploadPdfFileToCloudinary for better robustness.");
             uploadOptions.resource_type = 'raw';
             uploadOptions.format = 'pdf';
-            uploadOptions.public_id = `${publicId}.pdf`;
-        } else if (fileFormat !== 'auto') {
+            uploadOptions.public_id = `${finalPublicId}.pdf`; // Append .pdf for PDFs
+        } else if (fileFormat !== 'auto') { // e.g. if we specifically pass 'png' or 'jpeg'
             uploadOptions.resource_type = 'image';
             uploadOptions.format = fileFormat;
-            uploadOptions.public_id = `${publicId}.${fileFormat}`;
+            // For these, public_id might need to include format explicitly if it's not already in finalPublicId
+            // But if it's already a good publicId, Cloudinary will infer format from file buffer.
         }
-        // If fileFormat is 'auto', resource_type remains 'auto', and Cloudinary detects it.
-
+        
         cloudinary.uploader.upload_stream(uploadOptions,
             (error, result) => {
                 if (error) {
                     console.error("Cloudinary Upload Error:", error);
+                    // NEW DEBUG: Log full Cloudinary error response
+                    if (error.http_code) {
+                        console.error(`[Cloudinary Upload] HTTP Error Code: ${error.http_code}`);
+                    }
+                    if (error.response && error.response.data) {
+                        console.error('[Cloudinary Upload] Cloudinary API Error Response Data:', error.response.data);
+                    }
                     return reject(error);
                 }
-                // NEW DEBUG: Log successful Cloudinary result
                 console.log(`[Cloudinary Upload] ✅ Successful upload! Secure URL: ${result.secure_url}`);
                 console.log('[Cloudinary Upload] Full result from Cloudinary:', JSON.stringify(result, null, 2));
 
@@ -133,8 +146,8 @@ export const uploadImageToCloudinary = (fileBuffer, folder, fileFormat = 'auto')
 
 export const uploadPdfFileToCloudinary = (filePath, folder, publicIdPrefix) => {
     return new Promise((resolve, reject) => {
-        const uniqueId = `${publicIdPrefix}_${randomUUID().substring(0, 8)}`;
-        const finalPublicId = `${uniqueId}`;
+        const uniqueSuffix = randomUUID().substring(0, 8);
+        const finalPublicId = `${publicIdPrefix}_${uniqueSuffix}`; // Updated to use uniqueSuffix
 
         const uploadOptions = {
             upload_preset: process.env.CLOUDINARY_UPLOAD_PRESET,
