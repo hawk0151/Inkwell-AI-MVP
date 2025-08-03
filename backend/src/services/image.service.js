@@ -1,22 +1,14 @@
 // backend/src/services/image.service.js
 
 // CHANGES:
-// - FINAL VERSION: Updated to use Stability AI's v2beta API, specifically 'stable-image-core'
-//   for more cost-effective image generation (3 credits per generation).
-// - FIXED: Corrected parsing of the base64 image data from the v2beta API response.
-//   Now uses 'response.data.image' instead of 'response.data.image_base64'.
-// - FIXED: Resolved 'formData.getHeaders is not a function' error by ensuring the 'form-data'
-//   package is installed and correctly imported/used for multipart/form-data requests.
-// - REMOVED: The 'upscaleImageWithStabilityAI' helper function entirely, as it's no longer part of the generation pipeline.
-// - REMOVED: Imports for 'sharp', as it's no longer required for image processing.
-// - Directly requests images at Lulu's target print dimensions (2556x3582 pixels at 300 DPI with bleed).
-// - Sets aspect_ratio and output_format for optimal generation.
+// - FIXED: Added `access_mode: 'public'` to `uploadImageToCloudinary` to ensure generated images are publicly accessible.
+// - FIXED: Explicitly pass 'jpeg' as fileFormat to `uploadImageToCloudinary` from `generateImage` for clarity and robustness.
 
 import axios from 'axios';
 import { v2 as cloudinary } from 'cloudinary';
 import { randomUUID } from 'crypto';
-import path from 'path';
-import FormData from 'form-data'; // IMPORTANT: Ensure 'form-data' package is installed (npm install form-data)
+import path from 'path'; // Still used for path.basename in original uploadImageToCloudinary for filename extraction, if needed.
+import FormData from 'form-data'; // Needed for multipart/form-data
 
 console.log("DEBUG: Cloudinary config values from process.env:");
 console.log("CLOUDINARY_CLOUD_NAME:", process.env.CLOUDINARY_CLOUD_NAME ? "SET" : "NOT SET");
@@ -50,9 +42,9 @@ export const generateImageFromApi = async (prompt, style) => {
     let base64GeneratedImage;
 
     try {
-        const formData = new FormData(); // Now this should be from the 'form-data' package
+        const formData = new FormData();
         formData.append('prompt', fullPrompt);
-        formData.append('output_format', 'jpeg');
+        formData.append('output_format', 'jpeg'); // Ensure output is JPEG
         formData.append('width', targetWidthPx.toString());
         formData.append('height', targetHeightPx.toString());
         formData.append('aspect_ratio', aspectRatio);
@@ -64,7 +56,7 @@ export const generateImageFromApi = async (prompt, style) => {
             formData,
             {
                 headers: {
-                    ...formData.getHeaders(), // This method should now be available
+                    ...formData.getHeaders(),
                     'Authorization': `Bearer ${apiKey}`,
                     'Accept': 'application/json'
                 },
@@ -72,7 +64,7 @@ export const generateImageFromApi = async (prompt, style) => {
             }
         );
 
-        const image = response.data.image; // Corrected access to the 'image' field
+        const image = response.data.image;
         if (image) {
             base64GeneratedImage = image;
             console.log(`[Stability AI Generation] ✅ ${targetWidthPx}x${targetHeightPx} image generated successfully using Stable Image Core.`);
@@ -89,16 +81,19 @@ export const generateImageFromApi = async (prompt, style) => {
     return base64GeneratedImage;
 };
 
+// Keep existing uploadImageToCloudinary for general image uploads (e.g., user avatars, non-POD images)
+// FIXED: Added access_mode: 'public' for general image uploads too
 export const uploadImageToCloudinary = (fileBuffer, folder, fileFormat = 'auto') => {
     return new Promise((resolve, reject) => {
-        const publicId = randomUUID();
+        const publicId = randomUUID(); // Generate a unique ID
 
         const uploadOptions = {
             upload_preset: process.env.CLOUDINARY_UPLOAD_PRESET,
             folder: folder,
-            resource_type: 'auto',
-            public_id: publicId,
-            type: 'upload'
+            resource_type: 'auto', 
+            public_id: publicId, 
+            type: 'upload',
+            access_mode: 'public' // <--- ADDED THIS LINE!
         };
 
         if (fileFormat === 'pdf') {
@@ -106,11 +101,12 @@ export const uploadImageToCloudinary = (fileBuffer, folder, fileFormat = 'auto')
             uploadOptions.resource_type = 'raw';
             uploadOptions.format = 'pdf';
             uploadOptions.public_id = `${publicId}.pdf`;
-        } else if (fileFormat !== 'auto') {
+        } else if (fileFormat !== 'auto') { // This branch handles 'jpeg' or other specific image formats
             uploadOptions.resource_type = 'image';
             uploadOptions.format = fileFormat;
             uploadOptions.public_id = `${publicId}.${fileFormat}`;
         }
+        // If fileFormat is 'auto', resource_type remains 'auto', and Cloudinary detects it.
 
         cloudinary.uploader.upload_stream(uploadOptions,
             (error, result) => {
@@ -124,6 +120,7 @@ export const uploadImageToCloudinary = (fileBuffer, folder, fileFormat = 'auto')
     });
 };
 
+// Dedicated PDF Upload to Cloudinary for Lulu POD (no changes needed here, already had access_mode)
 export const uploadPdfFileToCloudinary = (filePath, folder, publicIdPrefix) => {
     return new Promise((resolve, reject) => {
         const uniqueId = `${publicIdPrefix}_${randomUUID().substring(0, 8)}`;
@@ -139,7 +136,7 @@ export const uploadPdfFileToCloudinary = (filePath, folder, publicIdPrefix) => {
             unique_filename: true,
             overwrite: true,
             type: 'upload',
-            access_mode: 'public'
+            access_mode: 'public' // Already here
         };
 
         cloudinary.uploader.upload(filePath, uploadOptions, (error, result) => {
