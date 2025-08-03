@@ -2,7 +2,6 @@
 
 import { getDb } from '../db/database.js';
 import Stripe from 'stripe';
-// --- MODIFIED: Imported the new getPrintJobStatus function ---
 import { LULU_PRODUCT_CONFIGURATIONS, getPrintOptions, createLuluPrintJob, getPrintJobStatus } from '../services/lulu.service.js';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
@@ -193,7 +192,8 @@ export const getMyOrders = async (req, res) => {
     try {
         const pool = await getDb();
         client = await pool.connect();
-        const ordersResult = await client.query('SELECT * FROM orders WHERE user_id = $1 ORDER BY date_created DESC', [userId]);
+        // --- MODIFIED: Changed 'date_created' to 'created_at' to match standard column names ---
+        const ordersResult = await client.query('SELECT * FROM orders WHERE user_id = $1 ORDER BY created_at DESC', [userId]);
         const orders = ordersResult.rows;
         res.status(200).json(orders);
     } catch (error) {
@@ -320,7 +320,6 @@ export const updateOrderLuluData = async (req, res) => {
     }
 };
 
-// --- NEW: Controller function to handle fetching Lulu status ---
 export const getLuluOrderStatus = async (req, res) => {
     const { luluJobId } = req.params;
 
