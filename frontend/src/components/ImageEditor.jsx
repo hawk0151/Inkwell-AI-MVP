@@ -18,24 +18,32 @@ function ImageEditor({ currentEvent, onImageUpdate }) {
     );
 
     useEffect(() => {
-        setPrompt('');
-        setSelectedFile(null);
-        setError(null);
+        setPrompt(''); 
+        setSelectedFile(null); 
+        setError(null); 
         setIsGenerating(false);
         setIsUploading(false);
 
-        // IMPORTANT: Set the displayed image URL from the currentEvent prop
-        // Add a timestamp to force re-fetch from Cloudinary/browser cache
         const currentImage = currentEvent.uploaded_image_url || currentEvent.image_url;
         if (currentImage) {
-            const url = new URL(currentImage);
-            url.searchParams.set('t', Date.now()); // Add a unique timestamp query param
-            setDisplayedImageUrl(url.toString());
+            // ONLY try to add timestamp if it's an actual URL (starts with http/https)
+            if (currentImage.startsWith('http://') || currentImage.startsWith('https://')) {
+                try {
+                    const url = new URL(currentImage);
+                    url.searchParams.set('t', Date.now()); // Add a unique timestamp query param
+                    setDisplayedImageUrl(url.toString());
+                } catch (e) {
+                    console.error("Error creating URL with timestamp:", e);
+                    setDisplayedImageUrl(currentImage); // Fallback to original URL if URL constructor fails
+                }
+            } else {
+                setDisplayedImageUrl(currentImage); // It's a data:image base64 string, use as is
+            }
         } else {
-            setDisplayedImageUrl(null);
+            setDisplayedImageUrl(null); // Ensure it's null if no image URL is present
         }
 
-    }, [currentEvent.page_number, currentEvent.uploaded_image_url, currentEvent.image_url]); // Also include image URLs for re-sync on auto-save updates
+    }, [currentEvent.page_number, currentEvent.uploaded_image_url, currentEvent.image_url]);
 
     const artStyles = ['Watercolor', 'Cartoon', 'Photorealistic', 'Fantasy', 'Vintage'];
 
@@ -48,19 +56,24 @@ function ImageEditor({ currentEvent, onImageUpdate }) {
         setError(null);
         setSelectedFile(null);
         
-        setDisplayedImageUrl(null); // Show spinner
+        setDisplayedImageUrl(null); // Show spinner immediately
         onImageUpdate(currentEvent.page_number - 1, 'uploaded_image_url', null); // Clear parent's uploaded URL
         onImageUpdate(currentEvent.page_number - 1, 'image_url', null); // Clear parent's AI image URL
         
         try {
             const response = await apiClient.post('/images/generate', { prompt, style });
-            let newImageUrl = response.data.imageUrl;
-            
-            // Add timestamp to the new image URL as well
-            if (newImageUrl) {
-                const url = new URL(newImageUrl);
-                url.searchParams.set('t', Date.now());
-                newImageUrl = url.toString();
+            let newImageUrl = response.data.imageUrl; // This will be the Cloudinary URL
+
+            // Add timestamp to the new image URL only if it's a web URL
+            if (newImageUrl && (newImageUrl.startsWith('http://') || newImageUrl.startsWith('https://'))) {
+                try {
+                    const url = new URL(newImageUrl);
+                    url.searchParams.set('t', Date.now());
+                    newImageUrl = url.toString();
+                } catch (e) {
+                    console.error("Error creating URL with timestamp during generation:", e);
+                    // Fallback to original URL if URL constructor fails
+                }
             }
 
             onImageUpdate(currentEvent.page_number - 1, 'image_url', newImageUrl);
@@ -84,10 +97,10 @@ function ImageEditor({ currentEvent, onImageUpdate }) {
             setError(null);
             const reader = new FileReader();
             reader.onloadend = () => {
-                // Add timestamp to the preview URL too
-                const url = new URL(reader.result);
-                url.searchParams.set('t', Date.now());
-                setDisplayedImageUrl(url.toString());
+                let previewUrl = reader.result; // This is a data:image URL
+                // DO NOT use new URL() for data:image URLs, it will fail.
+                // The timestamp is not needed for local previews.
+                setDisplayedImageUrl(previewUrl); 
             };
             reader.readAsDataURL(file);
 
@@ -120,13 +133,18 @@ function ImageEditor({ currentEvent, onImageUpdate }) {
                     'Content-Type': 'multipart/form-data',
                 },
             });
-            let newImageUrl = response.data.imageUrl;
+            let newImageUrl = response.data.imageUrl; // This will be the Cloudinary URL
 
-            // Add timestamp to the uploaded image URL
-            if (newImageUrl) {
-                const url = new URL(newImageUrl);
-                url.searchParams.set('t', Date.now());
-                newImageUrl = url.toString();
+            // Add timestamp to the uploaded image URL only if it's a web URL
+            if (newImageUrl && (newImageUrl.startsWith('http://') || newImageUrl.startsWith('https://'))) {
+                try {
+                    const url = new URL(newImageUrl);
+                    url.searchParams.set('t', Date.now());
+                    newImageUrl = url.toString();
+                } catch (e) {
+                    console.error("Error creating URL with timestamp during upload:", e);
+                    // Fallback to original URL if URL constructor fails
+                }
             }
 
             onImageUpdate(currentEvent.page_number - 1, 'uploaded_image_url', newImageUrl);
@@ -150,7 +168,7 @@ function ImageEditor({ currentEvent, onImageUpdate }) {
                 {displayedImageUrl ? (
                     <>
                         <img
-                            src={displayedImageUrl} // This src now includes a unique timestamp
+                            src={displayedImageUrl}
                             alt={`Page ${currentEvent.page_number}`}
                             className="w-full h-full object-cover object-center"
                         />
