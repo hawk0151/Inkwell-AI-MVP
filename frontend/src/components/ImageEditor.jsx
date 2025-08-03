@@ -1,16 +1,31 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react'; // Import useEffect
 import apiClient from '../services/apiClient';
 import { useAuth } from '../contexts/AuthContext';
 import { LoadingSpinner, Alert } from './common';
 
 function ImageEditor({ currentEvent, onImageUpdate }) {
-    const { token } = useAuth();
+    const { token } = useAuth(); // Assuming token is used for auth headers
     const [prompt, setPrompt] = useState('');
     const [style, setStyle] = useState('Watercolor');
     const [isGenerating, setIsGenerating] = useState(false);
     const [isUploading, setIsUploading] = useState(false);
     const [error, setError] = useState(null);
     const [selectedFile, setSelectedFile] = useState(null);
+    
+    // NEW STATE: Manage the URL of the image currently displayed by ImageEditor
+    const [displayedImageUrl, setDisplayedImageUrl] = useState(
+        currentEvent.uploaded_image_url || currentEvent.image_url
+    );
+
+    // NEW useEffect: Sync displayedImageUrl with changes in currentEvent or image URLs
+    useEffect(() => {
+        setDisplayedImageUrl(currentEvent.uploaded_image_url || currentEvent.image_url);
+        // Reset prompt and selected file when the page changes
+        if (prompt !== '' && currentEvent.image_url === null && currentEvent.uploaded_image_url === null) {
+            setPrompt(''); // Clear prompt if new page and no image
+        }
+        setSelectedFile(null); // Clear selected file when navigating pages
+    }, [currentEvent, currentEvent.uploaded_image_url, currentEvent.image_url]); // Depend on currentEvent and its image URLs
 
     const artStyles = ['Watercolor', 'Cartoon', 'Photorealistic', 'Fantasy', 'Vintage'];
 
@@ -22,14 +37,25 @@ function ImageEditor({ currentEvent, onImageUpdate }) {
         setIsGenerating(true);
         setError(null);
         setSelectedFile(null); // Clear selected file if generating AI image
+        
+        // Temporarily clear displayed image, show spinner
+        setDisplayedImageUrl(null); 
         onImageUpdate(currentEvent.page_number - 1, 'uploaded_image_url', null); // Clear uploaded URL
+        onImageUpdate(currentEvent.page_number - 1, 'image_url', null); // Clear AI image URL (important for re-generation)
+
         try {
             const response = await apiClient.post('/images/generate', { prompt, style });
-            onImageUpdate(currentEvent.page_number - 1, 'image_url', response.data.imageUrl);
-            onImageUpdate(currentEvent.page_number - 1, 'image_style', style);
+            const newImageUrl = response.data.imageUrl;
+            
+            onImageUpdate(currentEvent.page_number - 1, 'image_url', newImageUrl); // Update parent state with AI image
+            onImageUpdate(currentEvent.page_number - 1, 'image_style', style); // Update parent state with style
+            
+            setDisplayedImageUrl(newImageUrl); // Update local state for immediate display
         } catch (err) {
             setError("Failed to generate image. Please try again.");
             console.error(err);
+            // If generation fails, restore previous image if any or keep cleared
+            setDisplayedImageUrl(currentEvent.uploaded_image_url || currentEvent.image_url); // Revert on failure
         } finally {
             setIsGenerating(false);
         }
@@ -40,6 +66,15 @@ function ImageEditor({ currentEvent, onImageUpdate }) {
         if (file) {
             setSelectedFile(file);
             setError(null);
+            // Display a preview of the selected file immediately
+            const reader = new FileReader();
+            reader.onloadend = () => {
+                setDisplayedImageUrl(reader.result); // Set local state to file preview
+            };
+            reader.readAsDataURL(file);
+        } else {
+            setSelectedFile(null);
+            setDisplayedImageUrl(currentEvent.uploaded_image_url || currentEvent.image_url); // Revert to current event image if no file selected
         }
     };
 
@@ -50,11 +85,14 @@ function ImageEditor({ currentEvent, onImageUpdate }) {
         }
         setIsUploading(true);
         setError(null);
-        onImageUpdate(currentEvent.page_number - 1, 'image_url', null); // Clear AI image URL
-        onImageUpdate(currentEvent.page_number - 1, 'image_style', null); // Clear AI image style
-
+        
+        // Clear previous AI image URL, just in case
+        onImageUpdate(currentEvent.page_number - 1, 'image_url', null);
+        onImageUpdate(currentEvent.page_number - 1, 'image_style', null);
+        // onImageUpdate(currentEvent.page_number - 1, 'uploaded_image_url', null); // Removed, handled by handleFileChange preview
+        
         const formData = new FormData();
-        formData.append('image', selectedFile); // 'image' must match the field name in multer config on backend
+        formData.append('image', selectedFile);
 
         try {
             const response = await apiClient.post('/images/upload', formData, {
@@ -62,18 +100,20 @@ function ImageEditor({ currentEvent, onImageUpdate }) {
                     'Content-Type': 'multipart/form-data',
                 },
             });
-            onImageUpdate(currentEvent.page_number - 1, 'uploaded_image_url', response.data.imageUrl); // Update uploaded image URL
+            const newImageUrl = response.data.imageUrl;
+
+            onImageUpdate(currentEvent.page_number - 1, 'uploaded_image_url', newImageUrl); // Update parent state with uploaded image
+            
+            setDisplayedImageUrl(newImageUrl); // Update local state for immediate display
             setSelectedFile(null); // Clear selected file after upload
         } catch (err) {
             setError("Failed to upload image. Please try again.");
             console.error(err);
+            setDisplayedImageUrl(currentEvent.uploaded_image_url || currentEvent.image_url); // Revert on failure
         } finally {
             setIsUploading(false);
         }
     };
-
-    // Determine which image URL to display
-    const displayImageUrl = currentEvent.uploaded_image_url || currentEvent.image_url;
 
     return (
         <div className="bg-slate-800 p-6 rounded-lg shadow-xl space-y-6 text-white border border-slate-700">
@@ -81,10 +121,10 @@ function ImageEditor({ currentEvent, onImageUpdate }) {
 
             {/* Image display area */}
             <div className="relative w-full h-80 bg-slate-700 rounded-md overflow-hidden flex items-center justify-center">
-                {displayImageUrl ? (
+                {displayedImageUrl ? ( // Use local displayedImageUrl state
                     <>
                         <img
-                            src={displayImageUrl}
+                            src={displayedImageUrl}
                             alt={`Page ${currentEvent.page_number}`}
                             className="w-full h-full object-cover object-center"
                         />
@@ -108,7 +148,7 @@ function ImageEditor({ currentEvent, onImageUpdate }) {
                                 <svg xmlns="http://www.w3.org/2000/svg" className="h-16 w-16 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1">
                                     <path strokeLinecap="round" strokeLinejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                                 </svg>
-                                <p className="text-sm">No image yet. Use the options below to add one.</p> {/* Updated hint */}
+                                <p className="text-sm">No image yet. Use the options below to add one.</p>
                             </>
                         )}
                     </div>
@@ -121,7 +161,7 @@ function ImageEditor({ currentEvent, onImageUpdate }) {
                 <div>
                     <label htmlFor="image-prompt" className="block text-sm font-medium text-slate-300 mb-1">Image Description</label>
                     <textarea
-                        id="image-prompt" // Added ID for accessibility
+                        id="image-prompt"
                         value={prompt}
                         onChange={(e) => setPrompt(e.target.value)}
                         placeholder="e.g., A brave knight facing a wise old dragon in a mystical forest"
@@ -134,7 +174,7 @@ function ImageEditor({ currentEvent, onImageUpdate }) {
                 <div>
                     <label htmlFor="art-style" className="block text-sm font-medium text-slate-300 mb-1">Art Style</label>
                     <select
-                        id="art-style" // Added ID for accessibility
+                        id="art-style"
                         value={style}
                         onChange={(e) => setStyle(e.target.value)}
                         className="mt-1 block w-full p-2 bg-slate-700 border border-slate-600 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-white"
@@ -160,7 +200,7 @@ function ImageEditor({ currentEvent, onImageUpdate }) {
                 <div>
                     <label htmlFor="image-upload" className="block text-sm font-medium text-slate-300 mb-1">Select Image File</label>
                     <input
-                        id="image-upload" // Added ID for accessibility
+                        id="image-upload"
                         type="file"
                         accept="image/*"
                         onChange={handleFileChange}
