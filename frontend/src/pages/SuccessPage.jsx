@@ -2,17 +2,16 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import apiClient from '../services/apiClient'; // Import apiClient
-import { LoadingSpinner, Alert } from '../components/common.jsx'; // Assuming you have these
+import apiClient from '../services/apiClient';
+import { LoadingSpinner, Alert } from '../components/common.jsx';
 
 function SuccessPage() {
     const navigate = useNavigate();
     const location = useLocation();
     const [sessionId, setSessionId] = useState(null);
-    const [orderConfirmed, setOrderConfirmed] = useState(false);
-    const [order, setOrder] = useState(null); // New state for order details
-    const [loadingOrder, setLoadingOrder] = useState(true); // New state for loading status
-    const [orderError, setOrderError] = useState(null); // New state for order fetching errors
+    const [order, setOrder] = useState(null);
+    const [loadingOrder, setLoadingOrder] = useState(true);
+    const [orderError, setOrderError] = useState(null);
 
     useEffect(() => {
         const queryParams = new URLSearchParams(location.search);
@@ -25,11 +24,9 @@ function SuccessPage() {
                 // Fetch order details from your backend using the sessionId
                 const response = await apiClient.get(`/orders/session/${sessionId}`);
                 setOrder(response.data);
-                setOrderConfirmed(true);
             } catch (err) {
                 console.error("Failed to fetch order details:", err.response?.data || err.message);
                 setOrderError(err.response?.data?.message || "Failed to load order details.");
-                setOrderConfirmed(false); // Can't confirm if details fail to load
             } finally {
                 setLoadingOrder(false);
             }
@@ -39,16 +36,16 @@ function SuccessPage() {
             setSessionId(id);
             fetchOrderDetails(id);
         } else {
-            setOrderConfirmed(false); // Can't confirm without session ID
             setLoadingOrder(false);
             setOrderError("No Stripe session ID found in the URL.");
         }
-    }, [location]); // Depend on 'location' to re-run if query params change
+    }, [location]);
 
     if (loadingOrder) {
         return <LoadingSpinner text="Confirming your order..." />;
     }
 
+    // --- MODIFIED: Simplified rendering logic ---
     return (
         <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -58,11 +55,11 @@ function SuccessPage() {
         >
             <div className="bg-gray-800 p-8 rounded-lg shadow-xl text-center max-w-2xl w-full">
                 {orderError ? (
+                    // --- Error Display ---
                     <>
                         <motion.div
                             className="text-6xl mb-4"
-                            initial={{ scale: 0.5 }}
-                            animate={{ scale: 1 }}
+                            initial={{ scale: 0.5 }} animate={{ scale: 1 }}
                             transition={{ type: "spring", stiffness: 260, damping: 20 }}
                         >
                             🤔
@@ -72,7 +69,7 @@ function SuccessPage() {
                             {orderError}
                         </p>
                         <p className="text-lg text-gray-300 mb-8">
-                            Please check your "My Orders" page for the latest status.
+                            If you completed your purchase, please check your "My Orders" page for the latest status.
                         </p>
                         <button
                             className="mt-4 text-indigo-400 hover:text-indigo-200 transition-colors duration-200"
@@ -81,7 +78,8 @@ function SuccessPage() {
                             Return to Home
                         </button>
                     </>
-                ) : (orderConfirmed && order) ? (
+                ) : (
+                    // --- Success Display ---
                     <>
                         <motion.div
                             className="text-6xl mb-4"
@@ -93,20 +91,22 @@ function SuccessPage() {
                         </motion.div>
                         <h1 className="text-4xl font-bold font-serif text-green-400 mb-4">Order Successful!</h1>
                         <p className="text-lg text-gray-300 mb-2">
-                            Thank you for your purchase of **{order.book_title}**!
+                            {/* MODIFIED: Added optional chaining for safety */}
+                            Thank you for your purchase of **{order?.book_title || 'your book'}**!
                         </p>
                         <p className="text-lg text-gray-300 mb-2">
-                            Your payment of **${order.total_price_usd.toFixed(2)} USD** was successful.
+                            {/* MODIFIED: Correctly formats price from total_cost and currency */}
+                            Your payment of **
+                            {new Intl.NumberFormat('en-US', {
+                                style: 'currency',
+                                currency: order?.currency || 'USD'
+                            }).format((order?.total_cost || 0) / 100)}
+                            ** was successful.
                         </p>
                         <p className="text-lg text-gray-300 mb-8">
                             Your book is now in production. You can view the status of your order on your "My Orders" page.
                         </p>
-                        {sessionId && (
-                            <p className="text-xs text-gray-500 mb-4">
-                                Stripe Session ID: <span className="font-mono break-all">{sessionId}</span>
-                            </p>
-                        )}
-                        {order.id && (
+                        {order?.id && (
                              <p className="text-xs text-gray-500 mb-4">
                                  Order ID: <span className="font-mono break-all">{order.id}</span>
                              </p>
@@ -119,29 +119,6 @@ function SuccessPage() {
                         >
                             View My Orders
                         </motion.button>
-                        <button
-                            className="mt-4 text-indigo-400 hover:text-indigo-200 transition-colors duration-200"
-                            onClick={() => navigate('/')}
-                        >
-                            Return to Home
-                        </button>
-                    </>
-                ) : (
-                    // Fallback for cases where session_id is present but order confirmation failed
-                    // (e.g., if orderError was set by backend but orderConfirmed is still true)
-                    <>
-                        <motion.div
-                            className="text-6xl mb-4"
-                            initial={{ scale: 0.5 }}
-                            animate={{ scale: 1 }}
-                            transition={{ type: "spring", stiffness: 260, damping: 20 }}
-                        >
-                            🤔
-                        </motion.div>
-                        <h1 className="text-4xl font-bold font-serif text-yellow-400 mb-4">Could not confirm order details.</h1>
-                        <p className="text-lg text-gray-300 mb-8">
-                            We received a session ID but couldn't retrieve the full order details. Please check your "My Orders" page.
-                        </p>
                         <button
                             className="mt-4 text-indigo-400 hover:text-indigo-200 transition-colors duration-200"
                             onClick={() => navigate('/')}
