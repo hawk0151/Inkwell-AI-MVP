@@ -2,8 +2,9 @@
 import axios from 'axios';
 import { v2 as cloudinary } from 'cloudinary';
 import { randomUUID } from 'crypto';
-import path from 'path'; // Needed for path.basename to extract filename
-import sharp from 'sharp'; // NEW: Import sharp for image manipulation
+import path from 'path';
+import sharp from 'sharp';
+import FormData from 'form-data'; // NEW: Import FormData
 
 // It is critical that environment variables are loaded before this point.
 // If running locally, ensure 'dotenv' is configured at your app's entry file (e.g., server.js or app.js).
@@ -29,32 +30,32 @@ const upscaleImageWithStabilityAI = async (base64Image, targetResolution) => {
         throw new Error("Stability AI API key is not configured for upscaling.");
     }
 
-    const upscaleEngineId = 'esrgan-v1-x2-pro'; // Or other appropriate ESRGAN model ID
-    const upscaleApiUrl = `https://api.stability.ai/v1/generation/${upscaleEngineId}/image-to-image/upscale`; // Assuming this endpoint for upscaling
-
-    // Convert base64 to Buffer for sending to API (if required by their specific upscale endpoint)
-    const imageBuffer = Buffer.from(base64Image, 'base64');
+    // IMPORTANT: Confirm the exact engine ID and endpoint path from Stability AI's latest docs for upscaling.
+    // Based on common patterns, 'esrgan-v1-x2-pro' for 2x, and you'd chain for 4x,
+    // OR they might have a dedicated 4x endpoint or accept a 'scale' parameter directly.
+    // For this fix, assuming a 'general' upscale endpoint that might accept 'type: 4x'.
+    // If this fails, we will explicitly chain two 2x calls.
+    const upscaleEngineId = 'esrgan-v1-x2-pro'; // Example, please verify from docs
+    const upscaleApiUrl = `https://api.stability.ai/v1/generation/${upscaleEngineId}/image-to-image/upscale`; 
 
     console.log(`[Stability AI Upscale] Attempting to upscale image to ${targetResolution.width}x${targetResolution.height}...`);
 
     try {
+        const formData = new FormData();
+        // Append image as a file buffer with a filename and content type
+        formData.append('image', Buffer.from(base64Image, 'base64'), {
+            filename: 'image.png', // Or .jpeg, depends on original image format
+            contentType: 'image/png', // Or 'image/jpeg'
+        });
+        formData.append('type', '4x'); // Request 4x upscale
+
         const response = await axios.post(
             upscaleApiUrl,
-            {
-                image: base64Image, // Some APIs might take base64 directly
-                // width: targetResolution.width, // Provide target dimensions if API supports it directly
-                // height: targetResolution.height,
-                // For ESRGAN, often just specify type '2x' or '4x'
-                // Based on your info, '4x' upscaling seems to be the target.
-                // Assuming the API takes a single 'type' parameter or implicitly infers from target dimensions
-                // or we need to chain multiple 2x calls. Let's start with specifying 4x if supported,
-                // otherwise we'll adapt to perform two 2x passes.
-                type: "4x", // Request 4x upscale (1024 -> 4096)
-            },
+            formData, // Send FormData object directly
             {
                 headers: {
+                    ...formData.getHeaders(), // Let FormData set the correct Content-Type with boundary
                     'Authorization': `Bearer ${apiKey}`,
-                    'Content-Type': 'application/json',
                     'Accept': 'application/json'
                 },
                 timeout: 30000 // Increased timeout for upscaling
@@ -122,6 +123,9 @@ export const generateImageFromApi = async (prompt, style) => {
     }
 
     // 2. Upscale the generated image to 4096x4096 using Stability AI's ESRGAN
+    // Note: The specific 'esrgan-v1-x2-pro' engine ID implies 2x. If 4x is needed,
+    // you might need to chain two 2x calls or use a different engine ID if Stability AI
+    // has a direct 4x upscale endpoint. For now, assuming 'type: "4x"' is handled.
     const upscaledBase64Image = await upscaleImageWithStabilityAI(base64GeneratedImage, { width: 4096, height: 4096 });
     const upscaledImageBuffer = Buffer.from(upscaledBase64Image, 'base64');
 
@@ -129,7 +133,7 @@ export const generateImageFromApi = async (prompt, style) => {
     const targetWidthPx = 2556; // (8.27 + 2*0.125) * 300
     const targetHeightPx = 3582; // (11.69 + 2*0.125) * 300
 
-    console.log(`[Image Processing] Cropping ${upscaledImageBuffer.width}x${upscaledImageBuffer.height} image to ${targetWidthPx}x${targetHeightPx} for Lulu print...`);
+    console.log(`[Image Processing] Cropping ${upscaledImageBuffer.width || 'unknown'}x${upscaledImageBuffer.height || 'unknown'} image to ${targetWidthPx}x${targetHeightPx} for Lulu print...`);
     let finalImageBuffer;
     try {
         // Use sharp to resize and crop with 'cover' fit (fills target, crops excess) and 'center' position

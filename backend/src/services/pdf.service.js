@@ -13,6 +13,11 @@
 //   - Images intended for full-bleed are placed at (0,0) and sized to fill the entire bleed-inclusive page.
 //   - Text elements are positioned explicitly within the calculated 'safe area' (bleed + safeMargin from edge).
 //   - Page numbering in picture books is added within the safe area.
+// - NEW: Integrated `story_text` functionality for picture books:
+//   - Replaced `event.description` handling with `event.story_text`.
+//   - `story_text` is placed in a dedicated region within safe margins.
+//   - `story_text` font style (regular/bold) is dynamic based on `event.is_bold_story_text`.
+//   - Implemented text truncation with ellipsis if `story_text` exceeds allocated space.
 
 import PDFDocument from 'pdfkit'; // For creating PDFs
 import { PDFDocument as PDFLibDocument, rgb } from 'pdf-lib'; // For reading/modifying PDFs
@@ -65,7 +70,7 @@ const getProductDimensions = (luluConfigId) => {
     const trimWidthPoints = mmToPoints(trimWidthMm);
     const trimHeightPoints = mmToPoints(trimHeightMm);
     const pageWidthWithBleedPoints = mmToPoints(pageWidthWithBleedMm);
-    const pageHeightWithBleedPoints = mmToPoints(pageHeightWithBleedMm);
+    const pageHeightWithBleedPoints = pageHeightWithBleedMm > pageWidthWithBleedMm && layout === 'portrait' ? mmToPoints(pageHeightWithBleedMm) : mmToPoints(pageHeightWithBleedMm); // Corrected this for landscape covers
     const bleedPoints = mmToPoints(bleed);
     const safeMarginPoints = mmToPoints(safeMargin);
 
@@ -275,6 +280,23 @@ export const generateAndSaveTextBookPdf = async (book, productConfig) => {
     return { path: tempFilePath, pageCount: trueContentPageCount };
 };
 
+// Helper to truncate text to fit a given height
+function truncateText(doc, text, maxWidth, maxHeight, fontPath, fontSize) {
+    doc.font(fontPath).fontSize(fontSize);
+    let currentText = text;
+    while (currentText.length > 0 && doc.heightOfString(currentText, { width: maxWidth }) > maxHeight) {
+        currentText = currentText.split(' ').slice(0, -1).join(' '); // Remove last word
+        if (currentText.length > 0) {
+            currentText = currentText.trim(); // Trim any trailing spaces
+            if (!currentText.endsWith('...')) { // Only add ellipsis if not already there
+                currentText += '...';
+            }
+        }
+    }
+    return currentText;
+}
+
+
 // First Pass: Generates the content PDF (no padding/evenness yet)
 export const generateAndSavePictureBookPdf = async (book, events, productConfig) => {
     // Get dimensions including bleed for PDF creation and safe zone for text
@@ -340,7 +362,9 @@ export const generateAndSavePictureBookPdf = async (book, events, productConfig)
         console.log(`[PDF Service: Picture Book - Content] Adding event page ${idx + 1} for event ID ${event.id}. Current PDFKit page: ${doc.page.count || 0}`);
         
         const imageUrl = event.uploaded_image_url || event.image_url;
-        
+        const storyText = event.story_text || ''; // NEW: Get story_text
+        const isBoldStoryText = event.is_bold_story_text || false; // NEW: Get bold preference
+
         // Background color for page
         doc.rect(0, 0, pageWidthWithBleed, pageHeightWithBleed).fill('#FFFFFF'); // White background for content pages
 
@@ -370,40 +394,62 @@ export const generateAndSavePictureBookPdf = async (book, events, productConfig)
             }
         }
         
-        // Overlay Text: Placed in a safe zone (overlaid on image if present)
+        // Define areas for overlay_text and story_text within the safe zone
+        const overlayTextHeightFraction = 0.15; // Top 15% of safe height for overlay
+        const storyTextHeightFraction = 0.25; // Bottom 25% of safe height for story text
+        const verticalPaddingBetweenTextAreas = 10; // Padding in points
+
+        // Overlay Text: Placed in a safe zone over the image
         if (event.overlay_text) {
+            const overlayTextY = contentY + (contentHeight * 0.75 - doc.heightOfString(event.overlay_text, { width: contentWidth, lineGap: 0, align: 'center' }) / 2); // Vertically center in bottom 25% of image, adjusted for text height
+            
             doc.save(); // Save current state to restore after text background if needed
             // Optional: Draw a semi-transparent background for overlay text for readability
-            // doc.rect(contentX, contentY + contentHeight * 0.7, contentWidth, contentHeight * 0.25).fillOpacity(0.7).fill(rgb(0, 0, 0)); 
+            // doc.rect(contentX, contentY + contentHeight * (1 - overlayTextHeightFraction), contentWidth, contentHeight * overlayTextHeightFraction).fillOpacity(0.7).fill(rgb(0, 0, 0)); 
             // doc.fillOpacity(1); // Reset fill opacity
 
-            doc.fontSize(20).font(ROBOTO_BOLD_PATH).fillColor('#FFFFFF') // White text for overlay
+            doc.fontSize(22).font(ROBOTO_BOLD_PATH).fillColor('#FFFFFF') // White, bold text for overlay
                .text(
                    event.overlay_text,
-                   contentX,
-                   contentY + (contentHeight * 0.75), // Place towards bottom of safe area
+                   contentX, // X position is safe zone start
+                   overlayTextY, 
                    { 
                        align: 'center', 
                        width: contentWidth,
-                       height: contentHeight * 0.2 // Max height for overlay text
+                       height: contentHeight * overlayTextHeightFraction,
+                       lineGap: 0,
+                       valign: 'center' // Vertically center within the given height
                    }
                );
             doc.restore(); // Restore state if background was drawn
-        } else if (event.description) {
-            // Description Text: Placed in a safe zone below image if no overlay text
-            // This assumes text is always below the image. If full page image, description might not fit.
-            // If the design intends full page images AND text, this logic needs adjustment (e.g., smaller image, or separate text page)
-            const descriptionY = contentY + (imageUrl ? (contentHeight * 0.7) : 0); // Start below image if image exists
+        }
+
+        // Story Text: Placed in a dedicated safe zone at the bottom of the page
+        if (storyText) { // Check for story_text
+            const storyTextY = pageHeightWithBleed - bleedPoints - safeMarginPoints - (contentHeight * storyTextHeightFraction); // Position story text block from bottom of safe area
+            const storyTextFont = isBoldStoryText ? ROBOTO_BOLD_PATH : ROBOTO_REGULAR_PATH;
+            const storyTextFontSize = 14; // Default font size for story text
+
+            // Calculate exact height needed for text
+            const textHeightNeeded = doc.font(storyTextFont).fontSize(storyTextFontSize).heightOfString(storyText, { width: contentWidth });
             
-            doc.fontSize(14).font(ROBOTO_REGULAR_PATH).fillColor('#000000') // Black text for description
+            let finalStoryText = storyText;
+            if (textHeightNeeded > (contentHeight * storyTextHeightFraction)) {
+                console.warn(`[PDF Service] Story text on page ${idx + 1} is too long (${textHeightNeeded.toFixed(2)} pts) for allocated space (${(contentHeight * storyTextHeightFraction).toFixed(2)} pts). Truncating...`);
+                finalStoryText = truncateText(doc, storyText, contentWidth, contentHeight * storyTextHeightFraction, storyTextFont, storyTextFontSize);
+            }
+
+            doc.fontSize(storyTextFontSize).font(storyTextFont).fillColor('#000000') // Black text for story
                .text( 
-                   event.description,
-                   contentX,
-                   descriptionY + 10, // Small padding below image
+                   finalStoryText,
+                   contentX, // X position is safe zone start
+                   storyTextY + (contentHeight * storyTextHeightFraction - doc.heightOfString(finalStoryText, {width: contentWidth, lineGap: 0, align: 'justify'})) / 2, // Vertically center within its allocated height
                    { 
                        align: 'justify', 
                        width: contentWidth,
-                       height: contentHeight - descriptionY + contentY - 10 // Remaining height in safe zone
+                       height: contentHeight * storyTextHeightFraction,
+                       lineGap: 0,
+                       valign: 'center'
                    }
                );
         }
