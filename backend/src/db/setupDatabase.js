@@ -1,4 +1,3 @@
-// backend/src/db/setupDatabase.js
 import { getDb } from './database.js';
 
 const addColumnIfNotExists = async (dbConnection, tableName, columnName, columnDefinition) => {
@@ -29,14 +28,13 @@ const createPictureBooksTable = `CREATE TABLE IF NOT EXISTS picture_books (id TE
 const createTextBooksTable = `CREATE TABLE IF NOT EXISTS text_books (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, title TEXT NOT NULL, last_modified TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, is_public BOOLEAN DEFAULT FALSE, like_count INTEGER DEFAULT 0, comment_count INTEGER DEFAULT 0, cover_image_url TEXT, prompt_details TEXT, lulu_product_id TEXT, interior_pdf_url TEXT, cover_pdf_url TEXT, date_created TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, total_chapters INTEGER DEFAULT 0);`;
 const createChaptersTable = `CREATE TABLE IF NOT EXISTS chapters (id SERIAL PRIMARY KEY, book_id TEXT NOT NULL, chapter_number INTEGER NOT NULL, content TEXT, date_created TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (book_id) REFERENCES text_books(id) ON DELETE CASCADE);`;
 
-// --- MODIFIED: Added last_modified column to timeline_events table definition ---
 const createTimelineEventsTable = `CREATE TABLE IF NOT EXISTS timeline_events (id SERIAL PRIMARY KEY, book_id TEXT NOT NULL, page_number INTEGER NOT NULL, event_date TEXT, description TEXT, image_url TEXT, image_style TEXT, uploaded_image_url TEXT, overlay_text TEXT, last_modified TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, UNIQUE(book_id, page_number), FOREIGN KEY(book_id) REFERENCES picture_books(id) ON DELETE CASCADE);`;
-// --- END MODIFIED ---
 
 const createFollowsTable = `CREATE TABLE IF NOT EXISTS follows (follower_id TEXT NOT NULL, following_id TEXT NOT NULL, created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (follower_id, following_id));`;
 const createLikesTable = `CREATE TABLE IF NOT EXISTS likes (user_id TEXT NOT NULL, book_id TEXT NOT NULL, book_type TEXT NOT NULL, created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (user_id, book_id, book_type));`;
 const createCommentsTable = `CREATE TABLE IF NOT EXISTS comments (id SERIAL PRIMARY KEY, user_id TEXT NOT NULL, book_id TEXT NOT NULL, book_type TEXT NOT NULL, comment_text TEXT NOT NULL, created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP);`;
 
+// --- MODIFIED: Updated createOrdersTable to include ALL columns expected by textbook.controller.js ---
 const createOrdersTable = `CREATE TABLE IF NOT EXISTS orders (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,
@@ -47,40 +45,57 @@ const createOrdersTable = `CREATE TABLE IF NOT EXISTS orders (
     stripe_session_id TEXT,
     status TEXT,
     total_price NUMERIC(10, 2),
+    currency TEXT, -- ADDED/ENSURED
     interior_pdf_url TEXT,
     cover_pdf_url TEXT,
     lulu_job_id TEXT,
     lulu_job_status TEXT,
     order_date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    lulu_product_id TEXT, -- ADDED/ENSURED
+    actual_page_count INTEGER, -- ADDED/ENSURED
+    is_fallback BOOLEAN DEFAULT FALSE, -- ADDED/ENSURED
+    lulu_print_cost_usd NUMERIC(10, 2), -- ADDED/ENSURED
+    flat_shipping_cost_usd NUMERIC(10, 2), -- ADDED/ENSURED
+    profit_usd NUMERIC(10, 2) -- ADDED/ENSURED
 );`;
+// --- END MODIFIED ---
 
 export const setupDatabase = async () => {
     let client;
     try {
         const db = await getDb();
-        if (db.query) {
+        if (db.query) { // pg Client
             client = await db.connect();
             console.log("Setting up database tables (PostgreSQL)...");
             await client.query(createUsersTable);
             await client.query(createPictureBooksTable);
             await client.query(createTextBooksTable);
             await client.query(createChaptersTable);
-            await client.query(createTimelineEventsTable); // This will now create the column
+            await client.query(createTimelineEventsTable);
             await client.query(createFollowsTable);
             await client.query(createLikesTable);
             await client.query(createCommentsTable);
-            await client.query(createOrdersTable); 
+            await client.query(createOrdersTable); // This should now create the full table if it doesn't exist
 
             console.log("Checking and adding missing columns (PostgreSQL)...");
             await addColumnIfNotExists(client, 'users', 'avatar_url', 'TEXT');
             await addColumnIfNotExists(client, 'text_books', 'total_chapters', 'INTEGER DEFAULT 0');
             await addColumnIfNotExists(client, 'picture_books', 'lulu_product_id', 'TEXT');
             await addColumnIfNotExists(client, 'timeline_events', 'overlay_text', 'TEXT');
-            // --- ADDED: Ensure last_modified column exists for existing timeline_events tables ---
             await addColumnIfNotExists(client, 'timeline_events', 'last_modified', 'TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP');
+
+            // --- ADDED: addColumnIfNotExists for the new columns in orders table ---
+            await addColumnIfNotExists(client, 'orders', 'currency', 'TEXT');
+            await addColumnIfNotExists(client, 'orders', 'lulu_product_id', 'TEXT');
+            await addColumnIfNotExists(client, 'orders', 'actual_page_count', 'INTEGER');
+            await addColumnIfNotExists(client, 'orders', 'is_fallback', 'BOOLEAN DEFAULT FALSE');
+            await addColumnIfNotExists(client, 'orders', 'lulu_print_cost_usd', 'NUMERIC(10, 2)');
+            await addColumnIfNotExists(client, 'orders', 'flat_shipping_cost_usd', 'NUMERIC(10, 2)');
+            await addColumnIfNotExists(client, 'orders', 'profit_usd', 'NUMERIC(10, 2)');
             // --- END ADDED ---
-            
+
+            // Existing addColumnIfNotExists for orders (these were already there)
             await addColumnIfNotExists(client, 'orders', 'interior_pdf_url', 'TEXT');
             await addColumnIfNotExists(client, 'orders', 'cover_pdf_url', 'TEXT');
             await addColumnIfNotExists(client, 'orders', 'shipping_carrier', 'TEXT');
@@ -88,7 +103,7 @@ export const setupDatabase = async () => {
             await addColumnIfNotExists(client, 'orders', 'lulu_job_id', 'TEXT');
             await addColumnIfNotExists(client, 'orders', 'lulu_job_status', 'TEXT');
             await addColumnIfNotExists(client, 'orders', 'updated_at', 'TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP');
-            
+
         } else {
             // Fallback for SQLite - if you are not using SQLite, this block is fine as is
         }
