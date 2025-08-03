@@ -294,7 +294,7 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
         const selectedProductConfig = LULU_PRODUCT_CONFIGURATIONS.find(p => p.id === book.lulu_product_id);
         if (!selectedProductConfig) return res.status(400).json({ message: 'Invalid product ID.' });
 
-        // --- NEW: Get the fixed base price from the configuration ---
+        // --- Get the fixed base price from the configuration ---
         const productBasePriceUSD = selectedProductConfig.basePrice;
 
         console.log(`[Checkout] Generating PDFs for book ${bookId}...`);
@@ -354,7 +354,7 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
             state_code: trimmedAddress.state_code || '',
             postcode: trimmedAddress.postcode,
             country_code: trimmedAddress.country_code,
-            // ADDED: Include phone_number and email for Lulu cost calculation
+            // Ensure phone_number and email are passed for Lulu cost calculation
             phone_number: trimmedAddress.phone_number,
             email: trimmedAddress.email,
         };
@@ -391,8 +391,9 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
 
         // --- NEW PRICING LOGIC ---
         const finalPriceDollars = productBasePriceUSD + flatShippingRateUSD;
-        const finalPriceInCents = Math.round(finalPriceDollars * 100);
+        // The `calculatedProfitUSD` variable must be defined before it's used
         const calculatedProfitUSD = productBasePriceUSD - luluPrintCostUSD; // Dynamic profit
+
 
         console.log(`[Checkout] Final Pricing Breakdown (Textbook):`);
         console.log(`  - Product Base Price: $${productBasePriceUSD.toFixed(2)} USD`);
@@ -400,30 +401,34 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
         console.log(`  - Calculated Profit: $${calculatedProfitUSD.toFixed(2)} USD`);
         console.log(`  - Flat Shipping Cost: +$${flatShippingRateUSD.toFixed(2)} USD`);
         console.log(`  -----------------------------------------`);
-        console.log(`  - Total Price for Stripe: $${finalPriceDollars.toFixed(2)} USD (${finalPriceInCents} cents)`);
+        // Log the actual dollar value, and cents for clarity in logs
+        console.log(`  - Total Price for Stripe: $${finalPriceDollars.toFixed(2)} USD (${Math.round(finalPriceDollars * 100)} cents)`);
 
         const orderId = randomUUID();
         const insertOrderSql = `
             INSERT INTO orders (
                 id, user_id, book_id, book_type, book_title, lulu_product_id, status,
-                total_cost, currency, interior_pdf_url, cover_pdf_url, created_at, actual_page_count, is_fallback,
+                total_price, currency, interior_pdf_url, cover_pdf_url, created_at, actual_page_count, is_fallback,
                 lulu_print_cost_usd, flat_shipping_cost_usd, profit_usd
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'USD', $9, $10, NOW(), $11, $12, $13, $14, $15)`;
 
         await client.query(insertOrderSql, [
             orderId, req.userId, bookId, 'textBook', book.title, luluSku, 'pending',
-            finalPriceInCents,
+            parseFloat(finalPriceDollars.toFixed(2)), // CHANGED: Pass the dollar value, formatted to 2 decimal places to match NUMERIC(10, 2)
             interiorPdfUrl, coverPdfUrl, actualFinalPageCount, isPageCountFallback,
             luluPrintCostUSD, flatShippingRateUSD,
             calculatedProfitUSD
         ]);
         console.log(`[Checkout] Created pending order record ${orderId}.`);
 
+        // For Stripe, we still need cents, so calculate it for the Stripe session
+        const finalPriceInCentsForStripe = Math.round(finalPriceDollars * 100);
+
         const session = await createStripeCheckoutSession(
             {
                 name: book.title,
                 description: `Inkwell AI Custom Book - ${selectedProductConfig.name} (incl. shipping)`,
-                priceInCents: finalPriceInCents,
+                priceInCents: finalPriceInCentsForStripe, // Use cents for Stripe
                 currency: 'usd'
             },
             req.userId, orderId, bookId, 'textBook'
