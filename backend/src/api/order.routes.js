@@ -1,8 +1,5 @@
-console.log('--- ORDER ROUTES FILE LOADED (VERSION: TEST-123) ---'); // <-- DEBUGGING LINE ADDED
-
 import express from 'express';
 import { protect } from '../middleware/auth.middleware.js';
-// --- MODIFIED: Import the new getLuluOrderStatus function ---
 import { 
     createCheckoutSession, 
     getMyOrders, 
@@ -13,12 +10,26 @@ import {
 
 const router = express.Router();
 
+// --- NEW: Temporary test route with no authentication ---
+router.get('/test-no-auth', async (req, res) => {
+    console.log('[Auth Isolation Test] Hit /test-no-auth endpoint.');
+    const sampleOrder = [{
+        id: 'test-order-123',
+        book_title: 'Sample Test Book',
+        status: 'processing',
+        total_cost: 6999,
+        currency: 'USD',
+        created_at: new Date().toISOString(),
+        lulu_job_id: null
+    }];
+    res.json(sampleOrder);
+});
+// --- END OF TEST ROUTE ---
+
 router.post('/create-checkout-session', protect, createCheckoutSession);
 router.get('/my-orders', protect, getMyOrders);
 router.get('/:orderId', protect, getOrderDetails);
 router.get('/session/:sessionId', protect, getOrderBySessionId); 
-
-// --- NEW: Route to get live Lulu status for an order ---
 router.get('/status/:luluJobId', protect, getLuluOrderStatus); 
 
 export default router;
