@@ -9,15 +9,25 @@ const CheckoutSuccessPage = () => {
     const sessionId = searchParams.get('session_id'); // Get the session_id from URL query params
     const [status, setStatus] = useState('verifying'); // State to show loading, success, or error
 
+    // --- NEW: Debugging Logs and Status Display ---
+    console.log('CheckoutSuccessPage: Component mounted.');
+    console.log('CheckoutSuccessPage: Initial sessionId from URL:', sessionId);
+    console.log('CheckoutSuccessPage: Initial status state:', status);
+    // --- END NEW ---
+
     // In a real application, you would typically make a backend API call here
     // to verify the Stripe session ID and confirm the order in your database.
     // For this task, we'll simulate success.
     useEffect(() => {
+        // --- NEW: Debugging Log inside useEffect ---
+        console.log('CheckoutSuccessPage: useEffect triggered. sessionId:', sessionId);
+        // --- END NEW ---
+
         if (sessionId) {
             // Simulate an API call delay for verification
             const timer = setTimeout(() => {
                 setStatus('success'); // Assuming success for now
-                console.log(`CheckoutSuccessPage: Received session_id: ${sessionId}. Order presumed successful.`);
+                console.log(`CheckoutSuccessPage: Received session_id: ${sessionId}. Order presumed successful. Status set to 'success'.`);
                 // Here, you would typically call your backend:
                 // apiClient.get(`/api/orders/verify-stripe-session?sessionId=${sessionId}`)
                 //   .then(response => setStatus('success'))
@@ -26,7 +36,7 @@ const CheckoutSuccessPage = () => {
             return () => clearTimeout(timer);
         } else {
             setStatus('invalid'); // No session ID found in URL
-            console.error("CheckoutSuccessPage: No session_id found in URL.");
+            console.error("CheckoutSuccessPage: No session_id found in URL. Status set to 'invalid'.");
         }
     }, [sessionId]);
 
@@ -52,6 +62,12 @@ const CheckoutSuccessPage = () => {
             className="min-h-screen bg-gradient-to-br from-slate-900 to-gray-950 flex items-center justify-center p-4 text-center"
         >
             <div className="bg-slate-800/50 backdrop-blur-md p-10 rounded-3xl shadow-2xl border border-slate-700 max-w-lg w-full">
+                {/* --- NEW: Temporary Debugging Display --- */}
+                <p className="text-slate-500 text-xs mb-4">
+                    Debug Info: Session ID - {sessionId || 'N/A'}, Status - {status}
+                </p>
+                {/* --- END NEW --- */}
+
                 {status === 'verifying' && (
                     <div className="text-white">
                         <svg className="animate-spin h-10 w-10 text-green-400 mx-auto mb-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
