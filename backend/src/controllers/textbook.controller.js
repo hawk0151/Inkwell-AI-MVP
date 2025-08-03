@@ -90,12 +90,6 @@ export const createTextBook = async (req, res) => {
 
         const bookId = randomUUID();
         const currentDate = new Date().toISOString();
-        const finalPromptDetails = {
-            ...promptDetails,
-            wordsPerPage: selectedProductConfig.wordsPerPage,
-            totalChapters: totalChaptersForBook,
-            maxPageCount: effectiveMaxPageCount
-        };
         const bookSql = `INSERT INTO text_books (id, user_id, title, prompt_details, lulu_product_id, date_created, last_modified, total_chapters) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`;
         await client.query(bookSql, [bookId, userId, title, JSON.stringify(finalPromptDetails), luluProductId, currentDate, currentDate, totalChaptersForBook]);
         const firstChapterText = await generateStoryFromApi({
@@ -224,7 +218,7 @@ export const getTextBookDetails = async (req, res) => {
     try {
         const pool = await getDb();
         client = await pool.connect();
-        const book = await getFullTextBook(bookId, userId, client);
+        const book = await getFullTextBook(bookId, req.userId, client);
         if (!book) return res.status(404).json({ message: 'Book project not found.' });
         res.status(200).json({ book, chapters: book.chapters });
     }
@@ -291,7 +285,6 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
         if (!selectedProductConfig) return res.status(400).json({ message: 'Invalid product ID.' });
 
         const productBasePriceUSD = selectedProductConfig.basePrice;
-        // The previous placeholder line for calculatedProfitUSD has been removed entirely.
 
         console.log(`[Checkout] Generating PDFs for book ${bookId}...`);
 
@@ -383,7 +376,6 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
         const flatShippingRateAUD = getFlatShippingRate(trimmedAddress.country_code);
         const flatShippingRateUSD = flatShippingRateAUD * AUD_TO_USD_EXCHANGE_RATE;
 
-        // Correctly define calculatedProfitUSD here, after luluPrintCostUSD is available
         const calculatedProfitUSD = productBasePriceUSD - luluPrintCostUSD;
 
         const finalPriceDollars = productBasePriceUSD + flatShippingRateUSD;
@@ -397,66 +389,8 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
         console.log(`  - Total Price for Stripe: $${finalPriceDollars.toFixed(2)} USD (${Math.round(finalPriceDollars * 100)} cents)`);
 
         const orderId = randomUUID();
-        // Recalculated total placeholders to match the number of columns (22 total columns)
-        const insertOrderSql = `
-            INSERT INTO orders (
-                id, user_id, book_id, book_type, book_title, lulu_product_id, status,
-                total_price, currency, interior_pdf_url, cover_pdf_url, created_at, actual_page_count, is_fallback,
-                lulu_print_cost_usd, flat_shipping_cost_usd, profit_usd, stripe_session_id, lulu_order_id, lulu_job_id, lulu_job_status, order_date, updated_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)`; // Confirmed 22 placeholders here
-
-        // Ensure the values array also has 22 elements, and they map correctly to the columns
-        await client.query(insertOrderSql, [
-            orderId,           // $1
-            req.userId,        // $2
-            bookId,            // $3
-            'textBook',        // $4
-            book.title,        // $5
-            luluSku,           // $6 (lulu_product_id)
-            'pending',         // $7
-            parseFloat(finalPriceDollars.toFixed(2)), // $8 (total_price)
-            'USD',             // $9 (currency)
-            interiorPdfUrl,    // $10
-            coverPdfUrl,       // $11
-            new Date().toISOString(), // $12 (created_at)
-            actualFinalPageCount,     // $13
-            isPageCountFallback,      // $14
-            luluPrintCostUSD,         // $15
-            flatShippingRateUSD,      // $16
-            calculatedProfitUSD,      // $17 (profit_usd)
-            null,              // $18 (stripe_session_id - will be updated)
-            null,              // $19 (lulu_order_id - initially null)
-            null,              // $20 (lulu_job_id - initially null)
-            null,              // $21 (lulu_job_status - initially null)
-            new Date().toISOString(), // $22 (order_date - if distinct from created_at)
-            // Note: updated_at should be $23 if order_date is $22, but the query has 22 placeholders.
-            // If order_date and updated_at are meant to be separate from created_at,
-            // we need to re-index and potentially add more placeholders, or reconsider the schema.
-            // For now, removing the redundant `updated_at` value from here as `created_at` and `order_date` are both set to NOW().
-            // Let's assume order_date and updated_at are handled by database defaults or a separate update.
-            // Re-evaluating the column list for INSERT: there are 22 items.
-            // So, 22 placeholders are correct for 22 columns.
-            // The `updated_at` column at the end of the SQL list does not have a corresponding placeholder ($23) if $22 is the last.
-            // THIS IS THE SOURCE OF THE MISMATCH. The SQL query has 23 columns, but only 22 placeholders.
-            // The column list in SQL: id to updated_at = 23 columns.
-            // The VALUES list: $1 to $22 = 22 placeholders.
-
-            // I need to properly map the final placeholders. Let's fix this now:
-
-            // The list of columns has 23 entries. So we need 23 placeholders.
-            // current column list: id, user_id, book_id, book_type, book_title, lulu_product_id, status, total_price, currency, interior_pdf_url, cover_pdf_url, created_at, actual_page_count, is_fallback, lulu_print_cost_usd, flat_shipping_cost_usd, profit_usd, stripe_session_id, lulu_order_id, lulu_job_id, lulu_job_status, order_date, updated_at
-            // This is 23 columns. So we need $1 to $23.
-        ]); // End of await client.query parameters. This array must have 23 elements.
-        // I will re-write the SQL string and the values array correctly.
-        // It looks like the original createOrdersTable also included order_date and updated_at.
-
-        // Re-correcting the INSERT statement and its corresponding values array
-        // Count columns: id(1), user_id(2), book_id(3), book_type(4), book_title(5), lulu_product_id(6), status(7),
-        // total_price(8), currency(9), interior_pdf_url(10), cover_pdf_url(11), created_at(12), actual_page_count(13), is_fallback(14),
-        // lulu_print_cost_usd(15), flat_shipping_cost_usd(16), profit_usd(17), stripe_session_id(18), lulu_order_id(19),
-        // lulu_job_id(20), lulu_job_status(21), order_date(22), updated_at(23)
-        // Total columns = 23. So we need $1 to $23.
-
+        // --- CRITICAL FIX: The INSERT statement now perfectly matches the 23 columns from setupDatabase.js.
+        // There are 23 columns listed, and 23 placeholders.
         const insertOrderSqlCorrected = `
             INSERT INTO orders (
                 id, user_id, book_id, book_type, book_title, lulu_product_id, status,
@@ -464,30 +398,30 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
                 lulu_print_cost_usd, flat_shipping_cost_usd, profit_usd, stripe_session_id, lulu_order_id, lulu_job_id, lulu_job_status, order_date, updated_at
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)`; // Confirmed 23 placeholders
 
-        await client.query(insertOrderSqlCorrected, [ // Using the corrected SQL string
-            orderId,           // $1
-            req.userId,        // $2
-            bookId,            // $3
-            'textBook',        // $4
-            book.title,        // $5
-            luluSku,           // $6 (lulu_product_id)
-            'pending',         // $7
+        await client.query(insertOrderSqlCorrected, [
+            orderId,                                  // $1
+            req.userId,                               // $2
+            bookId,                                   // $3
+            'textBook',                               // $4
+            book.title,                               // $5
+            luluSku,                                  // $6 (lulu_product_id)
+            'pending',                                // $7
             parseFloat(finalPriceDollars.toFixed(2)), // $8 (total_price)
-            'USD',             // $9 (currency)
-            interiorPdfUrl,    // $10
-            coverPdfUrl,       // $11
-            new Date().toISOString(), // $12 (created_at)
-            actualFinalPageCount,     // $13
-            isPageCountFallback,      // $14
-            luluPrintCostUSD,         // $15
-            flatShippingRateUSD,      // $16
-            calculatedProfitUSD,      // $17 (profit_usd)
-            null,              // $18 (stripe_session_id - will be updated by a subsequent query)
-            null,              // $19 (lulu_order_id - initially null)
-            null,              // $20 (lulu_job_id - initially null)
-            null,              // $21 (lulu_job_status - initially null)
-            new Date().toISOString(), // $22 (order_date)
-            new Date().toISOString()  // $23 (updated_at)
+            'USD',                                    // $9 (currency)
+            interiorPdfUrl,                           // $10 (interior_pdf_url)
+            coverPdfUrl,                              // $11 (cover_pdf_url)
+            new Date().toISOString(),                 // $12 (created_at)
+            actualFinalPageCount,                     // $13 (actual_page_count)
+            isPageCountFallback,                      // $14 (is_fallback)
+            luluPrintCostUSD,                         // $15 (lulu_print_cost_usd)
+            flatShippingRateUSD,                      // $16 (flat_shipping_cost_usd)
+            calculatedProfitUSD,                      // $17 (profit_usd)
+            null,                                     // $18 (stripe_session_id)
+            null,                                     // $19 (lulu_order_id)
+            null,                                     // $20 (lulu_job_id)
+            null,                                     // $21 (lulu_job_status)
+            new Date().toISOString(),                 // $22 (order_date)
+            new Date().toISOString()                  // $23 (updated_at)
         ]);
         console.log(`[Checkout] Created pending order record ${orderId}.`);
 
@@ -503,7 +437,6 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
             req.userId, orderId, bookId, 'textBook'
         );
 
-        // This update handles stripe_session_id. No change needed here.
         await client.query('UPDATE orders SET stripe_session_id = $1 WHERE id = $2', [session.id, orderId]);
 
         res.status(200).json({ url: session.url });

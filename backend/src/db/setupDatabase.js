@@ -51,8 +51,8 @@ const createOrdersTable = `CREATE TABLE IF NOT EXISTS orders (
     cover_pdf_url TEXT,           -- Existing
     lulu_job_id TEXT,             -- Existing
     lulu_job_status TEXT,         -- Existing
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, -- REQUIRED BY CONTROLLER (was missing in previous create table string)
-    order_date TIMESTAMP WITH TIME ZONE,                           -- Existing (if order_date is distinct from created_at, keep both, otherwise consolidate)
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, -- REQUIRED BY CONTROLLER
+    order_date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, -- Existing (CORRECTED: added DEFAULT CURRENT_TIMESTAMP)
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, -- Existing
     lulu_product_id TEXT,         -- REQUIRED BY CONTROLLER
     actual_page_count INTEGER,    -- REQUIRED BY CONTROLLER
@@ -61,8 +61,7 @@ const createOrdersTable = `CREATE TABLE IF NOT EXISTS orders (
     flat_shipping_cost_usd NUMERIC(10, 2), -- REQUIRED BY CONTROLLER
     profit_usd NUMERIC(10, 2)     -- REQUIRED BY CONTROLLER
 );`;
-// Note: I've kept both 'created_at' and 'order_date'. If they are intended to be the same, you can remove one
-// and map it accordingly in your insert statements. Assuming distinct for now.
+// Note: I've kept all timestamp fields as they are explicitly in your INSERT.
 
 export const setupDatabase = async () => {
     let client;
@@ -97,6 +96,7 @@ export const setupDatabase = async () => {
             await addColumnIfNotExists(client, 'orders', 'flat_shipping_cost_usd', 'NUMERIC(10, 2)');
             await addColumnIfNotExists(client, 'orders', 'profit_usd', 'NUMERIC(10, 2)');
             await addColumnIfNotExists(client, 'orders', 'created_at', 'TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP');
+            await addColumnIfNotExists(client, 'orders', 'order_date', 'TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP'); // ADDED DEFAULT HERE
             // Re-adding the ones that were already there, for completeness, in case the previous alter also failed
             await addColumnIfNotExists(client, 'orders', 'interior_pdf_url', 'TEXT');
             await addColumnIfNotExists(client, 'orders', 'cover_pdf_url', 'TEXT');
