@@ -1,8 +1,8 @@
-// frontend/src/services/apiClient.js
 import axios from 'axios';
 
 const apiClient = axios.create({
-  baseURL: 'http://localhost:5001/api',
+  // MODIFIED: Use the environment variable for the backend URL
+  baseURL: import.meta.env.VITE_API_BASE_URL,
 });
 
 const apiMethods = {
