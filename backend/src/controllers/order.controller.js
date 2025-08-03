@@ -231,6 +231,37 @@ export const getOrderDetails = async (req, res) => {
     }
 };
 
+// NEW: Function to get order details by Stripe Session ID
+export const getOrderBySessionId = async (req, res) => {
+    let client;
+    const { sessionId } = req.params;
+    const userId = req.userId; // Assuming userId is available from protect middleware
+
+    if (!sessionId) {
+        return res.status(400).json({ message: "Stripe Session ID is required." });
+    }
+
+    try {
+        const pool = await getDb();
+        client = await pool.connect();
+        
+        // Fetch the order using stripe_session_id and ensure it belongs to the current user
+        const orderResult = await client.query('SELECT * FROM orders WHERE stripe_session_id = $1 AND user_id = $2', [sessionId, userId]);
+        const order = orderResult.rows[0];
+
+        if (!order) {
+            return res.status(404).json({ message: 'Order not found for this session ID, or you do not have permission to view it.' });
+        }
+
+        res.status(200).json(order);
+    } catch (error) {
+        console.error("Error fetching order details by session ID:", error);
+        res.status(500).json({ message: "Failed to fetch order details by session ID." });
+    } finally {
+        if (client) client.release();
+    }
+};
+
 export const saveOrder = async (req, res) => {
     let client;
     const { orderId, selectedProducts, totalAmount, bookId, bookType } = req.body;
