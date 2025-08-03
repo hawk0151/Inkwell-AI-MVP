@@ -57,7 +57,7 @@ function PictureBookPage() {
                 overlay_text: event.overlay_text || '',
                 story_text: event.story_text || '',
                 is_bold_story_text: event.is_bold_story_text || false,
-                image_url: event.image_url || null,
+                image_url: event.image_url || null, 
             })) : [{ 
                 page_number: 1, 
                 story_text: '', 
@@ -79,13 +79,17 @@ function PictureBookPage() {
         fetchBook();
     }, [bookId]);
 
-    // REFINED: Ensure the modified event object is a new reference
+    // REFINED AGAIN: Ensure the modified event object is ALWAYS a new reference
     const handleFieldChange = (pageIndex, field, value) => {
         setTimeline(prevTimeline => {
-            const newTimeline = [...prevTimeline];
-            const updatedEvent = { ...newTimeline[pageIndex] }; // Create a shallow copy of the event object
+            const newTimeline = [...prevTimeline]; // Copy the array
+            
+            // Ensure the specific event object at pageIndex is also a new object
+            // This is crucial for React's change detection in child components.
+            const currentEventData = newTimeline[pageIndex] || {}; // Get existing or empty object
+            const updatedEvent = { ...currentEventData }; // Create a fresh copy of the event data
 
-            // Initialize new page if it doesn't exist (though addPage should handle this)
+            // Initialize new page properties if they don't exist (e.g., for newly added pages)
             if (!updatedEvent.page_number) {
                  updatedEvent.page_number = pageIndex + 1;
                  updatedEvent.story_text = '';
@@ -104,7 +108,7 @@ function PictureBookPage() {
             }
             updatedEvent[field] = value; // Update the specific field
 
-            newTimeline[pageIndex] = updatedEvent; // Assign the new object back to the array
+            newTimeline[pageIndex] = updatedEvent; // Assign the new object back to the array copy
             return newTimeline;
         });
     };
@@ -183,7 +187,8 @@ function PictureBookPage() {
                 }
 
                 await fetchBook();
-            } catch (err) {
+            }
+            catch (err) {
                 setError("Failed to delete page. Please try again. Check console for details.");
                 console.error("DEBUG: Error during delete API call:", err.response?.data?.message || err.message, err);
             }
