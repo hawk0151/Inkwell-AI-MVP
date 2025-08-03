@@ -6,7 +6,7 @@ import { generateAndSaveTextBookPdf, generateCoverPdf, finalizePdfPageCount } fr
 import { uploadPdfFileToCloudinary } from '../services/image.service.js';
 import { createStripeCheckoutSession } from '../services/stripe.service.js';
 import path from 'path';
-import fs from 'fs/promises'; // <<< CORRECTED THIS IMPORT TO BE 'fs/promises'
+import fs from 'fs/promises';
 
 let AbortController;
 if (typeof globalThis.AbortController === 'function') {
@@ -290,11 +290,9 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
         const selectedProductConfig = LULU_PRODUCT_CONFIGURATIONS.find(p => p.id === book.lulu_product_id);
         if (!selectedProductConfig) return res.status(400).json({ message: 'Invalid product ID.' });
 
-        const productBasePriceUSD = selectedProductConfig.basePrice; // Ensure this is defined
-        const calculatedProfitUSD = productBasePriceUSD - (await getPrintJobCosts([], {})).total_cost; // Placeholder logic for calculatedProfitUSD if needed before Lulu call
-        // Note: The above line `calculatedProfitUSD = productBasePriceUSD - (await getPrintJobCosts([], {})).total_cost;` is a placeholder.
-        // `calculatedProfitUSD` is properly defined later using `luluPrintCostUSD` after the actual `getPrintJobCosts` call.
-        // It's likely you had an earlier definition or default if you encountered 'calculatedProfitUSD is not defined' at some point.
+        const productBasePriceUSD = selectedProductConfig.basePrice;
+        // Removed the incorrect early definition of calculatedProfitUSD here.
+        // It will now be correctly defined after luluPrintCostUSD is known.
 
         console.log(`[Checkout] Generating PDFs for book ${bookId}...`);
 
@@ -359,6 +357,7 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
 
         let luluCostsResponse;
         try {
+            // This is the correct place to call getPrintJobCosts
             luluCostsResponse = await getPrintJobCosts(printCostLineItems, luluShippingAddressForCost);
         } catch (luluError) {
             console.error(`[Checkout] Error fetching print costs from Lulu: ${luluError.message}. Error details:`, luluError.response?.data);
@@ -386,17 +385,15 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
         const flatShippingRateAUD = getFlatShippingRate(trimmedAddress.country_code);
         const flatShippingRateUSD = flatShippingRateAUD * AUD_TO_USD_EXCHANGE_RATE;
 
-        // Recalculate profit here, after actual Lulu print cost is known
-        const finalCalculatedProfitUSD = productBasePriceUSD - luluPrintCostUSD;
-
+        // Correctly define calculatedProfitUSD here, after luluPrintCostUSD is available
+        const calculatedProfitUSD = productBasePriceUSD - luluPrintCostUSD;
 
         const finalPriceDollars = productBasePriceUSD + flatShippingRateUSD;
-
 
         console.log(`[Checkout] Final Pricing Breakdown (Textbook):`);
         console.log(`  - Product Base Price: $${productBasePriceUSD.toFixed(2)} USD`);
         console.log(`  - Lulu Print Cost: -$${luluPrintCostUSD.toFixed(2)} USD`);
-        console.log(`  - Calculated Profit: $${finalCalculatedProfitUSD.toFixed(2)} USD`);
+        console.log(`  - Calculated Profit: $${calculatedProfitUSD.toFixed(2)} USD`);
         console.log(`  - Flat Shipping Cost: +$${flatShippingRateUSD.toFixed(2)} USD`);
         console.log(`  -----------------------------------------`);
         console.log(`  - Total Price for Stripe: $${finalPriceDollars.toFixed(2)} USD (${Math.round(finalPriceDollars * 100)} cents)`);
@@ -423,18 +420,18 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
             'USD', // currency
             interiorPdfUrl,
             coverPdfUrl,
-            new Date().toISOString(), // created_at (Use NOW() in SQL or pass explicit date)
+            new Date().toISOString(), // created_at (Using ISO string for consistency with TIMESTAMP WITH TIME ZONE)
             actualFinalPageCount,
             isPageCountFallback,
             luluPrintCostUSD,
             flatShippingRateUSD,
-            finalCalculatedProfitUSD, // profit_usd
+            calculatedProfitUSD, // profit_usd
             null, // stripe_session_id (will be updated later)
             null, // lulu_order_id (initially null)
             null, // lulu_job_id (initially null)
             null, // lulu_job_status (initially null)
-            new Date().toISOString(), // order_date (if distinct from created_at)
-            new Date().toISOString() // updated_at (if distinct from created_at/order_date)
+            new Date().toISOString(), // order_date (if distinct from created_at, using ISO string)
+            new Date().toISOString() // updated_at (using ISO string)
         ]);
         console.log(`[Checkout] Created pending order record ${orderId}.`);
 
