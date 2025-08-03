@@ -1,14 +1,10 @@
 // backend/src/services/image.service.js
 
-// CHANGES:
-// - FIXED: Added `access_mode: 'public'` to `uploadImageToCloudinary` to ensure generated images are publicly accessible.
-// - FIXED: Explicitly pass 'jpeg' as fileFormat to `uploadImageToCloudinary` from `generateImage` for clarity and robustness.
-
 import axios from 'axios';
 import { v2 as cloudinary } from 'cloudinary';
 import { randomUUID } from 'crypto';
-import path from 'path'; // Still used for path.basename in original uploadImageToCloudinary for filename extraction, if needed.
-import FormData from 'form-data'; // Needed for multipart/form-data
+import path from 'path';
+import FormData from 'form-data';
 
 console.log("DEBUG: Cloudinary config values from process.env:");
 console.log("CLOUDINARY_CLOUD_NAME:", process.env.CLOUDINARY_CLOUD_NAME ? "SET" : "NOT SET");
@@ -44,7 +40,7 @@ export const generateImageFromApi = async (prompt, style) => {
     try {
         const formData = new FormData();
         formData.append('prompt', fullPrompt);
-        formData.append('output_format', 'jpeg'); // Ensure output is JPEG
+        formData.append('output_format', 'jpeg');
         formData.append('width', targetWidthPx.toString());
         formData.append('height', targetHeightPx.toString());
         formData.append('aspect_ratio', aspectRatio);
@@ -81,8 +77,7 @@ export const generateImageFromApi = async (prompt, style) => {
     return base64GeneratedImage;
 };
 
-// Keep existing uploadImageToCloudinary for general image uploads (e.g., user avatars, non-POD images)
-// FIXED: Added access_mode: 'public' for general image uploads too
+// Fixed: Added access_mode: 'public' for general image uploads too
 export const uploadImageToCloudinary = (fileBuffer, folder, fileFormat = 'auto') => {
     return new Promise((resolve, reject) => {
         const publicId = randomUUID(); // Generate a unique ID
@@ -93,15 +88,27 @@ export const uploadImageToCloudinary = (fileBuffer, folder, fileFormat = 'auto')
             resource_type: 'auto', 
             public_id: publicId, 
             type: 'upload',
-            access_mode: 'public' // <--- ADDED THIS LINE!
+            access_mode: 'public'
         };
+
+        // NEW DEBUG: Log upload options before upload
+        console.log('[Cloudinary Upload] Initiating upload with options:', {
+            upload_preset: uploadOptions.upload_preset,
+            folder: uploadOptions.folder,
+            resource_type: uploadOptions.resource_type,
+            public_id: uploadOptions.public_id,
+            type: uploadOptions.type,
+            access_mode: uploadOptions.access_mode,
+            fileFormat: fileFormat // Also log the passed fileFormat
+        });
+
 
         if (fileFormat === 'pdf') {
             console.warn("WARN: Using uploadImageToCloudinary for PDF. Consider using uploadPdfFileToCloudinary for better robustness.");
             uploadOptions.resource_type = 'raw';
             uploadOptions.format = 'pdf';
             uploadOptions.public_id = `${publicId}.pdf`;
-        } else if (fileFormat !== 'auto') { // This branch handles 'jpeg' or other specific image formats
+        } else if (fileFormat !== 'auto') {
             uploadOptions.resource_type = 'image';
             uploadOptions.format = fileFormat;
             uploadOptions.public_id = `${publicId}.${fileFormat}`;
@@ -114,13 +121,16 @@ export const uploadImageToCloudinary = (fileBuffer, folder, fileFormat = 'auto')
                     console.error("Cloudinary Upload Error:", error);
                     return reject(error);
                 }
+                // NEW DEBUG: Log successful Cloudinary result
+                console.log(`[Cloudinary Upload] ✅ Successful upload! Secure URL: ${result.secure_url}`);
+                console.log('[Cloudinary Upload] Full result from Cloudinary:', JSON.stringify(result, null, 2));
+
                 resolve(result.secure_url);
             }
         ).end(fileBuffer);
     });
 };
 
-// Dedicated PDF Upload to Cloudinary for Lulu POD (no changes needed here, already had access_mode)
 export const uploadPdfFileToCloudinary = (filePath, folder, publicIdPrefix) => {
     return new Promise((resolve, reject) => {
         const uniqueId = `${publicIdPrefix}_${randomUUID().substring(0, 8)}`;
@@ -136,7 +146,7 @@ export const uploadPdfFileToCloudinary = (filePath, folder, publicIdPrefix) => {
             unique_filename: true,
             overwrite: true,
             type: 'upload',
-            access_mode: 'public' // Already here
+            access_mode: 'public'
         };
 
         cloudinary.uploader.upload(filePath, uploadOptions, (error, result) => {
