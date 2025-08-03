@@ -18,63 +18,54 @@ const pointsToMm = (pt) => pt * (25.4 / 72); // Helper for debugging
 const ROBOTO_REGULAR_PATH = path.join(__dirname, '../fonts/Roboto-Regular.ttf');
 const ROBOTO_BOLD_PATH = path.join(__dirname, '../fonts/Roboto-Bold.ttf');
 
+// --- MODIFIED: This function has been reverted to a simpler, correct calculation ---
 const getProductDimensions = (luluConfigId) => {
     const productConfig = LULU_PRODUCT_CONFIGURATIONS.find(p => p.id === luluConfigId);
     if (!productConfig) {
         throw new Error(`Product configuration with ID ${luluConfigId} not found.`);
     }
 
-    let trimWidthMm, trimHeightMm, layout;
+    let pageWidthMm, pageHeightMm, layout;
+
+    // This switch statement now correctly interprets the 'trimSize' field
+    // as the FINAL page dimensions, which should already include bleed.
     switch (productConfig.trimSize) {
         case '5.25x8.25':
-            trimWidthMm = 133.35; trimHeightMm = 209.55; layout = 'portrait'; break;
+            pageWidthMm = 133.35; pageHeightMm = 209.55; layout = 'portrait'; break;
         case '8.52x11.94':
-            trimWidthMm = 216.41; trimHeightMm = 303.28; layout = 'portrait'; break;
+            pageWidthMm = 216.41; pageHeightMm = 303.28; layout = 'portrait'; break;
         case '6.39x9.46':
-            trimWidthMm = 162.31; trimHeightMm = 240.28; layout = 'portrait'; break;
-        case '8.27x11.69': // A4 Premium Picture Book
-            trimWidthMm = 209.55; trimHeightMm = 296.9; layout = 'portrait'; break;
+            pageWidthMm = 162.31; pageHeightMm = 240.28; layout = 'portrait'; break;
+        case '8.27x11.69':
+            pageWidthMm = 209.55; pageHeightMm = 296.9; layout = 'portrait'; break;
         default:
             console.error(`[PDF Service: getProductDimensions] Unknown trim size ${productConfig.trimSize}. Falling back to A4 standard dimensions.`);
-            trimWidthMm = 210; // A4 width in mm (default fallback)
-            trimHeightMm = 297; // A4 height in mm (default fallback)
+            pageWidthMm = 210; // A4 width in mm (default fallback)
+            pageHeightMm = 297; // A4 height in mm (default fallback)
             layout = 'portrait';
     }
 
-    const bleed = productConfig.bleedMm; // Bleed amount on one side (e.g., 3.175mm)
-    const safeMargin = productConfig.safeMarginMm; // Safe margin from trim edge (e.g., 6.35mm)
+    // Convert the final page size directly to points. NO MORE ADDING EXTRA BLEED.
+    const pageWidthWithBleedPoints = mmToPoints(pageWidthMm);
+    const pageHeightWithBleedPoints = mmToPoints(pageHeightMm);
 
-    // Calculate dimensions including bleed on all 4 sides
-    const pageWidthWithBleedMm = trimWidthMm + (2 * bleed);
-    const pageHeightWithBleedMm = trimHeightMm + (2 * bleed);
+    const bleedPoints = mmToPoints(productConfig.bleedMm);
+    const safeMarginPoints = mmToPoints(productConfig.safeMarginMm);
 
-    const trimWidthPoints = mmToPoints(trimWidthMm);
-    const trimHeightPoints = mmToPoints(trimHeightMm);
-    const pageWidthWithBleedPoints = mmToPoints(pageWidthWithBleedMm);
-    const pageHeightWithBleedPoints = pageHeightWithBleedMm > pageWidthWithBleedMm && layout === 'portrait' ? mmToPoints(pageHeightWithBleedMm) : mmToPoints(pageHeightWithBleedMm); // Corrected this for landscape covers
-    const bleedPoints = mmToPoints(bleed);
-    const safeMarginPoints = mmToPoints(safeMargin);
-
-    // Calculate effective content area (safe zone)
+    // Calculate the 'safe area' based on the given bleed and margin values
     const contentX = bleedPoints + safeMarginPoints;
     const contentY = bleedPoints + safeMarginPoints;
-    const contentWidth = pageWidthWithBleedPoints - (2 * contentX); // (pageWidthWithBleed - 2 * (bleed + safeMargin))
-    const contentHeight = pageHeightWithBleedPoints - (2 * contentY); // (pageHeightWithBleed - 2 * (bleed + safeMargin))
-
-
-    console.log(`[PDF Service: Product Dimensions for ${productConfig.id}]`);
-    console.log(`  Trim Size (mm): ${trimWidthMm.toFixed(2)} x ${trimHeightMm.toFixed(2)}`);
-    console.log(`  Bleed (mm): ${bleed.toFixed(3)} (per side)`);
-    console.log(`  Safe Margin (mm): ${safeMargin.toFixed(3)} (from trim edge)`);
-    console.log(`  Page Size with Bleed (mm): ${pageWidthWithBleedMm.toFixed(2)} x ${pageHeightWithBleedMm.toFixed(2)}`);
-    console.log(`  Page Size with Bleed (pts): ${pageWidthWithBleedPoints.toFixed(2)} x ${pageHeightWithBleedPoints.toFixed(2)}`);
+    const contentWidth = pageWidthWithBleedPoints - (2 * contentX);
+    const contentHeight = pageHeightWithBleedPoints - (2 * contentY);
+    
+    console.log(`[PDF Service: Corrected Dimensions for ${productConfig.id}]`);
+    console.log(`  Final Page Size (mm): ${pageWidthMm.toFixed(2)} x ${pageHeightMm.toFixed(2)}`);
+    console.log(`  Final Page Size (pts): ${pageWidthWithBleedPoints.toFixed(2)} x ${pageHeightWithBleedPoints.toFixed(2)}`);
     console.log(`  Content/Safe Zone Start (pts from (0,0)): X=${contentX.toFixed(2)}, Y=${contentY.toFixed(2)}`);
     console.log(`  Content/Safe Zone Dimensions (pts): W=${contentWidth.toFixed(2)}, H=${contentHeight.toFixed(2)}`);
 
-
     return {
-        trimWidth: trimWidthPoints,
-        trimHeight: trimHeightPoints,
+        // No longer returning separate trimWidth/trimHeight to avoid confusion.
         pageWidthWithBleed: pageWidthWithBleedPoints,
         pageHeightWithBleed: pageHeightWithBleedPoints,
         bleedPoints: bleedPoints,
@@ -278,7 +269,7 @@ function truncateText(doc, text, maxWidth, maxHeight, fontPath, fontSize) {
 }
 
 
-// --- MODIFIED: The body of this function is replaced with the new 24-page structure logic ---
+// This function contains our new 24-page picture book structure
 export const generateAndSavePictureBookPdf = async (book, events, productConfig) => {
     // Get dimensions including bleed for PDF creation and safe zone for text
     const { pageWidthWithBleed, pageHeightWithBleed, bleedPoints, safeMarginPoints, contentX, contentY, contentWidth, contentHeight, layout } = getProductDimensions(productConfig.id);
@@ -406,7 +397,7 @@ export const generateAndSavePictureBookPdf = async (book, events, productConfig)
     return { path: tempFilePath, pageCount: trueContentPageCount };
 };
 
-// NEW HELPER: Second Pass - Finalizes PDF page count (padding and evenness) using pdf-lib
+// Second Pass - Finalizes PDF page count (padding and evenness) using pdf-lib
 export const finalizePdfPageCount = async (filePath, productConfig, currentContentPageCount) => {
     let finalPdfBytes;
     let finalPageCount = currentContentPageCount; // Start with the count from the first pass
