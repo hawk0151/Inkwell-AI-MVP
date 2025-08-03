@@ -62,7 +62,7 @@ const startServer = async () => {
     const productRoutes = (await import('./src/api/product.routes.js')).default;
     const orderRoutes = (await import('./src/api/order.routes.js')).default;
     const pictureBookRoutes = (await import('./src/api/picturebook.routes.js')).default;
-    const imageRoutes = (await import('./src/api/image.routes.js')).default;
+    const imageRoutes = (await import('./src/api/image.routes.js')).default; // Already imported
     const textBookRoutes = (await import('./src/api/textbook.routes.js')).default;
     const { router: userRoutes } = await import('./src/api/user.routes.js');
     const { router: analyticsRoutes } = await import('./src/api/analytics.routes.js');
@@ -107,6 +107,7 @@ const startServer = async () => {
     app.use('/api/paypal', paypalRoutes);
     app.use('/api/picture-books', pictureBookRoutes);
     app.use('/api/text-books', textBookRoutes);
+    app.use('/api/images', imageRoutes); // <--- ADDED THIS LINE!
     app.use('/api/v1/user', userRoutes);
     app.use('/api/profile', profileRoutes);
     app.use('/api/social', socialBookRoutes);
