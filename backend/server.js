@@ -54,20 +54,29 @@ const startServer = async () => {
         credential: admin.credential.cert(serviceAccount)
     });
 
-    // Dynamically import routes
-    const paypalRoutes = (await import('./src/api/paypal.routes.js')).default;
-    const storyRoutes = (await import('./src/api/story.routes.js')).default;
-    const productRoutes = (await import('./src/api/product.routes.js')).default;
-    const orderRoutes = (await import('./src/api/order.routes.js')).default;
-    const pictureBookRoutes = (await import('./src/api/picturebook.routes.js')).default;
-    const imageRoutes = (await import('./src/api/image.routes.js')).default;
-    const textBookRoutes = (await import('./src/api/textbook.routes.js')).default;
-    const { router: userRoutes } = await import('./src/api/user.routes.js');
-    const { router: analyticsRoutes } = await import('./src/api/analytics.routes.js');
-    const profileRoutes = (await import('./src/api/profile.routes.js')).default;
-    const socialBookRoutes = (await import('./src/api/social.book.routes.js')).default;
-    const feedRoutes = (await import('./src/api/feed.routes.js')).default;
-    const { handleWebhook } = await import('./src/controllers/order.controller.js');
+    // --- REFINEMENT: More specific Firebase init log ---
+    console.log('✅ Firebase initialized for project:', serviceAccount.project_id);
+
+    // --- REFINEMENT: Wrap dynamic imports in try/catch for robust startup ---
+    let orderRoutes, pictureBookRoutes, textBookRoutes, imageRoutes, userRoutes, analyticsRoutes, profileRoutes, socialBookRoutes, feedRoutes, storyRoutes, productRoutes, paypalRoutes, handleWebhook;
+    try {
+        paypalRoutes = (await import('./src/api/paypal.routes.js')).default;
+        storyRoutes = (await import('./src/api/story.routes.js')).default;
+        productRoutes = (await import('./src/api/product.routes.js')).default;
+        orderRoutes = (await import('./src/api/order.routes.js')).default;
+        pictureBookRoutes = (await import('./src/api/picturebook.routes.js')).default;
+        imageRoutes = (await import('./src/api/image.routes.js')).default;
+        textBookRoutes = (await import('./src/api/textbook.routes.js')).default;
+        userRoutes = (await import('./src/api/user.routes.js')).router;
+        analyticsRoutes = (await import('./src/api/analytics.routes.js')).router;
+        profileRoutes = (await import('./src/api/profile.routes.js')).default;
+        socialBookRoutes = (await import('./src/api/social.book.routes.js')).default;
+        feedRoutes = (await import('./src/api/feed.routes.js')).default;
+        handleWebhook = (await import('./src/controllers/order.controller.js')).handleWebhook;
+    } catch (err) {
+        console.error("❌ CRITICAL: Failed to import routes. Server cannot start.", err);
+        process.exit(1);
+    }
 
     const app = express();
     const PORT = process.env.PORT || 5001;
@@ -81,7 +90,7 @@ const startServer = async () => {
         origin: function (origin, callback) {
             if (!origin) return callback(null, true);
             if (allowedOrigins.indexOf(origin) === -1) {
-                const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
+                const msg = `The CORS policy for this site does not allow access from the specified Origin: ${origin}`;
                 return callback(new Error(msg), false);
             }
             return callback(null, true);
@@ -90,7 +99,8 @@ const startServer = async () => {
     };
     
     app.use(cors(corsOptions));
-    console.log("DEBUG: CORS middleware applied with updated options.");
+    app.options('*', cors(corsOptions));
+    console.log("DEBUG: CORS middleware applied with preflight handling.");
 
     app.use(morgan('dev'));
     
@@ -117,19 +127,18 @@ const startServer = async () => {
     app.use('/api/feed', feedRoutes);
     app.use('/api/v1/analytics', analyticsRoutes);
 
-    // --- NEW: DEPLOYMENT SANITY CHECK ROUTE ---
     app.get('/health-check-version', (req, res) => {
       res.json({ 
         message: 'live backend sanity check', 
         timestamp: new Date().toISOString(), 
-        commit: 'v2-deploy-20250803-1635' 
+        commit: 'final-merge-20250803-1730'
       });
     });
 
     app.get('/', (req, res) => {
         res.send('Inkwell AI Backend is running successfully!');
     });
-
+    
     app.use((req, res, next) => {
         res.status(404).json({ message: 'Not Found' });
     });

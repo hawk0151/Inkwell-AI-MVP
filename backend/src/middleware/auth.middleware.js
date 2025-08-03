@@ -2,13 +2,6 @@
 import admin from 'firebase-admin';
 import { getDb } from '../db/database.js';
 
-/**
- * Middleware to protect routes that require a logged-in user.
- * 1. Verifies the Firebase ID token from the Authorization header.
- * 2. Attaches the Firebase UID to the request as `req.userId`.
- * 3. Creates a user record in SQLite on their first API call if one doesn't exist.
- * 4. Attaches the user's role from SQLite to the request as `req.userRole`.
- */
 export const protect = async (req, res, next) => {
     let token;
     let client; // Declare client for database operations
@@ -24,35 +17,31 @@ export const protect = async (req, res, next) => {
             req.userId = decodedToken.uid;
             console.log(`[PROTECT DEBUG] Token decoded. UID: ${req.userId}`);
 
-            const pool = await getDb(); // Get the pool
-            client = await pool.connect(); // Get a client from the pool
+            const pool = await getDb();
+            client = await pool.connect();
 
             const userQuery = 'SELECT id, role FROM users WHERE id = $1';
-            const userResult = await client.query(userQuery, [req.userId]); // Use client.query
-            const user = userResult.rows[0]; // Get the row from the result
+            const userResult = await client.query(userQuery, [req.userId]);
+            const user = userResult.rows[0];
 
             if (user) {
                 req.userRole = user.role;
-                console.log(`[PROTECT DEBUG] User ${req.userId} found in DB. Role: ${req.userRole}. Calling next().`); // Changed SQLite to DB
+                console.log(`[PROTECT DEBUG] User ${req.userId} found in DB. Role: ${req.userRole}. Calling next().`);
                 return next();
             } else {
-                console.log(`[AUTH DEBUG] First-time login for UID: ${req.userId}. Creating user entry in DB and Firestore.`); // Changed SQLite to DB
-
-                console.log(`[AUTH DEBUG] Decoded Token Name: ${decodedToken.name}`);
-                console.log(`[AUTH DEBUG] Decoded Token Email: ${decodedToken.email}`);
-                console.log(`[AUTH DEBUG] Decoded Token Picture: ${decodedToken.picture}`);
+                console.log(`[AUTH DEBUG] First-time login for UID: ${req.userId}. Creating user entry in DB and Firestore.`);
 
                 const initialUsername = decodedToken.name || decodedToken.email || `user_${req.userId.substring(0, 8)}`;
                 const initialEmail = decodedToken.email || null;
                 const initialAvatarUrl = decodedToken.picture || null;
 
-                console.log(`[AUTH DEBUG] Determined initialUsername for DB/Firestore: "${initialUsername}"`); // Changed SQLite to DB
+                console.log(`[AUTH DEBUG] Determined initialUsername for DB/Firestore: "${initialUsername}"`);
 
                 const insertQuery = 'INSERT INTO users (id, email, username, role, avatar_url) VALUES ($1, $2, $3, $4, $5)';
                 const defaultRole = 'user';
 
-                await client.query(insertQuery, [req.userId, initialEmail, initialUsername, defaultRole, initialAvatarUrl]); // Use client.query
-                console.log(`[AUTH DEBUG] DB entry created for ${req.userId} with username: ${initialUsername}`); // Changed SQLite to DB
+                await client.query(insertQuery, [req.userId, initialEmail, initialUsername, defaultRole, initialAvatarUrl]);
+                console.log(`[AUTH DEBUG] DB entry created for ${req.userId} with username: ${initialUsername}`);
 
                 const firestore = admin.firestore();
                 const userDocRef = firestore.collection('users').doc(req.userId);
@@ -71,10 +60,19 @@ export const protect = async (req, res, next) => {
             }
         } catch (error) {
             console.error('[PROTECT ERROR] Error in authentication middleware:', error);
+
+            // --- REFINEMENT ADDED: Defensively set CORS headers on error responses ---
+            if (!res.headersSent) {
+                const origin = req.headers.origin;
+                const allowedOrigins = [process.env.CORS_ORIGIN || 'http://localhost:5173', 'https://inkwell-ai-mvp-frontend.onrender.com'];
+                if (allowedOrigins.includes(origin)) {
+                    res.setHeader('Access-Control-Allow-Origin', origin);
+                    res.setHeader('Access-Control-Allow-Credentials', 'true');
+                }
+            }
+
             if (error.code === '23505' /* PostgreSQL unique_violation */ || error.code === 'SQLITE_CONSTRAINT') {
                 try {
-                    // Re-acquire client for retry if it was released by initial error, or use same client if still valid
-                    // For simplicity, get a fresh client for the retry logic
                     const pool = await getDb();
                     const retryClient = await pool.connect();
                     const userQuery = 'SELECT id, role FROM users WHERE id = $1';
@@ -95,7 +93,7 @@ export const protect = async (req, res, next) => {
             }
             return res.status(401).json({ message: 'Not authorized, token failed' });
         } finally {
-            if (client) client.release(); // Release the client back to the pool
+            if (client) client.release();
         }
     } else {
         console.log('[PROTECT DEBUG] No Bearer token found in Authorization header.');
@@ -109,15 +107,7 @@ export const protect = async (req, res, next) => {
     res.status(500).json({ message: 'Internal server error in authentication flow.' });
 };
 
-/**
- * Middleware to conditionally attach user info without protecting the route.
- * Use for public routes that display extra info for logged-in users.
- * It will NOT throw an error if the user is not authenticated.
- */
 export const optionalAuth = async (req, res, next) => {
-    // This middleware doesn't perform DB writes, so a direct pool.query is often sufficient
-    // without explicit client acquisition/release IF it's only read and not part of a transaction.
-    // However, for consistency and robustness, let's use client.query here too.
     let client;
     try {
         if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
@@ -127,19 +117,10 @@ export const optionalAuth = async (req, res, next) => {
         }
     } catch (error) {
         req.userId = null;
-    } finally {
-        // No client to release here if no pool.connect() was called.
-        // For simple read-only, pool.query() doesn't need explicit client.release().
-        // If pool.connect() was used here, then client.release() would be needed.
     }
     next();
 };
 
-/**
- * Middleware to authorize routes based on user roles.
- * Must be used AFTER the `protect` middleware.
- * @param {...string} roles - The roles allowed to access the route.
- */
 export const authorizeRoles = (...roles) => {
     return (req, res, next) => {
         if (!req.userRole || !roles.includes(req.userRole)) {
