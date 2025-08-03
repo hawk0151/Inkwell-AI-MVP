@@ -17,23 +17,25 @@ function ImageEditor({ currentEvent, onImageUpdate }) {
         currentEvent.uploaded_image_url || currentEvent.image_url
     );
 
-    // useEffect to sync displayedImageUrl and reset prompt/file whenever the page context changes
     useEffect(() => {
-        setPrompt(''); // Always clear prompt on page change
-        setSelectedFile(null); // Always clear selected file on page change
-        setError(null); // Clear any old errors
-        setIsGenerating(false); // Reset loading states
-        setIsUploading(false); // Reset loading states
+        setPrompt('');
+        setSelectedFile(null);
+        setError(null);
+        setIsGenerating(false);
+        setIsUploading(false);
 
         // IMPORTANT: Set the displayed image URL from the currentEvent prop
-        // This ensures that when the parent component updates currentEvent (e.g., changing page),
-        // the ImageEditor's display updates to the correct image for that new page.
-        setDisplayedImageUrl(currentEvent.uploaded_image_url || currentEvent.image_url);
+        // Add a timestamp to force re-fetch from Cloudinary/browser cache
+        const currentImage = currentEvent.uploaded_image_url || currentEvent.image_url;
+        if (currentImage) {
+            const url = new URL(currentImage);
+            url.searchParams.set('t', Date.now()); // Add a unique timestamp query param
+            setDisplayedImageUrl(url.toString());
+        } else {
+            setDisplayedImageUrl(null);
+        }
 
-    }, [currentEvent.page_number]); // Depend ONLY on page_number for core context switch.
-                                   // The image_url/uploaded_image_url changes are now handled directly
-                                   // by handleGenerate/handleUpload updating displayedImageUrl,
-                                   // and also by currentEvent from parent state.
+    }, [currentEvent.page_number, currentEvent.uploaded_image_url, currentEvent.image_url]); // Also include image URLs for re-sync on auto-save updates
 
     const artStyles = ['Watercolor', 'Cartoon', 'Photorealistic', 'Fantasy', 'Vintage'];
 
@@ -44,29 +46,31 @@ function ImageEditor({ currentEvent, onImageUpdate }) {
         }
         setIsGenerating(true);
         setError(null);
-        setSelectedFile(null); // Clear selected file if generating AI image
+        setSelectedFile(null);
         
-        // Temporarily clear displayed image locally to show spinner, and clear parent's image URLs
-        setDisplayedImageUrl(null); // This makes the spinner appear
+        setDisplayedImageUrl(null); // Show spinner
         onImageUpdate(currentEvent.page_number - 1, 'uploaded_image_url', null); // Clear parent's uploaded URL
         onImageUpdate(currentEvent.page_number - 1, 'image_url', null); // Clear parent's AI image URL
         
         try {
             const response = await apiClient.post('/images/generate', { prompt, style });
-            const newImageUrl = response.data.imageUrl;
+            let newImageUrl = response.data.imageUrl;
             
-            // Update parent state with AI image. Parent will then re-render this component with new props.
+            // Add timestamp to the new image URL as well
+            if (newImageUrl) {
+                const url = new URL(newImageUrl);
+                url.searchParams.set('t', Date.now());
+                newImageUrl = url.toString();
+            }
+
             onImageUpdate(currentEvent.page_number - 1, 'image_url', newImageUrl);
             onImageUpdate(currentEvent.page_number - 1, 'image_style', style);
             
-            // PUTTING IT BACK: IMMEDIATELY update local state to show the new image.
-            // This is crucial for instant feedback and bypassing React's re-render subtleties.
             setDisplayedImageUrl(newImageUrl); 
 
         } catch (err) {
             setError("Failed to generate image. Please try again.");
             console.error(err);
-            // On failure, revert displayed image to whatever it was before trying to generate
             setDisplayedImageUrl(currentEvent.uploaded_image_url || currentEvent.image_url); 
         } finally {
             setIsGenerating(false);
@@ -78,19 +82,19 @@ function ImageEditor({ currentEvent, onImageUpdate }) {
         if (file) {
             setSelectedFile(file);
             setError(null);
-            // Display a preview of the selected file immediately
             const reader = new FileReader();
             reader.onloadend = () => {
-                setDisplayedImageUrl(reader.result); // Set local state to file preview
+                // Add timestamp to the preview URL too
+                const url = new URL(reader.result);
+                url.searchParams.set('t', Date.now());
+                setDisplayedImageUrl(url.toString());
             };
             reader.readAsDataURL(file);
 
-            // Also clear the AI-generated image from the parent state when a file is selected for upload
             onImageUpdate(currentEvent.page_number - 1, 'image_url', null);
             onImageUpdate(currentEvent.page_number - 1, 'image_style', null);
         } else {
             setSelectedFile(null);
-            // If no file selected (e.g., user cancels file picker), revert displayed image
             setDisplayedImageUrl(currentEvent.uploaded_image_url || currentEvent.image_url); 
         }
     };
@@ -103,7 +107,6 @@ function ImageEditor({ currentEvent, onImageUpdate }) {
         setIsUploading(true);
         setError(null);
         
-        // Clear previous AI image URL and style in parent, and set local display to null for spinner
         onImageUpdate(currentEvent.page_number - 1, 'image_url', null);
         onImageUpdate(currentEvent.page_number - 1, 'image_style', null);
         setDisplayedImageUrl(null); // Show spinner
@@ -117,15 +120,22 @@ function ImageEditor({ currentEvent, onImageUpdate }) {
                     'Content-Type': 'multipart/form-data',
                 },
             });
-            const newImageUrl = response.data.imageUrl;
+            let newImageUrl = response.data.imageUrl;
 
-            onImageUpdate(currentEvent.page_number - 1, 'uploaded_image_url', newImageUrl); // Update parent state
-            setDisplayedImageUrl(newImageUrl); // PUTTING IT BACK: IMMEDIATELY update local state
-            setSelectedFile(null); // Clear selected file after upload
+            // Add timestamp to the uploaded image URL
+            if (newImageUrl) {
+                const url = new URL(newImageUrl);
+                url.searchParams.set('t', Date.now());
+                newImageUrl = url.toString();
+            }
+
+            onImageUpdate(currentEvent.page_number - 1, 'uploaded_image_url', newImageUrl);
+            setDisplayedImageUrl(newImageUrl);
+            setSelectedFile(null);
         } catch (err) {
             setError("Failed to upload image. Please try again.");
             console.error(err);
-            setDisplayedImageUrl(currentEvent.uploaded_image_url || currentEvent.image_url); // Revert on failure
+            setDisplayedImageUrl(currentEvent.uploaded_image_url || currentEvent.image_url); 
         } finally {
             setIsUploading(false);
         }
@@ -140,7 +150,7 @@ function ImageEditor({ currentEvent, onImageUpdate }) {
                 {displayedImageUrl ? (
                     <>
                         <img
-                            src={displayedImageUrl}
+                            src={displayedImageUrl} // This src now includes a unique timestamp
                             alt={`Page ${currentEvent.page_number}`}
                             className="w-full h-full object-cover object-center"
                         />
