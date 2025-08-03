@@ -13,6 +13,8 @@ import MyOrdersPage from './pages/MyOrdersPage.jsx';
 // --- Start of Success/Cancel Page Imports ---
 import SuccessPage from './pages/SuccessPage.jsx';
 import CancelPage from './pages/CancelPage.jsx';
+// --- NEW IMPORT: CheckoutSuccessPage ---
+import CheckoutSuccessPage from './pages/CheckoutSuccessPage.jsx';
 // --- End of Success/Cancel Page Imports ---
 import NovelPage from './pages/NovelPage.jsx';
 import NovelSelectionPage from './pages/NovelSelectionPage.jsx';
@@ -85,9 +87,9 @@ const ProfileDropdown = ({ user, onLogout }) => {
                     className="w-8 h-8 rounded-full bg-slate-700 object-cover"
                 />
                 <span className="text-white font-medium text-sm hidden lg:block">{user.username}</span>
-                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className={`w-5 h-5 text-slate-400 transition-transform ${isOpen ? 'rotate-180' : ''}`}>
-                    <path fillRule="evenodd" d="M5.22 8.22a.75.75 0 0 1 1.06 0L10 11.94l3.72-3.72a.75.75 0 1 1 1.06 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L5.22 9.28a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" />
-                </svg>
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className={`w-5 h-5 text-slate-400 transition-transform ${isOpen ? 'rotate-180' : ''}`}>
+                        <path fillRule="evenodd" d="M5.22 8.22a.75.75 0 0 1 1.06 0L10 11.94l3.72-3.72a.75.75 0 1 1 1.06 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L5.22 9.28a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" />
+                    </svg>
             </button>
             <AnimatePresence>
                 {isOpen && (
