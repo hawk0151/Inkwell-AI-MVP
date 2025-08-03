@@ -5,14 +5,15 @@ import { useAuth } from '../contexts/AuthContext.jsx';
 import { Alert, LoadingSpinner } from '../components/common.jsx';
 
 const MyOrdersPage = () => {
+    // --- MODIFIED: We only need currentUser to know IF we should fetch, not the token itself. ---
     const { currentUser } = useAuth();
     const [orders, setOrders] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
-    // --- NEW: State to cache Lulu statuses to avoid re-fetching ---
     const [statusCache, setStatusCache] = useState({});
 
     useEffect(() => {
+        // --- MODIFIED: Simplified check. If there's a user, we fetch. ---
         if (!currentUser) {
             setLoading(false);
             return;
@@ -22,11 +23,12 @@ const MyOrdersPage = () => {
             setLoading(true);
             setError(null);
             try {
-                // This API endpoint `/my-orders` is correct based on your routes file
-                const response = await apiClient.get('/orders/my-orders');
+                // --- MODIFIED: Simplified API call. The interceptor in apiClient.js handles the token. ---
+                const response = await apiClient.get('/orders/my-orders'); 
                 setOrders(response?.data || []);
             } catch (err) {
                 console.error('Failed to fetch orders:', err.response?.data?.message || err.message);
+                // The response interceptor will handle redirects on 401, but we can still show a message.
                 setError('Failed to load your orders.');
             } finally {
                 setLoading(false);
@@ -34,17 +36,17 @@ const MyOrdersPage = () => {
         };
 
         fetchOrders();
-    }, [currentUser]);
+    }, [currentUser]); // --- MODIFIED: Dependency array simplified.
 
-    // --- NEW: Function to fetch real-time status from Lulu via our backend ---
     const fetchLuluStatus = async (luluJobId) => {
+        // --- MODIFIED: Simplified check. ---
         if (!luluJobId || statusCache[luluJobId]?.loading) {
-            return; // Don't fetch if no ID or already in progress
+            return;
         }
 
         setStatusCache(prev => ({ ...prev, [luluJobId]: { loading: true, data: null, error: null } }));
         try {
-            // This will call a new backend endpoint we need to create
+            // --- MODIFIED: Simplified API call. The interceptor adds the token automatically. ---
             const response = await apiClient.get(`/orders/status/${luluJobId}`);
             setStatusCache(prev => ({ ...prev, [luluJobId]: { loading: false, data: response.data, error: null } }));
         } catch (err) {
@@ -54,12 +56,15 @@ const MyOrdersPage = () => {
     };
 
     if (loading) return <LoadingSpinner text="Loading your orders..." />;
+    
+    // The error state may not be reached if the interceptor redirects first, but it's good practice to keep it.
     if (error) return <Alert type="error" message={error} onClose={() => setError(null)} />;
 
     return (
         <div className="container mx-auto p-4 text-white min-h-screen">
             <h1 className="text-3xl font-bold mb-6 text-center text-indigo-400">My Orders</h1>
-            {orders.length === 0 ? (
+            {/* --- UNCHANGED: The rendering logic below is correct. --- */}
+            {!loading && orders.length === 0 ? (
                 <div className="bg-gray-800 p-6 rounded-lg shadow-xl text-center">
                     <p className="text-lg text-gray-300">You haven't placed any orders yet.</p>
                     <p className="text-md text-gray-400 mt-2">Start by creating a new book!</p>
@@ -90,7 +95,6 @@ const MyOrdersPage = () => {
                                     </p>
                                     <p>
                                         Total Price: <span className="font-bold">
-                                            {/* MODIFIED: Correctly formats price from total_cost and currency */}
                                             {new Intl.NumberFormat('en-US', {
                                                 style: 'currency',
                                                 currency: order.currency || 'USD'
@@ -98,12 +102,10 @@ const MyOrdersPage = () => {
                                         </span>
                                     </p>
                                     <p>
-                                        {/* MODIFIED: Uses created_at which is a more common DB column name */}
                                         Ordered on: {order.created_at ? new Date(order.created_at).toLocaleString() : 'N/A'}
                                     </p>
                                 </div>
                                 
-                                {/* --- NEW: Real-time Lulu Status Section --- */}
                                 {order.lulu_job_id && (
                                     <div className="mt-4 pt-4 border-t border-slate-700">
                                         <button

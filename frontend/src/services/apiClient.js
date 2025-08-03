@@ -3,7 +3,8 @@ import axios from 'axios';
 import { getAuth } from 'firebase/auth'; // Import getAuth from Firebase
 
 // Determine the backend URL based on the environment variable
-const BACKEND_URL = import.meta.env.VITE_APP_BACKEND_URL || 'http://localhost:5001';
+// --- MODIFIED: Changed variable name to match what we set in Render ---
+const BACKEND_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5001';
 
 // Create an Axios instance
 const apiClient = axios.create({
