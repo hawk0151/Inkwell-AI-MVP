@@ -1,5 +1,3 @@
-// backend/src/controllers/order.controller.js
-
 import { getDb } from '../db/database.js';
 import Stripe from 'stripe';
 import { LULU_PRODUCT_CONFIGURATIONS, getPrintOptions, createLuluPrintJob, getPrintJobStatus } from '../services/lulu.service.js';
@@ -192,8 +190,8 @@ export const getMyOrders = async (req, res) => {
     try {
         const pool = await getDb();
         client = await pool.connect();
-        // --- MODIFIED: Changed 'date_created' to 'created_at' to match standard column names ---
-        const ordersResult = await client.query('SELECT * FROM orders WHERE user_id = $1 ORDER BY created_at DESC', [userId]);
+        // --- MODIFIED: Changed 'date_created' to 'updated_at' based on the database error hint ---
+        const ordersResult = await client.query('SELECT * FROM orders WHERE user_id = $1 ORDER BY updated_at DESC', [userId]);
         const orders = ordersResult.rows;
         res.status(200).json(orders);
     } catch (error) {
@@ -235,7 +233,7 @@ export const getOrderDetails = async (req, res) => {
 export const getOrderBySessionId = async (req, res) => {
     let client;
     const { sessionId } = req.params;
-    const userId = req.userId; // Assuming userId is available from protect middleware
+    const userId = req.userId;
 
     if (!sessionId) {
         return res.status(400).json({ message: "Stripe Session ID is required." });
@@ -245,7 +243,6 @@ export const getOrderBySessionId = async (req, res) => {
         const pool = await getDb();
         client = await pool.connect();
         
-        // Fetch the order using stripe_session_id and ensure it belongs to the current user
         const orderResult = await client.query('SELECT * FROM orders WHERE stripe_session_id = $1 AND user_id = $2', [sessionId, userId]);
         const order = orderResult.rows[0];
 
@@ -323,7 +320,7 @@ export const updateOrderLuluData = async (req, res) => {
 export const getLuluOrderStatus = async (req, res) => {
     const { luluJobId } = req.params;
 
-    if (!luluJobId || luluJobId === 'null') { // Also check for string "null"
+    if (!luluJobId || luluJobId === 'null') {
         return res.status(400).json({ message: 'Lulu Job ID is not available for this order yet.' });
     }
 

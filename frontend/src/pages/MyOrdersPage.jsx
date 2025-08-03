@@ -4,8 +4,8 @@ import apiClient from '../services/apiClient';
 import { LoadingSpinner, Alert } from '../components/common.jsx';
 
 const MyOrdersPage = () => {
-    // --- MODIFIED: Initial state changed from null to an empty array [] to prevent crash ---
-    const [orders, setOrders] = useState([]); 
+    // --- MODIFIED: Initialize state with an empty array to prevent crashes ---
+    const [orders, setOrders] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [statusCache, setStatusCache] = useState({});
@@ -53,7 +53,7 @@ const MyOrdersPage = () => {
                                     <h2 className="text-xl font-bold">{order.book_title}</h2>
                                     <p className="text-sm text-slate-400">Order ID: {order.id}</p>
                                     <p className="text-sm text-slate-400">
-                                        Placed on: {new Date(order.created_at).toLocaleDateString()}
+                                        Last Updated: {new Date(order.updated_at).toLocaleDateString()}
                                     </p>
                                 </div>
                                 <div className="text-right">
