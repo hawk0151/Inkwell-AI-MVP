@@ -57,8 +57,7 @@ function PictureBookPage() {
                 overlay_text: event.overlay_text || '',
                 story_text: event.story_text || '',
                 is_bold_story_text: event.is_bold_story_text || false,
-                // Ensure image_url is initialized to null if it's an empty string from DB
-                image_url: event.image_url || null, 
+                image_url: event.image_url || null,
             })) : [{ 
                 page_number: 1, 
                 story_text: '', 
@@ -80,27 +79,32 @@ function PictureBookPage() {
         fetchBook();
     }, [bookId]);
 
+    // REFINED: Ensure the modified event object is a new reference
     const handleFieldChange = (pageIndex, field, value) => {
         setTimeline(prevTimeline => {
             const newTimeline = [...prevTimeline];
-            if (!newTimeline[pageIndex]) {
-                newTimeline[pageIndex] = { 
-                    page_number: pageIndex + 1, 
-                    story_text: '',
-                    event_date: '', 
-                    image_url: null, // Ensure image_url is null initially
-                    uploaded_image_url: null, // Ensure uploaded_image_url is null initially
-                    overlay_text: '',
-                    is_bold_story_text: false 
-                };
+            const updatedEvent = { ...newTimeline[pageIndex] }; // Create a shallow copy of the event object
+
+            // Initialize new page if it doesn't exist (though addPage should handle this)
+            if (!updatedEvent.page_number) {
+                 updatedEvent.page_number = pageIndex + 1;
+                 updatedEvent.story_text = '';
+                 updatedEvent.event_date = '';
+                 updatedEvent.image_url = null;
+                 updatedEvent.uploaded_image_url = null;
+                 updatedEvent.overlay_text = '';
+                 updatedEvent.is_bold_story_text = false;
             }
+
             // Special handling for image URLs: nullify the other one if one is set
             if (field === 'image_url' && value !== null) {
-                newTimeline[pageIndex]['uploaded_image_url'] = null;
+                updatedEvent['uploaded_image_url'] = null;
             } else if (field === 'uploaded_image_url' && value !== null) {
-                newTimeline[pageIndex]['image_url'] = null;
+                updatedEvent['image_url'] = null;
             }
-            newTimeline[pageIndex][field] = value;
+            updatedEvent[field] = value; // Update the specific field
+
+            newTimeline[pageIndex] = updatedEvent; // Assign the new object back to the array
             return newTimeline;
         });
     };
@@ -138,8 +142,8 @@ function PictureBookPage() {
         currentEventForDebounce?.story_text,
         currentEventForDebounce?.is_bold_story_text,
         currentEventForDebounce?.event_date,
-        currentEventForDebounce?.image_url, // Include image_url in debounce
-        currentEventForDebounce?.uploaded_image_url, // Include uploaded_image_url in debounce
+        currentEventForDebounce?.image_url,
+        currentEventForDebounce?.uploaded_image_url,
         currentEventForDebounce?.overlay_text
     ]);
 
@@ -151,8 +155,8 @@ function PictureBookPage() {
                 page_number: newPageNumber, 
                 story_text: '',
                 event_date: '', 
-                image_url: null, // Explicitly null for new page
-                uploaded_image_url: null, // Explicitly null for new page
+                image_url: null,
+                uploaded_image_url: null,
                 overlay_text: '',
                 is_bold_story_text: false 
             }
