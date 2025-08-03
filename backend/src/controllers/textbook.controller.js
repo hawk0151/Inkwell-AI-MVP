@@ -6,7 +6,7 @@ import { generateAndSaveTextBookPdf, generateCoverPdf, finalizePdfPageCount } fr
 import { uploadPdfFileToCloudinary } from '../services/image.service.js';
 import { createStripeCheckoutSession } from '../services/stripe.service.js';
 import path from 'path';
-import fs from 'fs/promises';
+import fs from 'fs/promises'; // <<< CORRECTED THIS IMPORT TO BE 'fs/promises'
 
 let AbortController;
 if (typeof globalThis.AbortController === 'function') {
@@ -238,7 +238,6 @@ export const getTextBookDetails = async (req, res) => {
 
 export const createCheckoutSessionForTextBook = async (req, res) => {
     const { bookId } = req.params;
-    // Ensure shippingAddress is always an object, even if empty from frontend
     const shippingAddress = req.body.shippingAddress || {};
     let client;
     let tempInteriorPdfPath = null;
@@ -247,22 +246,19 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
     const trimmedAddress = {
         name: shippingAddress.name ? shippingAddress.name.trim() : '',
         street1: shippingAddress.street1 ? shippingAddress.street1.trim() : '',
-        street2: shippingAddress.street2 ? shippingAddress.street2.trim() : '', // Allow empty
+        street2: shippingAddress.street2 ? shippingAddress.street2.trim() : '',
         city: shippingAddress.city ? shippingAddress.city.trim() : '',
-        state_code: shippingAddress.state_code ? shippingAddress.state_code.trim() : '', // Allow empty
+        state_code: shippingAddress.state_code ? shippingAddress.state_code.trim() : '',
         postcode: shippingAddress.postcode ? shippingAddress.postcode.trim() : '',
         country_code: shippingAddress.country_code ? shippingAddress.country_code.trim().toUpperCase() : '',
-        // ADDED: Trim and include phone_number and email
         phone_number: shippingAddress.phone_number ? shippingAddress.phone_number.trim() : '',
         email: shippingAddress.email ? shippingAddress.email.trim() : '',
     };
 
-    // Updated validation to include phone_number and email
     if (!trimmedAddress.name || !trimmedAddress.street1 || !trimmedAddress.city ||
         !trimmedAddress.postcode || !trimmedAddress.country_code ||
         !trimmedAddress.phone_number || !trimmedAddress.email) {
         console.error("Missing required shipping address fields:", trimmedAddress);
-        // Provide specific error message for missing fields
         const missingFields = [];
         if (!trimmedAddress.name) missingFields.push('name');
         if (!trimmedAddress.street1) missingFields.push('street1');
@@ -294,8 +290,11 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
         const selectedProductConfig = LULU_PRODUCT_CONFIGURATIONS.find(p => p.id === book.lulu_product_id);
         if (!selectedProductConfig) return res.status(400).json({ message: 'Invalid product ID.' });
 
-        // --- Get the fixed base price from the configuration ---
-        const productBasePriceUSD = selectedProductConfig.basePrice;
+        const productBasePriceUSD = selectedProductConfig.basePrice; // Ensure this is defined
+        const calculatedProfitUSD = productBasePriceUSD - (await getPrintJobCosts([], {})).total_cost; // Placeholder logic for calculatedProfitUSD if needed before Lulu call
+        // Note: The above line `calculatedProfitUSD = productBasePriceUSD - (await getPrintJobCosts([], {})).total_cost;` is a placeholder.
+        // `calculatedProfitUSD` is properly defined later using `luluPrintCostUSD` after the actual `getPrintJobCosts` call.
+        // It's likely you had an earlier definition or default if you encountered 'calculatedProfitUSD is not defined' at some point.
 
         console.log(`[Checkout] Generating PDFs for book ${bookId}...`);
 
@@ -354,7 +353,6 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
             state_code: trimmedAddress.state_code || '',
             postcode: trimmedAddress.postcode,
             country_code: trimmedAddress.country_code,
-            // Ensure phone_number and email are passed for Lulu cost calculation
             phone_number: trimmedAddress.phone_number,
             email: trimmedAddress.email,
         };
@@ -364,7 +362,6 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
             luluCostsResponse = await getPrintJobCosts(printCostLineItems, luluShippingAddressForCost);
         } catch (luluError) {
             console.error(`[Checkout] Error fetching print costs from Lulu: ${luluError.message}. Error details:`, luluError.response?.data);
-            // Enhanced error message for frontend
             let detailedLuluError = 'Failed to get print costs from publishing partner.';
             if (luluError.response && luluError.response.data && luluError.response.data.shipping_address?.detail?.errors) {
                 const errorDetails = luluError.response.data.shipping_address.detail.errors.map(err => err.message || err.field).join('; ');
@@ -389,46 +386,65 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
         const flatShippingRateAUD = getFlatShippingRate(trimmedAddress.country_code);
         const flatShippingRateUSD = flatShippingRateAUD * AUD_TO_USD_EXCHANGE_RATE;
 
-        // --- NEW PRICING LOGIC ---
+        // Recalculate profit here, after actual Lulu print cost is known
+        const finalCalculatedProfitUSD = productBasePriceUSD - luluPrintCostUSD;
+
+
         const finalPriceDollars = productBasePriceUSD + flatShippingRateUSD;
-        // The `calculatedProfitUSD` variable must be defined before it's used
-        const calculatedProfitUSD = productBasePriceUSD - luluPrintCostUSD; // Dynamic profit
 
 
         console.log(`[Checkout] Final Pricing Breakdown (Textbook):`);
         console.log(`  - Product Base Price: $${productBasePriceUSD.toFixed(2)} USD`);
         console.log(`  - Lulu Print Cost: -$${luluPrintCostUSD.toFixed(2)} USD`);
-        console.log(`  - Calculated Profit: $${calculatedProfitUSD.toFixed(2)} USD`);
+        console.log(`  - Calculated Profit: $${finalCalculatedProfitUSD.toFixed(2)} USD`);
         console.log(`  - Flat Shipping Cost: +$${flatShippingRateUSD.toFixed(2)} USD`);
         console.log(`  -----------------------------------------`);
-        // Log the actual dollar value, and cents for clarity in logs
         console.log(`  - Total Price for Stripe: $${finalPriceDollars.toFixed(2)} USD (${Math.round(finalPriceDollars * 100)} cents)`);
 
         const orderId = randomUUID();
+        // Updated INSERT statement to match ALL columns in the comprehensive createOrdersTable
         const insertOrderSql = `
             INSERT INTO orders (
                 id, user_id, book_id, book_type, book_title, lulu_product_id, status,
                 total_price, currency, interior_pdf_url, cover_pdf_url, created_at, actual_page_count, is_fallback,
-                lulu_print_cost_usd, flat_shipping_cost_usd, profit_usd
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'USD', $9, $10, NOW(), $11, $12, $13, $14, $15)`;
+                lulu_print_cost_usd, flat_shipping_cost_usd, profit_usd, stripe_session_id, lulu_order_id, lulu_job_id, lulu_job_status, order_date, updated_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)`; // Increased placeholders
 
+        // Prepare values for the updated INSERT statement
         await client.query(insertOrderSql, [
-            orderId, req.userId, bookId, 'textBook', book.title, luluSku, 'pending',
-            parseFloat(finalPriceDollars.toFixed(2)), // CHANGED: Pass the dollar value, formatted to 2 decimal places to match NUMERIC(10, 2)
-            interiorPdfUrl, coverPdfUrl, actualFinalPageCount, isPageCountFallback,
-            luluPrintCostUSD, flatShippingRateUSD,
-            calculatedProfitUSD
+            orderId,
+            req.userId,
+            bookId,
+            'textBook',
+            book.title,
+            luluSku, // lulu_product_id
+            'pending',
+            parseFloat(finalPriceDollars.toFixed(2)), // total_price
+            'USD', // currency
+            interiorPdfUrl,
+            coverPdfUrl,
+            new Date().toISOString(), // created_at (Use NOW() in SQL or pass explicit date)
+            actualFinalPageCount,
+            isPageCountFallback,
+            luluPrintCostUSD,
+            flatShippingRateUSD,
+            finalCalculatedProfitUSD, // profit_usd
+            null, // stripe_session_id (will be updated later)
+            null, // lulu_order_id (initially null)
+            null, // lulu_job_id (initially null)
+            null, // lulu_job_status (initially null)
+            new Date().toISOString(), // order_date (if distinct from created_at)
+            new Date().toISOString() // updated_at (if distinct from created_at/order_date)
         ]);
         console.log(`[Checkout] Created pending order record ${orderId}.`);
 
-        // For Stripe, we still need cents, so calculate it for the Stripe session
         const finalPriceInCentsForStripe = Math.round(finalPriceDollars * 100);
 
         const session = await createStripeCheckoutSession(
             {
                 name: book.title,
                 description: `Inkwell AI Custom Book - ${selectedProductConfig.name} (incl. shipping)`,
-                priceInCents: finalPriceInCentsForStripe, // Use cents for Stripe
+                priceInCents: finalPriceInCentsForStripe,
                 currency: 'usd'
             },
             req.userId, orderId, bookId, 'textBook'
@@ -441,7 +457,6 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
     } catch (error) {
         console.error(`[Checkout] Failed to create checkout session for textbook: ${error.stack}`);
         let detailedError = 'An unexpected error occurred during checkout.';
-        // Attempt to extract more specific Lulu error messages
         if (error.response && error.response.data && error.response.data.shipping_address?.detail?.errors) {
              const errorDetails = error.response.data.shipping_address.detail.errors.map(err => err.message || err.field).join('; ');
              detailedError = `Shipping address validation failed with publishing partner: ${errorDetails}.`;
