@@ -17,7 +17,9 @@ export const LULU_PRODUCT_CONFIGURATIONS = [
         wordsPerPage: 250,
         defaultWordsPerPage: 250,
         totalChapters: 6,
-        category: 'novel'
+        category: 'novel',
+        bleedMm: 3.175, // 0.125 inches
+        safeMarginMm: 6.35 // 0.25 inches from trim edge
     },
     {
         id: 'A4NOVEL_PB_8.52x11.94',
@@ -32,7 +34,9 @@ export const LULU_PRODUCT_CONFIGURATIONS = [
         wordsPerPage: 450,
         defaultWordsPerPage: 400,
         totalChapters: 8,
-        category: 'novel'
+        category: 'novel',
+        bleedMm: 3.175, // 0.125 inches
+        safeMarginMm: 6.35 // 0.25 inches from trim edge
     },
     {
         id: 'ROYAL_HARDCOVER_6.39x9.46',
@@ -47,7 +51,9 @@ export const LULU_PRODUCT_CONFIGURATIONS = [
         wordsPerPage: 300,
         defaultWordsPerPage: 300,
         totalChapters: 10,
-        category: 'novel'
+        category: 'novel',
+        bleedMm: 3.175, // 0.125 inches
+        safeMarginMm: 6.35 // 0.25 inches from trim edge
     },
     {
         id: 'A4PREMIUM_FC_8.27x11.69',
@@ -62,7 +68,9 @@ export const LULU_PRODUCT_CONFIGURATIONS = [
         wordsPerPage: 120,
         defaultWordsPerPage: 120,
         totalChapters: 1,
-        category: 'pictureBook'
+        category: 'pictureBook',
+        bleedMm: 3.175, // 0.125 inches
+        safeMarginMm: 6.35 // 0.25 inches from trim edge
     }
 ];
 
@@ -208,7 +216,7 @@ export async function getCoverDimensionsFromApi(podPackageId, pageCount) {
             width: widthMm,
             height: heightMm,
             layout: widthMm > heightMm ? 'landscape' : 'portrait',
-            bleed: 3.175,
+            // bleed: 3.175, // Removed hardcoded bleed as Lulu API response should include it for covers
             spineThickness: 0
         };
         coverDimensionsCache.set(cacheKey, result);
