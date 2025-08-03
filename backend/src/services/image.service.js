@@ -4,11 +4,7 @@ import { v2 as cloudinary } from 'cloudinary';
 import { randomUUID } from 'crypto';
 import path from 'path';
 import sharp from 'sharp';
-import FormData from 'form-data'; // NEW: Import FormData
-
-// It is critical that environment variables are loaded before this point.
-// If running locally, ensure 'dotenv' is configured at your app's entry file (e.g., server.js or app.js).
-// For Render, ensure environment variables are set in the Render dashboard.
+import FormData from 'form-data';
 
 console.log("DEBUG: Cloudinary config values from process.env:");
 console.log("CLOUDINARY_CLOUD_NAME:", process.env.CLOUDINARY_CLOUD_NAME ? "SET" : "NOT SET");
@@ -24,51 +20,76 @@ cloudinary.config({
 });
 
 // NEW: Helper function to upscale an image using Stability AI's ESRGAN API
-const upscaleImageWithStabilityAI = async (base64Image, targetResolution) => {
+// This now performs two chained 2x upscales to achieve 4x
+const upscaleImageWithStabilityAI = async (base64Image) => { // Removed targetResolution as it's implied by chaining
     const apiKey = process.env.STABILITY_API_KEY;
     if (!apiKey) {
         throw new Error("Stability AI API key is not configured for upscaling.");
     }
 
-    // IMPORTANT: Confirm the exact engine ID and endpoint path from Stability AI's latest docs for upscaling.
-    // Based on common patterns, 'esrgan-v1-x2-pro' for 2x, and you'd chain for 4x,
-    // OR they might have a dedicated 4x endpoint or accept a 'scale' parameter directly.
-    // For this fix, assuming a 'general' upscale endpoint that might accept 'type: 4x'.
-    // If this fails, we will explicitly chain two 2x calls.
-    const upscaleEngineId = 'esrgan-v1-x2-pro'; // Example, please verify from docs
+    const upscaleEngineId = 'esrgan-v1-x2-pro'; // This is a 2x upscaler
     const upscaleApiUrl = `https://api.stability.ai/v1/generation/${upscaleEngineId}/image-to-image/upscale`; 
 
-    console.log(`[Stability AI Upscale] Attempting to upscale image to ${targetResolution.width}x${targetResolution.height}...`);
+    console.log(`[Stability AI Upscale] Starting 2-step upscaling process (1024x1024 -> 4096x4096)...`);
 
     try {
-        const formData = new FormData();
-        // Append image as a file buffer with a filename and content type
-        formData.append('image', Buffer.from(base64Image, 'base64'), {
-            filename: 'image.png', // Or .jpeg, depends on original image format
-            contentType: 'image/png', // Or 'image/jpeg'
+        // Step 1: Upscale 1024x1024 to 2048x2048
+        console.log(`[Stability AI Upscale] Step 1/2: Upscaling to 2x (2048x2048)...`);
+        let formData1 = new FormData();
+        formData1.append('image', Buffer.from(base64Image, 'base64'), {
+            filename: 'image_1x.png',
+            contentType: 'image/png',
         });
-        formData.append('type', '4x'); // Request 4x upscale
+        // No 'type' field needed, as it's a direct 2x upscale endpoint
 
-        const response = await axios.post(
+        const response1 = await axios.post(
             upscaleApiUrl,
-            formData, // Send FormData object directly
+            formData1,
             {
                 headers: {
-                    ...formData.getHeaders(), // Let FormData set the correct Content-Type with boundary
+                    ...formData1.getHeaders(),
                     'Authorization': `Bearer ${apiKey}`,
                     'Accept': 'application/json'
                 },
-                timeout: 30000 // Increased timeout for upscaling
+                timeout: 30000
             }
         );
 
-        const upscaledImage = response.data.artifacts[0];
-        if (upscaledImage && upscaledImage.base64) {
-            console.log(`[Stability AI Upscale] ✅ Image successfully upscaled by Stability AI.`);
-            return upscaledImage.base64;
-        } else {
-            throw new Error('Failed to parse upscaled image from Stability AI API response.');
+        const upscaledImage1 = response1.data.artifacts[0];
+        if (!upscaledImage1 || !upscaledImage1.base64) {
+            throw new Error('Failed to parse first upscaled image from Stability AI API response.');
         }
+        console.log(`[Stability AI Upscale] ✅ Step 1 complete. Image now 2x.`);
+
+        // Step 2: Upscale 2048x2048 to 4096x4096
+        console.log(`[Stability AI Upscale] Step 2/2: Upscaling to 4x (4096x4096)...`);
+        let formData2 = new FormData();
+        formData2.append('image', Buffer.from(upscaledImage1.base64, 'base64'), {
+            filename: 'image_2x.png',
+            contentType: 'image/png',
+        });
+        // No 'type' field needed here either
+
+        const response2 = await axios.post(
+            upscaleApiUrl,
+            formData2,
+            {
+                headers: {
+                    ...formData2.getHeaders(),
+                    'Authorization': `Bearer ${apiKey}`,
+                    'Accept': 'application/json'
+                },
+                timeout: 30000
+            }
+        );
+
+        const upscaledImage2 = response2.data.artifacts[0];
+        if (!upscaledImage2 || !upscaledImage2.base64) {
+            throw new Error('Failed to parse second upscaled image from Stability AI API response.');
+        }
+        console.log(`[Stability AI Upscale] ✅ Step 2 complete. Image now 4x.`);
+        return upscaledImage2.base64;
+
     } catch (error) {
         const errorMessage = error.response ? JSON.stringify(error.response.data) : error.message;
         console.error('Error calling Stability AI Upscale API:', errorMessage);
@@ -123,26 +144,23 @@ export const generateImageFromApi = async (prompt, style) => {
     }
 
     // 2. Upscale the generated image to 4096x4096 using Stability AI's ESRGAN
-    // Note: The specific 'esrgan-v1-x2-pro' engine ID implies 2x. If 4x is needed,
-    // you might need to chain two 2x calls or use a different engine ID if Stability AI
-    // has a direct 4x upscale endpoint. For now, assuming 'type: "4x"' is handled.
-    const upscaledBase64Image = await upscaleImageWithStabilityAI(base64GeneratedImage, { width: 4096, height: 4096 });
+    // This will now handle the chaining internally within upscaleImageWithStabilityAI
+    const upscaledBase64Image = await upscaleImageWithStabilityAI(base64GeneratedImage);
     const upscaledImageBuffer = Buffer.from(upscaledBase64Image, 'base64');
 
     // 3. Crop and resize the upscaled image to Lulu's exact bleed-inclusive dimensions (2556x3582)
     const targetWidthPx = 2556; // (8.27 + 2*0.125) * 300
     const targetHeightPx = 3582; // (11.69 + 2*0.125) * 300
 
-    console.log(`[Image Processing] Cropping ${upscaledImageBuffer.width || 'unknown'}x${upscaledImageBuffer.height || 'unknown'} image to ${targetWidthPx}x${targetHeightPx} for Lulu print...`);
+    console.log(`[Image Processing] Cropping upscaled image to ${targetWidthPx}x${targetHeightPx} for Lulu print...`);
     let finalImageBuffer;
     try {
-        // Use sharp to resize and crop with 'cover' fit (fills target, crops excess) and 'center' position
         finalImageBuffer = await sharp(upscaledImageBuffer)
             .resize(targetWidthPx, targetHeightPx, {
-                fit: sharp.fit.cover, // Ensures the target dimensions are filled, cropping if aspect ratios differ
-                position: sharp.strategy.attention // Prioritize content in the center
+                fit: sharp.fit.cover,
+                position: sharp.strategy.attention
             })
-            .jpeg({ quality: 90 }) // Output as JPEG with good quality
+            .jpeg({ quality: 90 })
             .toBuffer();
         console.log("[Image Processing] ✅ Image successfully cropped and resized for Lulu print.");
     } catch (sharpError) {
@@ -150,34 +168,31 @@ export const generateImageFromApi = async (prompt, style) => {
         throw new Error(`Failed to crop or resize image for print: ${sharpError.message}`);
     }
 
-    // Return the final processed image buffer
-    return finalImageBuffer.toString('base64'); // Return as base64 for consistency with original function signature
+    return finalImageBuffer.toString('base64');
 };
 
-// Keep existing uploadImageToCloudinary for general image uploads (e.g., user avatars, non-POD images)
 export const uploadImageToCloudinary = (fileBuffer, folder, fileFormat = 'auto') => {
     return new Promise((resolve, reject) => {
-        const publicId = randomUUID(); // Generate a unique ID
+        const publicId = randomUUID();
 
         const uploadOptions = {
             upload_preset: process.env.CLOUDINARY_UPLOAD_PRESET,
             folder: folder,
-            resource_type: 'auto', // Cloudinary will auto-detect type (image, video, raw).
-            public_id: publicId, // Base public ID
+            resource_type: 'auto',
+            public_id: publicId,
             type: 'upload'
         };
 
         if (fileFormat === 'pdf') {
             console.warn("WARN: Using uploadImageToCloudinary for PDF. Consider using uploadPdfFileToCloudinary for better robustness.");
-            uploadOptions.resource_type = 'raw'; // Explicitly raw for PDFs
-            uploadOptions.format = 'pdf'; // Force format to .pdf
-            uploadOptions.public_id = `${publicId}.pdf`; // Append .pdf to public_id
+            uploadOptions.resource_type = 'raw';
+            uploadOptions.format = 'pdf';
+            uploadOptions.public_id = `${publicId}.pdf`;
         } else if (fileFormat !== 'auto') {
             uploadOptions.resource_type = 'image';
             uploadOptions.format = fileFormat;
             uploadOptions.public_id = `${publicId}.${fileFormat}`;
         }
-
 
         cloudinary.uploader.upload_stream(uploadOptions,
             (error, result) => {
@@ -191,30 +206,20 @@ export const uploadImageToCloudinary = (fileBuffer, folder, fileFormat = 'auto')
     });
 };
 
-// NEW FUNCTION: Dedicated PDF Upload to Cloudinary for Lulu POD
-/**
- * Uploads a PDF file from a local path to Cloudinary with 'raw' resource type and '.pdf' format.
- * This is optimized for print-ready PDFs required by services like Lulu.
- * @param {string} filePath - The local path to the PDF file.
- * @param {string} folder - The Cloudinary folder to upload to (e.g., 'inkwell-ai/user_XYZ/books').
- * @param {string} publicIdPrefix - A prefix for the public ID, typically related to the book/order ID.
- * @returns {Promise<string>} The secure URL of the uploaded PDF file.
- */
 export const uploadPdfFileToCloudinary = (filePath, folder, publicIdPrefix) => {
     return new Promise((resolve, reject) => {
-        // Construct a unique public_id, ensuring it ends with .pdf
         const uniqueId = `${publicIdPrefix}_${randomUUID().substring(0, 8)}`;
-        const finalPublicId = `${uniqueId}`; // Cloudinary will add .pdf if format is specified
+        const finalPublicId = `${uniqueId}`;
 
         const uploadOptions = {
             upload_preset: process.env.CLOUDINARY_UPLOAD_PRESET,
             folder: folder,
-            resource_type: 'raw',    // CRITICAL: Treat as raw file for Lulu POD
-            format: 'pdf',           // CRITICAL: Ensure .pdf extension and correct MIME type
-            public_id: finalPublicId, // Use our constructed public ID
-            use_filename: false,     // We control the public_id
-            unique_filename: true,   // Cloudinary generates unique if public_id already exists (safer)
-            overwrite: true,         // Overwrite if a file with this public_id (and format) exists
+            resource_type: 'raw',
+            format: 'pdf',
+            public_id: finalPublicId,
+            use_filename: false,
+            unique_filename: true,
+            overwrite: true,
             type: 'upload',
             access_mode: 'public'
         };
