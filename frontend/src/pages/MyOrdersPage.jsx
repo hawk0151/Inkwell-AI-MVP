@@ -1,6 +1,7 @@
+// frontend/src/pages/MyOrdersPage.jsx
 import React, { useEffect, useState } from 'react';
 import apiClient from '../services/apiClient';
-import { LoadingSpinner } from '../components/common.jsx'; // We only need the spinner
+import { LoadingSpinner } from '../components/common.jsx';
 
 const MyOrdersPage = () => {
     const [orders, setOrders] = useState(null);
@@ -12,8 +13,9 @@ const MyOrdersPage = () => {
 
         const fetchOrders = async () => {
             try {
-                console.log('[MyOrdersPage] Making API call to GET /orders/my-orders');
-                const response = await apiClient.get('/orders/my-orders');
+                // --- MODIFIED: API call changed for testing ---
+                console.log('[MyOrdersPage] Making API call to GET /orders/my-orders-v2');
+                const response = await apiClient.get('/orders/my-orders-v2');
                 
                 console.log('[MyOrdersPage] API call successful. Data received:', response.data);
                 setOrders(response.data);
@@ -27,9 +29,7 @@ const MyOrdersPage = () => {
         };
 
         fetchOrders();
-    }, []); // Runs only once when the component mounts
-
-    // --- RENDER LOGIC ---
+    }, []);
 
     if (loading) {
         return <LoadingSpinner text="Attempting to load orders..." />;
