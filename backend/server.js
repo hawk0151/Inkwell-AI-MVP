@@ -1,5 +1,3 @@
-// backend/src/server.js
-
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
@@ -62,7 +60,7 @@ const startServer = async () => {
     const productRoutes = (await import('./src/api/product.routes.js')).default;
     const orderRoutes = (await import('./src/api/order.routes.js')).default;
     const pictureBookRoutes = (await import('./src/api/picturebook.routes.js')).default;
-    const imageRoutes = (await import('./src/api/image.routes.js')).default; // Already imported
+    const imageRoutes = (await import('./src/api/image.routes.js')).default;
     const textBookRoutes = (await import('./src/api/textbook.routes.js')).default;
     const { router: userRoutes } = await import('./src/api/user.routes.js');
     const { router: analyticsRoutes } = await import('./src/api/analytics.routes.js');
@@ -74,20 +72,28 @@ const startServer = async () => {
     const app = express();
     const PORT = process.env.PORT || 5001;
     
-    // --- CORS CONFIGURATION UPDATED ---
+    // --- MODIFIED: More robust CORS configuration ---
     const allowedOrigins = [
         process.env.CORS_ORIGIN || 'http://localhost:5173',
-        'https://inkwell-ai-mvp-frontend.onrender.com',
-        'https://inkwell-ai-mvp-frontend.onrender.com/' // Added with trailing slash for flexibility
+        'https://inkwell-ai-mvp-frontend.onrender.com'
     ];
-    // --- ADD DEBUG LOGS START ---
-    console.log("DEBUG CORS: allowedOrigins configured:", allowedOrigins);
-    // --- ADD DEBUG LOGS END ---
-    app.use(cors({ origin: allowedOrigins, credentials: true }));
-    // --- ADD DEBUG LOGS START ---
-    console.log("DEBUG CORS: CORS middleware applied.");
-    // --- ADD DEBUG LOGS END ---
-    // --- END OF CORS UPDATE ---
+    
+    const corsOptions = {
+        origin: function (origin, callback) {
+            // allow requests with no origin (like mobile apps or curl requests)
+            if (!origin) return callback(null, true);
+            if (allowedOrigins.indexOf(origin) === -1) {
+                const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
+                return callback(new Error(msg), false);
+            }
+            return callback(null, true);
+        },
+        credentials: true
+    };
+    
+    app.use(cors(corsOptions));
+    console.log("DEBUG: CORS middleware applied with updated options.");
+    // --- END OF CORS MODIFICATION ---
 
     app.use(morgan('dev'));
     
@@ -107,7 +113,7 @@ const startServer = async () => {
     app.use('/api/paypal', paypalRoutes);
     app.use('/api/picture-books', pictureBookRoutes);
     app.use('/api/text-books', textBookRoutes);
-    app.use('/api/images', imageRoutes); // <--- ADDED THIS LINE!
+    app.use('/api/images', imageRoutes);
     app.use('/api/v1/user', userRoutes);
     app.use('/api/profile', profileRoutes);
     app.use('/api/social', socialBookRoutes);
