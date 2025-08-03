@@ -5,23 +5,23 @@
 //   for more cost-effective image generation (3 credits per generation).
 // - FIXED: Corrected parsing of the base64 image data from the v2beta API response.
 //   Now uses 'response.data.image' instead of 'response.data.image_base64'.
+// - FIXED: Resolved 'formData.getHeaders is not a function' error by ensuring the 'form-data'
+//   package is installed and correctly imported/used for multipart/form-data requests.
 // - REMOVED: The 'upscaleImageWithStabilityAI' helper function entirely, as it's no longer part of the generation pipeline.
-// - REMOVED: Imports for 'sharp' and 'form-data', as they are no longer required for image processing or the upscale API call.
+// - REMOVED: Imports for 'sharp', as it's no longer required for image processing.
 // - Directly requests images at Lulu's target print dimensions (2556x3582 pixels at 300 DPI with bleed).
 // - Sets aspect_ratio and output_format for optimal generation.
 
 import axios from 'axios';
 import { v2 as cloudinary } from 'cloudinary';
 import { randomUUID } from 'crypto';
-import path from 'path'; // Still used for path.basename in original uploadImageToCloudinary for filename extraction, if needed.
-
-// Removed 'sharp' import
-// Removed 'FormData' import
+import path from 'path';
+import FormData from 'form-data'; // IMPORTANT: Ensure 'form-data' package is installed (npm install form-data)
 
 console.log("DEBUG: Cloudinary config values from process.env:");
 console.log("CLOUDINARY_CLOUD_NAME:", process.env.CLOUDINARY_CLOUD_NAME ? "SET" : "NOT SET");
 console.log("CLOUDINARY_API_KEY:", process.env.CLOUDINARY_API_KEY ? "SET" : "NOT SET");
-console.log("CLOUDINARY_API_SECRET:", process.env.CLOUDINARY_API_KEY ? "SET" : "NOT SET");
+console.log("CLOUDINARY_API_SECRET:", process.env.CLOUDINARY_API_SECRET ? "SET" : "NOT SET");
 console.log("CLOUDINARY_UPLOAD_PRESET:", process.env.CLOUDINARY_UPLOAD_PRESET ? "SET" : "NOT SET");
 
 cloudinary.config({
@@ -37,24 +37,20 @@ export const generateImageFromApi = async (prompt, style) => {
         throw new Error("Stability AI API key is not configured in .env file.");
     }
 
-    // UPDATED: Use the more cost-effective 'stable-image-core' engine
     const engineId = 'stable-image-core';
-    const apiUrl = `https://api.stability.ai/v2beta/stable-image/generate/core`; // Updated URL for core model
+    const apiUrl = `https://api.stability.ai/v2beta/stable-image/generate/core`;
 
-    const fullPrompt = `A beautiful, whimsical, ${style}-style children's book illustration of: ${prompt}. Clean lines, vibrant pastel colors, storybook setting, safe for all audiences, high detail. Print-ready, high-resolution.`; // Removed 300 DPI from prompt as Core output may not be exact 300 DPI, to avoid misguidance.
+    const fullPrompt = `A beautiful, whimsical, ${style}-style children's book illustration of: ${prompt}. Clean lines, vibrant pastel colors, storybook setting, safe for all audiences, high detail. Print-ready, high-resolution.`;
 
-    // Lulu's target dimensions for A4 Premium Picture Book (8.27x11.69") at 300 DPI with 0.125" bleed
-    // We will still request these, and Core will generate at its "1.5 megapixel" resolution
-    // while trying to match the aspect ratio.
-    const targetWidthPx = 2556; // (8.27 + 2*0.125) * 300
-    const targetHeightPx = 3582; // (11.69 + 2*0.125) * 300
-    const aspectRatio = '2:3'; // Closest common aspect ratio for the target dimensions (2556/3582 ≈ 0.713, 2/3 ≈ 0.667)
+    const targetWidthPx = 2556;
+    const targetHeightPx = 3582;
+    const aspectRatio = '2:3';
 
     console.log(`[Stability AI Generation] Generating image with Stable Image Core: ${targetWidthPx}x${targetHeightPx} for prompt: "${fullPrompt.substring(0, Math.min(fullPrompt.length, 75))}..."`);
     let base64GeneratedImage;
 
     try {
-        const formData = new FormData(); // FormData needed for multipart/form-data as confirmed by API error
+        const formData = new FormData(); // Now this should be from the 'form-data' package
         formData.append('prompt', fullPrompt);
         formData.append('output_format', 'jpeg');
         formData.append('width', targetWidthPx.toString());
@@ -68,7 +64,7 @@ export const generateImageFromApi = async (prompt, style) => {
             formData,
             {
                 headers: {
-                    ...formData.getHeaders(),
+                    ...formData.getHeaders(), // This method should now be available
                     'Authorization': `Bearer ${apiKey}`,
                     'Accept': 'application/json'
                 },
@@ -76,14 +72,11 @@ export const generateImageFromApi = async (prompt, style) => {
             }
         );
 
-        // FIXED: Corrected access to image_base64 from response.data.image
-        // The previous log showed it was directly under 'image' key, not 'image_base64'.
-        const image = response.data.image;
+        const image = response.data.image; // Corrected access to the 'image' field
         if (image) {
             base64GeneratedImage = image;
             console.log(`[Stability AI Generation] ✅ ${targetWidthPx}x${targetHeightPx} image generated successfully using Stable Image Core.`);
         } else {
-            // Log full response data if image is missing for better debugging
             console.error('Stability AI API Response (missing "image" field):', JSON.stringify(response.data, null, 2));
             throw new Error('Failed to parse image from Stability AI API response: Missing "image" field.');
         }
@@ -96,7 +89,6 @@ export const generateImageFromApi = async (prompt, style) => {
     return base64GeneratedImage;
 };
 
-// Keep existing uploadImageToCloudinary for general image uploads (e.g., user avatars, non-POD images)
 export const uploadImageToCloudinary = (fileBuffer, folder, fileFormat = 'auto') => {
     return new Promise((resolve, reject) => {
         const publicId = randomUUID();
@@ -132,7 +124,6 @@ export const uploadImageToCloudinary = (fileBuffer, folder, fileFormat = 'auto')
     });
 };
 
-// Dedicated PDF Upload to Cloudinary for Lulu POD (no changes)
 export const uploadPdfFileToCloudinary = (filePath, folder, publicIdPrefix) => {
     return new Promise((resolve, reject) => {
         const uniqueId = `${publicIdPrefix}_${randomUUID().substring(0, 8)}`;
