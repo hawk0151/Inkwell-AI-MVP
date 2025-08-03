@@ -13,30 +13,27 @@ function ImageEditor({ currentEvent, onImageUpdate }) {
     const [selectedFile, setSelectedFile] = useState(null);
     
     // Manage the URL of the image currently displayed by ImageEditor
-    // Initial state set from props. This state will be explicitly managed.
     const [displayedImageUrl, setDisplayedImageUrl] = useState(
         currentEvent.uploaded_image_url || currentEvent.image_url
     );
 
-    // REFINED useEffect: Sync displayedImageUrl and reset prompt/file whenever the page context changes
+    // useEffect to sync displayedImageUrl and reset prompt/file whenever the page context changes
     useEffect(() => {
-        // When the page number changes, it indicates we're looking at a different page.
-        // In this case, we should reset the prompt and selectedFile for a fresh start on the new page.
-        // And update the displayed image URL to reflect the new page's data.
         setPrompt(''); // Always clear prompt on page change
         setSelectedFile(null); // Always clear selected file on page change
         setError(null); // Clear any old errors
         setIsGenerating(false); // Reset loading states
         setIsUploading(false); // Reset loading states
 
-        // IMPORTANT: Directly set the displayed image URL from the currentEvent prop
+        // IMPORTANT: Set the displayed image URL from the currentEvent prop
         // This ensures that when the parent component updates currentEvent (e.g., changing page),
         // the ImageEditor's display updates to the correct image for that new page.
         setDisplayedImageUrl(currentEvent.uploaded_image_url || currentEvent.image_url);
 
-    }, [currentEvent.page_number]); // KEY CHANGE: Depend ONLY on page_number for core context switch.
-                                   // The specific image_url/uploaded_image_url changes are handled directly
-                                   // by the useEffect's direct setting or by handleGenerate/handleUpload.
+    }, [currentEvent.page_number]); // Depend ONLY on page_number for core context switch.
+                                   // The image_url/uploaded_image_url changes are now handled directly
+                                   // by handleGenerate/handleUpload updating displayedImageUrl,
+                                   // and also by currentEvent from parent state.
 
     const artStyles = ['Watercolor', 'Cartoon', 'Photorealistic', 'Fantasy', 'Vintage'];
 
@@ -62,8 +59,9 @@ function ImageEditor({ currentEvent, onImageUpdate }) {
             onImageUpdate(currentEvent.page_number - 1, 'image_url', newImageUrl);
             onImageUpdate(currentEvent.page_number - 1, 'image_style', style);
             
-            setDisplayedImageUrl(newImageUrl); // IMMEDIATELY update local state to show the new image
-                                              // (useEffect will also pick this up on next render cycle).
+            // PUTTING IT BACK: IMMEDIATELY update local state to show the new image.
+            // This is crucial for instant feedback and bypassing React's re-render subtleties.
+            setDisplayedImageUrl(newImageUrl); 
 
         } catch (err) {
             setError("Failed to generate image. Please try again.");
@@ -122,7 +120,7 @@ function ImageEditor({ currentEvent, onImageUpdate }) {
             const newImageUrl = response.data.imageUrl;
 
             onImageUpdate(currentEvent.page_number - 1, 'uploaded_image_url', newImageUrl); // Update parent state
-            setDisplayedImageUrl(newImageUrl); // IMMEDIATELY update local state
+            setDisplayedImageUrl(newImageUrl); // PUTTING IT BACK: IMMEDIATELY update local state
             setSelectedFile(null); // Clear selected file after upload
         } catch (err) {
             setError("Failed to upload image. Please try again.");
