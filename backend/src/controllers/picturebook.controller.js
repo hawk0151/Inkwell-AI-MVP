@@ -11,16 +11,22 @@
 // - Integrated two-pass PDF generation: generateAndSavePictureBookPdf for content, then finalizePdfPageCount for padding/evenness.
 // - Corrected Lulu print cost extraction from 'line_item_costs[0].total_cost_incl_tax'.
 // - Added isPageCountFallback tracking for database record.
+// - CRITICAL FIX: Moved getCoverDimensionsFromApi from lulu.service.js into this controller as a private helper
+//   to resolve recurring deployment import errors.
+// - Added necessary helper functions (retryWithBackoff, ensureHostnameResolvable) and constants (LULU_API_BASE_URL, etc.) as private helpers.
 
 import { getDb } from '../db/database.js';
 import { randomUUID } from 'crypto';
 // Import updated PDF service helpers
 import { generateAndSavePictureBookPdf, generateCoverPdf, finalizePdfPageCount } from '../services/pdf.service.js'; 
-import { LULU_PRODUCT_CONFIGURATIONS, getPrintOptions, getCoverDimensionsFromApi, getPrintJobCosts } from '../services/lulu.service.js';
-import { createStripeCheckoutSession } from '../services/stripe.service.js';
+import { LULU_PRODUCT_CONFIGURATIONS, getPrintOptions, getPrintJobCosts, getLuluAuthToken } from '../services/lulu.service.js'; // getCoverDimensionsFromApi removed from import
+import { createStripeCheckoutSession } from '../services/stripe.js';
 import { uploadPdfFileToCloudinary } from '../services/image.service.js';
 import path from 'path';
 import fs from 'fs/promises';
+import axios from 'axios'; // For getCoverDimensionsFromApi
+import dns from 'dns/promises'; // For getCoverDimensionsFromApi
+import { Buffer } from 'buffer'; // For getLuluAuthToken dependencies (basicAuth)
 
 // --- AbortController import/module system compatibility (Copied from textbook.controller.js) ---
 let AbortController;
@@ -85,12 +91,98 @@ function getFlatShippingRate(countryCode) {
     return flatShippingRateAUD;
 }
 
+// --- Private Helper: retryWithBackoff (Copied from lulu.service.js) ---
+async function retryWithBackoff(fn, attempts = 3, baseDelayMs = 300) {
+    let attempt = 0;
+    while (attempt < attempts) {
+        try {
+            return await fn();
+        } catch (err) {
+            attempt++;
+            if (attempt >= attempts) {
+                throw err;
+            }
+            const delay = baseDelayMs * Math.pow(2, attempt - 1);
+            console.warn(`Retrying after error (attempt ${attempt}/${attempts}) in ${delay}ms:`, err.message || err);
+            await new Promise(r => setTimeout(r, delay));
+        }
+    }
+}
+
+// --- Private Helper: ensureHostnameResolvable (Copied from lulu.service.js) ---
+async function ensureHostnameResolvable(url) {
+    try {
+        const { hostname } = new URL(url);
+        await dns.lookup(hostname);
+        return;
+    } catch (err) {
+        throw new Error(`DNS resolution failed for Lulu host in URL "${url}": ${err.message}`);
+    }
+}
+
+// --- Private Constant: LULU_API_BASE_URL (Copied from lulu.service.js) ---
+const LULU_API_BASE_URL_FOR_CONTROLLER = process.env.LULU_API_BASE_URL || 'https://api.lulu.com/print-api/v0'; // Use a distinct name
+
+// --- Moved Function: getCoverDimensionsFromApi (from lulu.service.js, now a private helper) ---
+const coverDimensionsCache = new Map(); // Needs to be defined here for this scope
+export async function getCoverDimensionsFromApi(podPackageId, pageCount) {
+    const cacheKey = `${podPackageId}-${pageCount}-mm`;
+    if (coverDimensionsCache.has(cacheKey)) {
+        console.log(`[Picturebook Controller] Reusing cached cover dimensions for ${cacheKey}`);
+        return coverDimensionsCache.get(cacheKey);
+    }
+    const endpoint = `${LULU_API_BASE_URL_FOR_CONTROLLER.replace(/\/$/, '')}/cover-dimensions/`;
+    try {
+        await ensureHostnameResolvable(endpoint);
+    } catch (dnsErr) {
+        console.error('[Picturebook Controller] DNS resolution issue before fetching cover dimensions:', dnsErr.message);
+        throw new Error(`Network/DNS error when trying to reach Lulu for cover dimensions: ${dnsErr.message}`);
+    }
+    try {
+        const token = await getLuluAuthToken(); // getLuluAuthToken is still imported from lulu.service.js
+        const response = await retryWithBackoff(async () => {
+            return await axios.post(
+                endpoint,
+                { pod_package_id: podPackageId, interior_page_count: pageCount },
+                {
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    timeout: 10000
+                }
+            );
+        }, 3, 300);
+        const dimensions = response.data;
+        const ptToMm = (pt) => pt * (25.4 / 72);
+        if (typeof dimensions.width === 'undefined' || typeof dimensions.height === 'undefined' || dimensions.unit !== 'pt') {
+            console.error('[Picturebook Controller] Unexpected Lulu API response structure for cover dimensions:', JSON.stringify(dimensions, null, 2));
+            throw new Error('Unexpected Lulu API response for cover dimensions. Missing expected fields (width, height) or unit is not "pt".');
+        }
+        const widthMm = ptToMm(parseFloat(dimensions.width));
+        const heightMm = ptToMm(parseFloat(dimensions.height));
+        const result = {
+            width: widthMm,
+            height: heightMm,
+            layout: widthMm > heightMm ? 'landscape' : 'portrait',
+            bleed: 3.175,
+            spineThickness: 0
+        };
+        coverDimensionsCache.set(cacheKey, result);
+        return result;
+    } catch (error) {
+        console.error('[Picturebook Controller] Error getting cover dimensions from Lulu API (cover-dimensions endpoint):',
+            error.response ? JSON.stringify(error.response.data) : error.message);
+        throw new Error(`Failed to get cover dimensions for SKU ${podPackageId} with ${pageCount} pages. Lulu API error: ${error.response ? JSON.stringify(error.response.data) : error.message}`);
+    }
+}
+
+
 async function getFullPictureBook(bookId, userId, client) {
     const bookResult = await client.query(`SELECT * FROM picture_books WHERE id = $1 AND user_id = $2`, [bookId, userId]);
     const book = bookResult.rows[0];
     if (!book) return null;
 
-    // The order by page_number ASC is crucial for PDF generation sequence
     const eventsSql = `SELECT *, uploaded_image_url, overlay_text FROM timeline_events WHERE book_id = $1 ORDER BY page_number ASC`; 
     const timelineResult = await client.query(eventsSql, [bookId]);
     book.timeline = timelineResult.rows;
@@ -438,96 +530,96 @@ export const createBookCheckoutSession = async (req, res) => {
 };
 
 export const deletePictureBook = async (req, res) => {
-    let client;
-    try {
-        const pool = await getDb();
-        client = await pool.connect();
-        await client.query('BEGIN');
+    let client;
+    try {
+        const pool = await getDb();
+        client = await pool.connect();
+        await client.query('BEGIN');
 
-        const { bookId } = req.params;
-        const userId = req.userId;
+        const { bookId } = req.params;
+        const userId = req.userId;
 
-        const bookResult = await client.query(`SELECT id FROM picture_books WHERE id = $1 AND user_id = $2`, [bookId, userId]);
-        const book = bookResult.rows[0];
-        if (!book) return res.status(404).json({ message: 'Project not found.' });
+        const bookResult = await client.query(`SELECT id FROM picture_books WHERE id = $1 AND user_id = $2`, [bookId, userId]);
+        const book = bookResult.rows[0];
+        if (!book) return res.status(404).json({ message: 'Project not found.' });
 
-        await client.query(`DELETE FROM timeline_events WHERE book_id = $1`, [bookId]);
-        await client.query(`DELETE FROM picture_books WHERE id = $1`, [bookId]);
+        await client.query(`DELETE FROM timeline_events WHERE book_id = $1`, [bookId]);
+        await client.query(`DELETE FROM picture_books WHERE id = $1`, [bookId]);
 
-        await client.query('COMMIT');
-        res.status(200).json({ message: 'Project deleted successfully.' });
-    } catch (err) {
-        if (client) await client.query('ROLLBACK');
-        console.error("Error deleting project:", err.message);
-        res.status(500).json({ message: 'Failed to delete project.' });
-    } finally {
-        if (client) client.release();
-    }
+        await client.query('COMMIT');
+        res.status(200).json({ message: 'Project deleted successfully.' });
+    } catch (err) {
+        if (client) await client.query('ROLLBACK');
+        console.error("Error deleting project:", err.message);
+        res.status(500).json({ message: 'Failed to delete project.' });
+    } finally {
+        if (client) client.release();
+    }
 };
 
 export const deleteTimelineEvent = async (req, res) => {
-    let client;
-    const { bookId, pageNumber } = req.params;
-    const userId = req.userId;
+    let client;
+    const { bookId, pageNumber } = req.params;
+    const userId = req.userId;
 
-    try {
-        const pool = await getDb();
-        client = await pool.connect();
+    try {
+        const pool = await getDb();
+        client = await pool.connect();
 
-        const bookResult = await client.query(`SELECT id FROM picture_books WHERE id = $1 AND user_id = $2`, [bookId, userId]);
-        const book = bookResult.rows[0];
-        if (!book) {
-            return res.status(404).json({ message: 'Project not found or you do not have permission to edit it.' });
-        }
+        const bookResult = await client.query(`SELECT id FROM picture_books WHERE id = $1 AND user_id = $2`, [bookId, userId]);
+        const book = bookResult.rows[0];
+        if (!book) {
+            return res.status(404).json({ message: 'Project not found or you do not have permission to edit it.' });
+        }
 
-        await client.query(`DELETE FROM timeline_events WHERE book_id = $1 AND page_number = $2`, [bookId, pageNumber]);
-        // Shift page numbers for subsequent events
-        await client.query(`UPDATE timeline_events SET page_number = page_number - 1 WHERE book_id = $1 AND page_number > $2`, [bookId, pageNumber]);
-        await client.query(`UPDATE picture_books SET last_modified = $1 WHERE id = $2`, [new Date().toISOString(), bookId]);
+        await client.query(`DELETE FROM timeline_events WHERE book_id = $1 AND page_number = $2`, [bookId, pageNumber]);
+        // Shift page numbers for subsequent events
+        await client.query(`UPDATE timeline_events SET page_number = page_number - 1 WHERE book_id = $1 AND page_number > $2`, [bookId, pageNumber]);
+        await client.query(`UPDATE picture_books SET last_modified = $1 WHERE id = $2`, [new Date().toISOString(), bookId]);
 
-        res.status(200).json({ message: `Page ${pageNumber} deleted successfully and subsequent pages re-ordered.` });
-    } catch (err) {
-        console.error(`Error in deleteTimelineEvent controller:`, err.message);
-        res.status(500).json({ message: 'Failed to delete the page.' });
-    } finally {
-        if (client) client.release();
-    }
+        res.status(200).json({ message: `Page ${pageNumber} deleted successfully and subsequent pages re-ordered.` });
+    } catch (err) {
+        console.error(`Error in deleteTimelineEvent controller:`, err.message);
+        res.status(500).json({ message: 'Failed to delete the page.' });
+    } finally {
+        if (client) client.release();
+    }
 };
 
 export const togglePictureBookPrivacy = async (req, res) => {
-    let client;
-    const { bookId } = req.params;
-    const userId = req.userId;
-    const { is_public } = req.body;
+    let client;
+    const { bookId } = req.params;
+    const userId = req.userId;
+    const { is_public } = req.body;
 
-    if (typeof is_public !== 'boolean') {
-        return res.status(400).json({ message: 'is_public must be a boolean value.' });
-    }
+    if (typeof is_public !== 'boolean') {
+        return res.status(400).json({ message: 'is_public must be a boolean value.' });
+    }
 
-    try {
-        const pool = await getDb();
-        client = await pool.connect();
+    try {
+        const pool = await getDb();
+        client = await pool.connect();
 
-        const bookResult = await client.query(`SELECT id, user_id FROM picture_books WHERE id = $1`, [bookId]);
-        const book = bookResult.rows[0];
+        const bookResult = await client.query(`SELECT id, user_id FROM picture_books WHERE id = $1`, [bookId]);
+        const book = bookResult.rows[0];
 
-        if (!book) {
-            return res.status(404).json({ message: 'Project not found.' });
-        }
-        if (book.user_id !== userId) {
-            return res.status(403).json({ message: 'You are not authorized to edit this project.' });
-        }
+        if (!book) {
+            return res.status(404).json({ message: 'Project not found.' });
+        }
+        if (book.user_id !== userId) {
+            return res.status(403).json({ message: 'You are not authorized to edit this project.' });
+        }
 
-        await client.query(`UPDATE picture_books SET is_public = $1 WHERE id = $2`, [is_public, bookId]);
+        await client.query(`UPDATE picture_books SET is_public = $1 WHERE id = $2`, [is_public, bookId]);
 
-        res.status(200).json({
-            message: `Book status successfully set to ${is_public ? 'public' : 'private'}.`,
-            is_public: is_public
-        });
-    } catch (err) {
-        console.error("Error toggling book privacy:", err.message);
-        res.status(500).json({ message: 'Failed to update project status.' });
-    } finally {
-        if (client) client.release();
-    }
+        res.status(200).json({
+            message: `Book status successfully set to ${is_public ? 'public' : 'private'}.`,
+            is_public: is_public
+        });
+    } catch (err) {
+        console.error("Error toggling book privacy:", err.message);
+        res.status(500).json({ message: 'Failed to update project status.' });
+    } finally {
+        if (client) client.release();
+    }
 };

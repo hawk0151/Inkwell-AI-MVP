@@ -4,13 +4,14 @@
 // - CRITICAL FIX: Moved createLuluPrintJob function from lulu.service.js into this controller as a private helper
 //   to resolve recurring deployment import errors. This makes stripe.controller.js self-contained for print job submission.
 // - Ensures proper handling of shippingInfo and Lulu API communication.
+// - Added necessary helper functions (retryWithBackoff, ensureHostnameResolvable) and constants (LULU_API_BASE_URL, etc.) as private helpers.
 
 import stripe from 'stripe';
 import { getDb } from '../db/database.js';
-// Removed: import { createLuluPrintJob } from '../services/lulu.service.js'; // Now a private helper
 import { getLuluAuthToken } from '../services/lulu.service.js'; // Only import auth token helper
-import axios from 'axios'; // For createLuluPrintJob
-import dns from 'dns/promises'; // For createLuluPrintJob
+import axios from 'axios';
+import dns from 'dns/promises'; // For ensureHostnameResolvable
+import { Buffer } from 'buffer'; // For basicAuth in getLuluAuthToken's dependencies
 
 const stripeClient = stripe(process.env.STRIPE_SECRET_KEY);
 
@@ -43,9 +44,11 @@ async function ensureHostnameResolvable(url) {
     }
 }
 
+// --- Private Constant: LULU_API_BASE_URL (Copied from lulu.service.js) ---
+const LULU_API_BASE_URL = process.env.LULU_API_BASE_URL || 'https://api.lulu.com/print-api/v0';
+
 // --- Moved Function: createLuluPrintJob (from lulu.service.js, now a private helper) ---
-const LULU_API_BASE_URL = process.env.LULU_API_BASE_URL || 'https://api.lulu.com/print-api/v0'; // Need base URL here
-export async function createLuluPrintJob(orderDetails, shippingInfo, shippingLevel = "MAIL") {
+export async function createLuluPrintJob(orderDetails, shippingInfo, shippingLevel = "MAIL") { // Exported for use by handleSuccessfulCheckout
     try {
         const token = await getLuluAuthToken(); // getLuluAuthToken is still imported from lulu.service.js
         const printJobUrl = `${LULU_API_BASE_URL.replace(/\/$/, '')}/print-jobs/`;

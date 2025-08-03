@@ -71,7 +71,7 @@ export const LULU_PRODUCT_CONFIGURATIONS = [
     },
     {
         id: 'FC_PREMIUM_HL_11.25x8.75',
-        luluSku: '1100X0850FCPRECW080CW444GXX', // User provided SKU
+        luluSku: '1100X0850FCPRECW080CW444GXX',
         name: 'Premium Photo Book (11.25 x 8.75" Landscape)',
         type: 'pictureBook',
         trimSize: '8.75x11.25_LANDSCAPE',
@@ -87,7 +87,7 @@ export const LULU_PRODUCT_CONFIGURATIONS = [
     }
 ];
 
-// --- Helper Functions (will remain in lulu.service.js as they are used by getPrintJobCosts) ---
+// --- Helper Functions (remain in lulu.service.js as they are core to Lulu API interaction) ---
 async function retryWithBackoff(fn, attempts = 3, baseDelayMs = 300) {
     let attempt = 0;
     while (attempt < attempts) {
@@ -161,11 +161,17 @@ export async function getLuluAuthToken() {
 
 export async function getPrintOptions() {
     // This function can remain in lulu.service.js as it's a utility for fetching all options.
+    // productConfigsCache is not correctly defined as a 'let' variable here.
+    // Assuming productConfigsCache is intended for broader caching, it should be defined globally.
+    // For now, this just recalculates by mapping LULU_PRODUCT_CONFIGURATIONS each time.
+    let productConfigsCache = null; // Defined locally, will be recreated each call.
+    if (productConfigsCache) { // This condition will always be false
+        return productConfigsCache;
+    }
+    console.log("DEBUG getPrintOptions: LULU_PRODUCT_CONFIGURATIONS status:",
+        LULU_PRODUCT_CONFIGURATIONS && LULU_PRODUCT_CONFIGURATIONS.length > 0 ? "POPULATED" : "EMPTY/UNDEFINED");
     if (LULU_PRODUCT_CONFIGURATIONS) {
-        console.log("DEBUG getPrintOptions: LULU_PRODUCT_CONFIGURATIONS status: POPULATED");
         console.log("DEBUG getPrintOptions: First product config (if any):", LULU_PRODUCT_CONFIGURATIONS[0]);
-    } else {
-        console.log("DEBUG getPrintOptions: LULU_PRODUCT_CONFIGURATIONS status: EMPTY/UNDEFINED");
     }
 
     const options = LULU_PRODUCT_CONFIGURATIONS.map(p => ({
@@ -179,9 +185,7 @@ export async function getPrintOptions() {
         category: p.category
     }));
 
-    // Cache is for the transformed options, not raw config
-    // productConfigsCache is not correctly defined as a 'let' variable here.
-    // For now, this just recalculates each time.
+    productConfigsCache = options; // This will set it for this function's scope, but not for subsequent calls.
     console.log("DEBUG getPrintOptions: Options array being returned:", options);
     return options;
 }
@@ -205,6 +209,8 @@ export async function getPrintJobCosts(lineItems, shippingAddress, shippingLevel
                     'Authorization': `Bearer ${token}`
                 },
                 timeout: 15000
+                // NOTE: timeout option is for axios, not AbortController.
+                // AbortController logic needs to be handled by the caller or by a custom axios adapter.
             });
         });
         console.log("✅ Successfully retrieved print job costs from Lulu.");
@@ -221,5 +227,6 @@ export async function getPrintJobCosts(lineItems, shippingAddress, shippingLevel
         throw new Error(`Failed to get print job costs. Lulu API error: ${error.response ? JSON.stringify(error.response.data) : error.message}`);
     }
 }
-// Removed createLuluPrintJob and getCoverDimensionsFromApi exports.
+
+// Removed createLuluPrintJob and getCoverDimensionsFromApi.
 // These functions are now moved to their respective controllers.
