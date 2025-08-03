@@ -1,7 +1,7 @@
 import { getDb } from '../db/database.js';
 import { randomUUID } from 'crypto';
 import { generateStoryFromApi } from '../services/gemini.service.js';
-import { LULU_PRODUCT_CONFIGURATIONS, getCoverDimensionsFromApi, getPrintOptions, getPrintJobCosts, createLuluPrintJob } from '../services/lulu.service.js'; 
+import { LULU_PRODUCT_CONFIGURATIONS, getCoverDimensionsFromApi, getPrintOptions, getPrintJobCosts, createLuluPrintJob } from '../services/lulu.service.js';
 import { generateAndSaveTextBookPdf, generateCoverPdf, finalizePdfPageCount } from '../services/pdf.service.js';
 import { uploadPdfFileToCloudinary } from '../services/image.service.js';
 import { createStripeCheckoutSession } from '../services/stripe.service.js';
@@ -44,7 +44,7 @@ function getFlatShippingRate(countryCode) {
     let isDefault = false;
 
     if (flatShippingRateAUD === undefined) {
-        flatShippingRateAUD = FLAT_SHIPPING_RATES_AUD['DEFAULT']; 
+        flatShippingRateAUD = FLAT_SHIPPING_RATES_AUD['DEFAULT'];
         isDefault = true;
     }
 
@@ -78,7 +78,7 @@ export const createTextBook = async (req, res) => {
             return res.status(400).json({ message: `Product configuration with ID ${luluProductId} not found.` });
         }
         const totalChaptersForBook = selectedProductConfig.totalChapters;
-        
+
         const effectiveMaxPageCount = Math.min(
             selectedProductConfig.maxPageCount,
             Math.max(
@@ -202,9 +202,9 @@ export const getTextBooks = async (req, res) => {
         }
         const booksWithData = books.map(book => {
             const productConfig = printOptionsCache.find(p => p.id === book.lulu_product_id);
-            return { 
-                ...book, 
-                productName: productConfig ? productConfig.name : 'Unknown Book', 
+            return {
+                ...book,
+                productName: productConfig ? productConfig.name : 'Unknown Book',
                 type: productConfig ? productConfig.type : 'textBook'
             };
         });
@@ -238,6 +238,7 @@ export const getTextBookDetails = async (req, res) => {
 
 export const createCheckoutSessionForTextBook = async (req, res) => {
     const { bookId } = req.params;
+    // Ensure shippingAddress is always an object, even if empty from frontend
     const shippingAddress = req.body.shippingAddress || {};
     let client;
     let tempInteriorPdfPath = null;
@@ -246,41 +247,62 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
     const trimmedAddress = {
         name: shippingAddress.name ? shippingAddress.name.trim() : '',
         street1: shippingAddress.street1 ? shippingAddress.street1.trim() : '',
-        street2: shippingAddress.street2 ? shippingAddress.street2.trim() : '',
+        street2: shippingAddress.street2 ? shippingAddress.street2.trim() : '', // Allow empty
         city: shippingAddress.city ? shippingAddress.city.trim() : '',
-        state_code: shippingAddress.state_code ? shippingAddress.state_code.trim() : '',
+        state_code: shippingAddress.state_code ? shippingAddress.state_code.trim() : '', // Allow empty
         postcode: shippingAddress.postcode ? shippingAddress.postcode.trim() : '',
         country_code: shippingAddress.country_code ? shippingAddress.country_code.trim().toUpperCase() : '',
+        // ADDED: Trim and include phone_number and email
+        phone_number: shippingAddress.phone_number ? shippingAddress.phone_number.trim() : '',
+        email: shippingAddress.email ? shippingAddress.email.trim() : '',
     };
 
-    if (!trimmedAddress.name || !trimmedAddress.street1 || !trimmedAddress.city || !trimmedAddress.postcode || !trimmedAddress.country_code) {
-        return res.status(400).json({ message: 'Shipping address must include name, street, city, postal code, and country.' });
+    // Updated validation to include phone_number and email
+    if (!trimmedAddress.name || !trimmedAddress.street1 || !trimmedAddress.city ||
+        !trimmedAddress.postcode || !trimmedAddress.country_code ||
+        !trimmedAddress.phone_number || !trimmedAddress.email) {
+        console.error("Missing required shipping address fields:", trimmedAddress);
+        // Provide specific error message for missing fields
+        const missingFields = [];
+        if (!trimmedAddress.name) missingFields.push('name');
+        if (!trimmedAddress.street1) missingFields.push('street1');
+        if (!trimmedAddress.city) missingFields.push('city');
+        if (!trimmedAddress.postcode) missingFields.push('postcode');
+        if (!trimmedAddress.country_code) missingFields.push('country_code');
+        if (!trimmedAddress.phone_number) missingFields.push('phone_number');
+        if (!trimmedAddress.email) missingFields.push('email');
+
+        return res.status(400).json({
+            message: `Shipping address is incomplete. Missing: ${missingFields.join(', ')}.`,
+            detailedError: 'Please provide full name, street, city, postal code, country, phone number, and email for shipping.'
+        });
     }
+
     if (!VALID_ISO_COUNTRY_CODES.has(trimmedAddress.country_code)) {
         return res.status(400).json({ message: `Invalid country code: ${trimmedAddress.country_code}. Please use a valid ISO Alpha-2 code.` });
     }
-    
+
     console.log(`[Checkout] Initiating checkout for book ${bookId} to country: ${trimmedAddress.country_code}`);
 
     try {
         const pool = await getDb();
         client = await pool.connect();
-        
+
         const book = await getFullTextBook(bookId, req.userId, client);
         if (!book) return res.status(404).json({ message: 'Text book not found.' });
-        
+
         const selectedProductConfig = LULU_PRODUCT_CONFIGURATIONS.find(p => p.id === book.lulu_product_id);
         if (!selectedProductConfig) return res.status(400).json({ message: 'Invalid product ID.' });
 
         // --- NEW: Get the fixed base price from the configuration ---
         const productBasePriceUSD = selectedProductConfig.basePrice;
-        
+
         console.log(`[Checkout] Generating PDFs for book ${bookId}...`);
-        
+
         const { path: interiorPath, pageCount: trueContentPageCount } = await generateAndSaveTextBookPdf(book, selectedProductConfig);
         tempInteriorPdfPath = interiorPath;
         console.log(`[Checkout] Content PDF generation complete. True content page count is ${trueContentPageCount}.`);
-        
+
         let actualFinalPageCount = trueContentPageCount;
         let isPageCountFallback = false;
 
@@ -310,7 +332,7 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
         }
 
         const interiorPdfUrl = await uploadPdfFileToCloudinary(tempInteriorPdfPath, `inkwell-ai/user_${req.userId}/books`, `book_${bookId}_interior`);
-        
+
         const luluSku = selectedProductConfig.luluSku;
         const coverDimensions = await getCoverDimensionsFromApi(luluSku, actualFinalPageCount);
         tempCoverPdfPath = await generateCoverPdf(book, selectedProductConfig, coverDimensions);
@@ -318,13 +340,13 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
         console.log(`[Checkout] PDFs uploaded to Cloudinary.`);
 
         console.log("[Checkout] Fetching print costs from Lulu...");
-        const printCostLineItems = [{ 
-            pod_package_id: luluSku, 
+        const printCostLineItems = [{
+            pod_package_id: luluSku,
             page_count: actualFinalPageCount,
-            quantity: 1 
+            quantity: 1
         }];
-        
-        const luluShippingAddressForCost = { 
+
+        const luluShippingAddressForCost = {
             name: trimmedAddress.name,
             street1: trimmedAddress.street1,
             street2: trimmedAddress.street2,
@@ -332,15 +354,25 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
             state_code: trimmedAddress.state_code || '',
             postcode: trimmedAddress.postcode,
             country_code: trimmedAddress.country_code,
-            phone_number: shippingAddress.phone_number ? shippingAddress.phone_number.trim() : '000-000-0000',
+            // ADDED: Include phone_number and email for Lulu cost calculation
+            phone_number: trimmedAddress.phone_number,
+            email: trimmedAddress.email,
         };
 
         let luluCostsResponse;
         try {
             luluCostsResponse = await getPrintJobCosts(printCostLineItems, luluShippingAddressForCost);
         } catch (luluError) {
-            console.error(`[Checkout] Error fetching print costs from Lulu: ${luluError.message}.`);
-            return res.status(503).json({ message: 'Failed to get print costs from publishing partner. Please try again shortly.', error: luluError.message });
+            console.error(`[Checkout] Error fetching print costs from Lulu: ${luluError.message}. Error details:`, luluError.response?.data);
+            // Enhanced error message for frontend
+            let detailedLuluError = 'Failed to get print costs from publishing partner.';
+            if (luluError.response && luluError.response.data && luluError.response.data.shipping_address?.detail?.errors) {
+                const errorDetails = luluError.response.data.shipping_address.detail.errors.map(err => err.message || err.field).join('; ');
+                detailedLuluError = `Shipping address validation failed with publishing partner: ${errorDetails}.`;
+            } else if (luluError.message) {
+                detailedLuluError += ` (Detail: ${luluError.message})`;
+            }
+            return res.status(503).json({ message: detailedLuluError, error: luluError.message });
         }
 
         if (!luluCostsResponse?.line_item_costs?.[0]?.total_cost_incl_tax) {
@@ -352,62 +384,75 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
             console.error("[Checkout] Failed to parse or received invalid item print cost from Lulu:", luluCostsResponse);
             throw new Error("Failed to retrieve valid item print cost from Lulu API.");
         }
-        
+
         const luluPrintCostUSD = luluPrintCostAUD * AUD_TO_USD_EXCHANGE_RATE;
         const flatShippingRateAUD = getFlatShippingRate(trimmedAddress.country_code);
         const flatShippingRateUSD = flatShippingRateAUD * AUD_TO_USD_EXCHANGE_RATE;
-        
+
         // --- NEW PRICING LOGIC ---
         const finalPriceDollars = productBasePriceUSD + flatShippingRateUSD;
         const finalPriceInCents = Math.round(finalPriceDollars * 100);
         const calculatedProfitUSD = productBasePriceUSD - luluPrintCostUSD; // Dynamic profit
 
         console.log(`[Checkout] Final Pricing Breakdown (Textbook):`);
-        console.log(`  - Product Base Price: $${productBasePriceUSD.toFixed(2)} USD`);
-        console.log(`  - Lulu Print Cost: -$${luluPrintCostUSD.toFixed(2)} USD`);
-        console.log(`  - Calculated Profit: $${calculatedProfitUSD.toFixed(2)} USD`);
-        console.log(`  - Flat Shipping Cost: +$${flatShippingRateUSD.toFixed(2)} USD`);
-        console.log(`  -----------------------------------------`);
-        console.log(`  - Total Price for Stripe: $${finalPriceDollars.toFixed(2)} USD (${finalPriceInCents} cents)`);
-        
+        console.log(`  - Product Base Price: $${productBasePriceUSD.toFixed(2)} USD`);
+        console.log(`  - Lulu Print Cost: -$${luluPrintCostUSD.toFixed(2)} USD`);
+        console.log(`  - Calculated Profit: $${calculatedProfitUSD.toFixed(2)} USD`);
+        console.log(`  - Flat Shipping Cost: +$${flatShippingRateUSD.toFixed(2)} USD`);
+        console.log(`  -----------------------------------------`);
+        console.log(`  - Total Price for Stripe: $${finalPriceDollars.toFixed(2)} USD (${finalPriceInCents} cents)`);
+
         const orderId = randomUUID();
         const insertOrderSql = `
             INSERT INTO orders (
-                id, user_id, book_id, book_type, book_title, lulu_product_id, status, 
-                total_cost, currency, interior_pdf_url, cover_pdf_url, created_at, actual_page_count, is_fallback, 
+                id, user_id, book_id, book_type, book_title, lulu_product_id, status,
+                total_cost, currency, interior_pdf_url, cover_pdf_url, created_at, actual_page_count, is_fallback,
                 lulu_print_cost_usd, flat_shipping_cost_usd, profit_usd
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'USD', $9, $10, NOW(), $11, $12, $13, $14, $15)`;
 
         await client.query(insertOrderSql, [
-            orderId, req.userId, bookId, 'textBook', book.title, luluSku, 'pending', 
+            orderId, req.userId, bookId, 'textBook', book.title, luluSku, 'pending',
             finalPriceInCents,
-            interiorPdfUrl, coverPdfUrl, actualFinalPageCount, isPageCountFallback, 
-            luluPrintCostUSD, flatShippingRateUSD, 
+            interiorPdfUrl, coverPdfUrl, actualFinalPageCount, isPageCountFallback,
+            luluPrintCostUSD, flatShippingRateUSD,
             calculatedProfitUSD
         ]);
         console.log(`[Checkout] Created pending order record ${orderId}.`);
 
         const session = await createStripeCheckoutSession(
-            { 
-                name: book.title, 
-                description: `Inkwell AI Custom Book - ${selectedProductConfig.name} (incl. shipping)`, 
+            {
+                name: book.title,
+                description: `Inkwell AI Custom Book - ${selectedProductConfig.name} (incl. shipping)`,
                 priceInCents: finalPriceInCents,
                 currency: 'usd'
             },
             req.userId, orderId, bookId, 'textBook'
         );
-        
+
         await client.query('UPDATE orders SET stripe_session_id = $1 WHERE id = $2', [session.id, orderId]);
-        
+
         res.status(200).json({ url: session.url });
 
     } catch (error) {
         console.error(`[Checkout] Failed to create checkout session for textbook: ${error.stack}`);
-        res.status(500).json({ message: 'Failed to create checkout session.', error: error.message });
+        let detailedError = 'An unexpected error occurred during checkout.';
+        // Attempt to extract more specific Lulu error messages
+        if (error.response && error.response.data && error.response.data.shipping_address?.detail?.errors) {
+             const errorDetails = error.response.data.shipping_address.detail.errors.map(err => err.message || err.field).join('; ');
+             detailedError = `Shipping address validation failed with publishing partner: ${errorDetails}.`;
+        } else if (error.message.includes('Lulu')) {
+            detailedError = error.message;
+            if (error.response && error.response.data) {
+                detailedError += ` (Lulu response: ${JSON.stringify(error.response.data)})`;
+            }
+        } else if (error.message.includes('shipping_address')) {
+            detailedError = 'The shipping address provided is invalid. Please check all fields and ensure they are correct.';
+        }
+        res.status(500).json({ message: 'Failed to create checkout session.', detailedError });
     } finally {
         if (client) client.release();
-        if (tempInteriorPdfPath) { try { await fs.unlink(tempInteriorPdfPath); } catch (e) { console.error(`[Cleanup] Error deleting temp file: ${tempInteriorPdfPath}`); } }
-        if (tempCoverPdfPath) { try { await fs.unlink(tempCoverPdfPath); } catch (e) { console.error(`[Cleanup] Error deleting temp file: ${tempCoverPdfPath}`); } }
+        if (tempInteriorPdfPath) { try { await fs.unlink(tempInteriorPdfPath); } catch (e) { console.error(`[Cleanup] Error deleting temp interior PDF file: ${tempInteriorPdfPath} Error: ${e.message}`); } }
+        if (tempCoverPdfPath) { try { await fs.unlink(tempCoverPdfPath); } catch (e) { console.error(`[Cleanup] Error deleting temp cover PDF file: ${tempCoverPdfPath} Error: ${e.message}`); } }
     }
 };
 
