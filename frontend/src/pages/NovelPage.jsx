@@ -26,8 +26,8 @@ const Chapter = ({ chapter, isOpen, onToggle }) => {
                 <h2 className="text-3xl md:text-4xl font-serif text-amber-400 m-0 p-0 font-bold">
                     Chapter {chapter.chapter_number}
                 </h2>
-                <ChevronDownIcon 
-                    className={`w-7 h-7 text-slate-300 transform transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`} 
+                <ChevronDownIcon
+                    className={`w-7 h-7 text-slate-300 transform transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`}
                 />
             </button>
             <AnimatePresence>
@@ -54,8 +54,8 @@ const Chapter = ({ chapter, isOpen, onToggle }) => {
                         className="overflow-hidden"
                     >
                         {/* Enhanced prose styling for chapter content */}
-                        <div className="prose prose-lg lg:prose-xl max-w-none text-slate-200 prose-p:text-slate-200 
-                                      prose-p:mb-5 pt-4 pb-8 px-4 font-light leading-relaxed">
+                        <div className="prose prose-lg lg:prose-xl max-w-none text-slate-200 prose-p:text-slate-200
+                                             prose-p:mb-5 pt-4 pb-8 px-4 font-light leading-relaxed">
                             {chapter.content.split('\n').map((paragraph, index) => (
                                 <p key={index} className="mb-4">
                                     {paragraph}
@@ -184,11 +184,11 @@ const PromptForm = ({ isLoading, onSubmit, productName }) => {
                     <button
                         type="submit"
                         disabled={isLoading}
-                        className="w-full flex items-center justify-center 
-                                   bg-indigo-600 text-white font-bold py-3 px-6 rounded-lg 
-                                   hover:bg-indigo-700 disabled:bg-slate-500 disabled:cursor-not-allowed 
-                                   transition-transform transform hover:scale-105 shadow-lg
-                                   text-lg mt-8" // Increased font size and margin-top
+                        className="w-full flex items-center justify-center
+                                       bg-indigo-600 text-white font-bold py-3 px-6 rounded-lg
+                                       hover:bg-indigo-700 disabled:bg-slate-500 disabled:cursor-not-allowed
+                                       transition-transform transform hover:scale-105 shadow-lg
+                                       text-lg mt-8" // Increased font size and margin-top
                     >
                         <MagicWandIcon className="h-6 w-6 mr-3" /> {/* Adjusted icon size */}
                         {isLoading ? 'Crafting your first chapter...' : 'Create My Book'}
@@ -208,6 +208,8 @@ const ShippingAddressForm = ({ isOpen, onClose, onSubmit, isLoading }) => {
         state_code: '',
         postcode: '',
         country_code: 'US', // Default country
+        phone_number: '', // ADDED: Phone number field
+        email: '',         // ADDED: Email field
     });
 
     const allowedCountries = [
@@ -262,6 +264,11 @@ const ShippingAddressForm = ({ isOpen, onClose, onSubmit, isLoading }) => {
                                     {allowedCountries.map(c => <option key={c.code} value={c.code}>{c.name}</option>)}
                                 </select>
                             </div>
+                            {/* NEW INPUT FIELDS FOR PHONE AND EMAIL */}
+                            <input type="email" name="email" value={address.email} onChange={handleChange} placeholder="Email Address" required className={inputClasses} />
+                            <input type="tel" name="phone_number" value={address.phone_number} onChange={handleChange} placeholder="Phone Number (e.g., +15551234567)" required className={inputClasses} />
+                            {/* END NEW INPUT FIELDS */}
+
                             <div className="pt-6 flex items-center justify-end space-x-4">
                                 <button type="button" onClick={onClose} className="text-slate-400 hover:text-white transition text-lg">Cancel</button>
                                 <button type="submit" disabled={isLoading} className={`${buttonClasses} text-lg`}>
@@ -504,7 +511,7 @@ function NovelPage() {
     if (isLoadingPage || isLoadingBookOptions) {
         return <LoadingSpinner text="Getting your book ready..." />;
     }
-    
+
     // Condition for displaying the initial prompt form for a new book
     if ((paramBookId === 'new' || !paramBookId) && selectedProductForNew && !bookDetails) {
         return <PromptForm isLoading={isActionLoading} onSubmit={handleCreateBook} productName={selectedProductForNew?.name || 'Novel'} />;
@@ -549,9 +556,9 @@ function NovelPage() {
                                     <button
                                         onClick={handleGenerateNextChapter}
                                         disabled={isActionLoading}
-                                        className="bg-indigo-600 text-white font-bold py-3 px-8 rounded-lg 
-                                                   hover:bg-indigo-700 disabled:bg-slate-500 disabled:cursor-not-allowed 
-                                                   transition-transform transform hover:scale-105 shadow-lg text-lg"
+                                        className="bg-indigo-600 text-white font-bold py-3 px-8 rounded-lg
+                                                     hover:bg-indigo-700 disabled:bg-slate-500 disabled:cursor-not-allowed
+                                                     transition-transform transform hover:scale-105 shadow-lg text-lg"
                                     >
                                         {isActionLoading ? 'Writing...' : `Continue Story (${chapters.length}/${totalChaptersToDisplay})`}
                                     </button>
@@ -561,9 +568,9 @@ function NovelPage() {
                                         <button
                                             onClick={handleFinalizeAndPurchase}
                                             disabled={isCheckingOut}
-                                            className="bg-green-600 text-white font-bold py-3 px-8 rounded-lg 
-                                                       hover:bg-green-700 disabled:bg-green-400 disabled:cursor-not-allowed 
-                                                       transition-transform transform hover:scale-105 shadow-lg text-lg"
+                                            className="bg-green-600 text-white font-bold py-3 px-8 rounded-lg
+                                                     hover:bg-green-700 disabled:bg-green-400 disabled:cursor-not-allowed
+                                                     transition-transform transform hover:scale-105 shadow-lg text-lg"
                                         >
                                             {isCheckingOut ? 'Processing...' : 'Finalize & Purchase'}
                                         </button>
