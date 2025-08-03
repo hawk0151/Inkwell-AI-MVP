@@ -11,7 +11,7 @@ import PictureBookPage from './pages/PictureBookPage.jsx';
 import MyProjectsPage from './pages/MyProjectsPage.jsx';
 import MyOrdersPage from './pages/MyOrdersPage.jsx';
 // --- Start of Success/Cancel Page Imports ---
-import SuccessPage from './pages/SuccessPage.jsx';
+// REMOVED: import SuccessPage from './pages/SuccessPage.jsx'; // This import will be removed
 import CancelPage from './pages/CancelPage.jsx';
 // --- NEW IMPORT: CheckoutSuccessPage ---
 import CheckoutSuccessPage from './pages/CheckoutSuccessPage.jsx';
@@ -249,7 +249,8 @@ function App() {
                     <Route path="/select-novel" element={<NovelSelectionPage />} />
                     <Route path="/login" element={<LoginPage />} />
                     <Route path="/about-how-it-works" element={<AboutHowItWorksPage />} />
-                    <Route path="/success" element={<SuccessPage />} />
+                    {/* MODIFIED: Remove old /success route and replace with CheckoutSuccessPage */}
+                    <Route path="/success" element={<CheckoutSuccessPage />} /> {/* This is the corrected route */}
                     <Route path="/cancel" element={<CancelPage />} />
                     {/* REMOVED: <Route path="/contact-us" element={<ContactUsPage />} /> */}
                     <Route path="/terms-of-service" element={<TermsOfServicePage />} />
@@ -273,4 +274,3 @@ function App() {
 }
 
 export default App;
-///
