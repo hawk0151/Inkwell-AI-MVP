@@ -1,3 +1,4 @@
+// frontend/src/pages/MyOrdersPage.jsx
 import React, { useEffect, useState } from 'react';
 import apiClient from '../services/apiClient';
 import { LoadingSpinner } from '../components/common.jsx';
@@ -8,31 +9,22 @@ const MyOrdersPage = () => {
     const [error, setError] = useState(null);
 
     useEffect(() => {
-        console.log('[MyOrdersPage] Component mounted. Starting data fetch for auth isolation test...');
-
         const fetchOrders = async () => {
             try {
-                // --- MODIFIED: Calling the new unprotected test endpoint ---
-                console.log('[MyOrdersPage] Making API call to GET /orders/test-no-auth');
+                // --- This now calls the unprotected test route ---
                 const response = await apiClient.get('/orders/test-no-auth');
-                
-                console.log('[MyOrdersPage] API call successful. Data received:', response.data);
-                // The backend route now returns the array directly, not nested in an object
                 setOrders(response.data);
-
             } catch (err) {
-                console.error('[MyOrdersPage] API call FAILED. Full error object:', err);
-                setError(err.response ? `Server responded with status ${err.response.status}: ${err.response.data?.message}` : `Network Error: ${err.message}`);
+                setError(err.response ? `Server responded with status ${err.response.status}` : `Network Error`);
             } finally {
                 setLoading(false);
             }
         };
-
         fetchOrders();
-    }, []); // Runs only once when the component mounts
+    }, []);
 
     if (loading) {
-        return <LoadingSpinner text="Attempting to load orders..." />;
+        return <LoadingSpinner text="Running auth isolation test..." />;
     }
 
     if (error) {
@@ -44,27 +36,21 @@ const MyOrdersPage = () => {
         );
     }
 
-    if (orders && orders.length === 0) {
-        return (
-            <div className="container mx-auto p-4 text-white">
-                <h1 className="text-3xl font-bold mb-4">My Orders</h1>
-                <p className="text-lg">No orders found.</p>
-            </div>
-        );
-    }
-
     return (
         <div className="container mx-auto p-4 text-white">
             <h1 className="text-3xl font-bold mb-4">My Orders (Auth Isolation Test)</h1>
-            <ul className="space-y-4">
-                {orders && orders.map((order) => (
-                    <li key={order.id} className="bg-slate-800 p-4 rounded-md">
-                        <p className="font-mono">Order ID: {order.id}</p>
-                        <p>Title: {order.book_title}</p>
-                        <p>Status: {order.status}</p>
-                    </li>
-                ))}
-            </ul>
+            {orders && orders.length > 0 ? (
+                <ul className="space-y-4">
+                    {orders.map((order) => (
+                        <li key={order.id} className="bg-slate-800 p-4 rounded-md">
+                            <p className="font-mono">Order ID: {order.id}</p>
+                            <p>Title: {order.book_title}</p>
+                        </li>
+                    ))}
+                </ul>
+            ) : (
+                 <p className="text-lg">No sample orders found.</p>
+            )}
         </div>
     );
 };
