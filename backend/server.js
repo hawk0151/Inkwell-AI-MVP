@@ -72,7 +72,6 @@ const startServer = async () => {
     const app = express();
     const PORT = process.env.PORT || 5001;
     
-    // --- MODIFIED: More robust CORS configuration ---
     const allowedOrigins = [
         process.env.CORS_ORIGIN || 'http://localhost:5173',
         'https://inkwell-ai-mvp-frontend.onrender.com'
@@ -80,7 +79,6 @@ const startServer = async () => {
     
     const corsOptions = {
         origin: function (origin, callback) {
-            // allow requests with no origin (like mobile apps or curl requests)
             if (!origin) return callback(null, true);
             if (allowedOrigins.indexOf(origin) === -1) {
                 const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
@@ -93,7 +91,6 @@ const startServer = async () => {
     
     app.use(cors(corsOptions));
     console.log("DEBUG: CORS middleware applied with updated options.");
-    // --- END OF CORS MODIFICATION ---
 
     app.use(morgan('dev'));
     
@@ -119,6 +116,15 @@ const startServer = async () => {
     app.use('/api/social', socialBookRoutes);
     app.use('/api/feed', feedRoutes);
     app.use('/api/v1/analytics', analyticsRoutes);
+
+    // --- NEW: DEPLOYMENT SANITY CHECK ROUTE ---
+    app.get('/health-check-version', (req, res) => {
+      res.json({ 
+        message: 'live backend sanity check', 
+        timestamp: new Date().toISOString(), 
+        commit: 'v2-deploy-20250803-1635' 
+      });
+    });
 
     app.get('/', (req, res) => {
         res.send('Inkwell AI Backend is running successfully!');
