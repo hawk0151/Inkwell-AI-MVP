@@ -40,7 +40,9 @@ function PictureBookPage() {
         phone_number: '',
     });
     const [shippingFormErrors, setShippingFormErrors] = useState({});
-    const minPageCount = 24;
+    
+    // --- MODIFIED: Changed page count variable for clarity and set to 20 ---
+    const REQUIRED_CONTENT_PAGES = 20;
 
     const fetchBook = async () => {
         if (!bookId) {
@@ -57,15 +59,15 @@ function PictureBookPage() {
                 overlay_text: event.overlay_text || '',
                 story_text: event.story_text || '',
                 is_bold_story_text: event.is_bold_story_text || false,
-                image_url: event.image_url || null, 
-            })) : [{ 
-                page_number: 1, 
-                story_text: '', 
-                event_date: '', 
-                image_url: null, 
-                uploaded_image_url: null, 
-                overlay_text: '', 
-                is_bold_story_text: false 
+                image_url: event.image_url || null,
+            })) : [{
+                page_number: 1,
+                story_text: '',
+                event_date: '',
+                image_url: null,
+                uploaded_image_url: null,
+                overlay_text: '',
+                is_bold_story_text: false
             }];
             setTimeline(fetchedTimeline);
         } catch (err) {
@@ -83,7 +85,7 @@ function PictureBookPage() {
     const handleFieldChange = (pageIndex, field, value) => {
         setTimeline(prevTimeline => {
             const newTimeline = [...prevTimeline]; // Copy the array
-            
+
             // Ensure the specific event object at pageIndex is also a new object
             // This is crucial for React's change detection in child components.
             const currentEventData = newTimeline[pageIndex] || {}; // Get existing or empty object
@@ -151,18 +153,23 @@ function PictureBookPage() {
         currentEventForDebounce?.overlay_text
     ]);
 
+    // --- MODIFIED: Added check to prevent adding more than 20 pages ---
     const addPage = () => {
+        if (timeline.length >= REQUIRED_CONTENT_PAGES) {
+            alert(`You have reached the maximum of ${REQUIRED_CONTENT_PAGES} pages for a picture book.`);
+            return;
+        }
         const newPageNumber = timeline.length + 1;
         setTimeline(prevTimeline => [
-            ...prevTimeline, 
-            { 
-                page_number: newPageNumber, 
+            ...prevTimeline,
+            {
+                page_number: newPageNumber,
                 story_text: '',
-                event_date: '', 
+                event_date: '',
                 image_url: null,
                 uploaded_image_url: null,
                 overlay_text: '',
-                is_bold_story_text: false 
+                is_bold_story_text: false
             }
         ]);
         setCurrentPage(newPageNumber);
@@ -211,12 +218,13 @@ function PictureBookPage() {
         return Object.keys(errors).length === 0;
     };
 
+    // --- MODIFIED: Updated checkout logic to require exactly 20 pages ---
     const handleFinalizeAndCheckout = async () => {
         setError(null);
 
         if (!showShippingForm) {
-            if (!meetsPageMinimum) {
-                setError(`Your picture book needs at least ${minPageCount} pages to be printed.`);
+            if (timeline.length !== REQUIRED_CONTENT_PAGES) {
+                setError(`Your picture book must have exactly ${REQUIRED_CONTENT_PAGES} pages to be printed. You currently have ${timeline.length}.`);
                 return;
             }
             setShowShippingForm(true);
@@ -243,7 +251,8 @@ function PictureBookPage() {
     if (error) return <Alert type="error" message={error} onClose={() => setError(null)} />;
 
     const currentEvent = timeline[currentPage - 1] || {};
-    const meetsPageMinimum = timeline.length >= minPageCount;
+    // --- MODIFIED: Check against the new 20-page requirement ---
+    const meetsPageRequirement = timeline.length === REQUIRED_CONTENT_PAGES;
 
     const ShippingAddressForm = () => (
         <div className="space-y-4 p-4 bg-slate-700 rounded-lg shadow-inner">
@@ -358,7 +367,8 @@ function PictureBookPage() {
 
                     {!showShippingForm ? (
                         <>
-                            <p className="text-sm text-slate-400">Page {currentPage} of {timeline.length}</p>
+                            {/* --- MODIFIED: Show page count relative to 20 --- */}
+                            <p className="text-sm text-slate-400">Page {currentPage} of {timeline.length} (Required: {REQUIRED_CONTENT_PAGES})</p>
 
                             <div className="space-y-4 flex-grow">
                                 <div>
@@ -407,7 +417,8 @@ function PictureBookPage() {
                                     <button onClick={() => setCurrentPage(p => Math.min(timeline.length, p + 1))} disabled={currentPage === timeline.length} className="px-4 py-2 bg-gray-700 text-white rounded-md disabled:opacity-50 hover:bg-gray-600 transition">Next</button>
                                 </div>
                                 <div className="flex flex-col space-y-2">
-                                    <button onClick={addPage} className="w-full px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition shadow-md">Add New Page</button>
+                                    {/* --- MODIFIED: Disable button when page limit is reached --- */}
+                                    <button onClick={addPage} disabled={timeline.length >= REQUIRED_CONTENT_PAGES} className="w-full px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition shadow-md disabled:bg-blue-400 disabled:cursor-not-allowed">Add New Page</button>
                                     <button onClick={handleDeletePage} disabled={timeline.length <= 1} className="w-full px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:bg-red-400 transition shadow-md">Delete Current Page</button>
                                 </div>
                             </div>
@@ -428,17 +439,19 @@ function PictureBookPage() {
                     <div className="text-center pt-4 border-t border-slate-700">
                         <button
                             onClick={handleFinalizeAndCheckout}
-                            disabled={isCheckingOut || (!showShippingForm && !meetsPageMinimum)}
+                            // --- MODIFIED: Button disability logic updated ---
+                            disabled={isCheckingOut || (!showShippingForm && !meetsPageRequirement)}
                             className={`w-full mt-4 px-6 py-3 font-bold rounded-lg transition shadow-lg
                                 ${isCheckingOut ? 'bg-gray-500 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'}
-                                ${(!showShippingForm && !meetsPageMinimum) ? 'disabled:bg-gray-500 disabled:cursor-not-allowed' : ''}
+                                ${(!showShippingForm && !meetsPageRequirement) ? 'disabled:bg-gray-500 disabled:cursor-not-allowed' : ''}
                             `}
                         >
                             {isCheckingOut ? 'Finalizing...' : (showShippingForm ? 'Confirm & Pay' : 'Finalize & Checkout')}
                         </button>
-                        {!showShippingForm && !meetsPageMinimum && (
+                        {/* --- MODIFIED: Error message updated for new requirement --- */}
+                        {!showShippingForm && !meetsPageRequirement && (
                             <p className="text-sm text-red-400 mt-2">
-                                Minimum {minPageCount} pages to print. ({timeline.length}/{minPageCount})
+                                Book must have exactly {REQUIRED_CONTENT_PAGES} pages. ({timeline.length}/{REQUIRED_CONTENT_PAGES})
                             </p>
                         )}
                     </div>

@@ -1,24 +1,5 @@
 // backend/src/services/pdf.service.js
 
-// CHANGES:
-// - Redesigned PDF generation into a two-pass system.
-// - generateAndSaveTextBookPdf and generateAndSavePictureBookPdf now only generate content, returning true content page count.
-// - Introduced finalizePdfPageCount helper which loads PDF, pads it, ensures even page count, and returns final page count.
-// - CRITICAL FIX: Ensure pdf-lib's addPage() uses consistent dimensions from the original PDF's first page to resolve 'printable_normalization' warning.
-// - CRITICAL FIX: Added robust validation of page dimensions within finalizePdfPageCount to prevent NaN errors when adding pages to PDF-Lib document.
-// - DIAGNOSTIC/WORKAROUND: Now passes page dimensions as a [width, height] array to pdfDoc.addPage() to bypass potential object interpretation issues causing NaN error.
-// - STABILITY/LULU COMPATIBILITY FIXES:
-//   - getProductDimensions now calculates and returns bleed-inclusive page dimensions (widthWithBleed, heightWithBleed).
-//   - generateAndSavePictureBookPdf and generateAndSaveTextBookPdf now initialize PDFDocument with bleed-inclusive dimensions.
-//   - Images intended for full-bleed are placed at (0,0) and sized to fill the entire bleed-inclusive page.
-//   - Text elements are positioned explicitly within the calculated 'safe area' (bleed + safeMargin from edge).
-//   - Page numbering in picture books is added within the safe area.
-// - NEW: Integrated `story_text` functionality for picture books:
-//   - Replaced `event.description` handling with `event.story_text`.
-//   - `story_text` is placed in a dedicated region within safe margins.
-//   - `story_text` font style (regular/bold) is dynamic based on `event.is_bold_story_text`.
-//   - Implemented text truncation with ellipsis if `story_text` exceeds allocated space.
-
 import PDFDocument from 'pdfkit'; // For creating PDFs
 import { PDFDocument as PDFLibDocument, rgb } from 'pdf-lib'; // For reading/modifying PDFs
 import axios from 'axios';
@@ -181,19 +162,19 @@ export const generateCoverPdf = async (book, productConfig, coverDimensions) => 
         
         // Place text within the calculated safe zone
         doc.fontSize(48).fillColor('#FFFFFF').font(ROBOTO_BOLD_PATH)
-           .text(book.title, safeZoneX, safeZoneY + (safeZoneHeight / 4), { // Adjusted Y to be relative to safeZone
-               align: 'center',
-               width: safeZoneWidth
-           });
+            .text(book.title, safeZoneX, safeZoneY + (safeZoneHeight / 4), { // Adjusted Y to be relative to safeZone
+                align: 'center',
+                width: safeZoneWidth
+            });
         
         doc.moveDown(1);
 
         doc.fontSize(24).fillColor('#CCCCCC').font(ROBOTO_REGULAR_PATH)
-           .text('Inkwell AI', {
-               align: 'center',
-               width: safeZoneWidth,
-               x: safeZoneX // Ensure text starts at safeZoneX
-           });
+            .text('Inkwell AI', {
+                align: 'center',
+                width: safeZoneWidth,
+                x: safeZoneX // Ensure text starts at safeZoneX
+            });
         console.log("[PDF Service: Cover] ✅ Placeholder cover generated successfully (text in safe zone).");
     }
 
@@ -232,10 +213,10 @@ export const generateAndSaveTextBookPdf = async (book, productConfig) => {
 
     // Position content within the safe area
     doc.fontSize(28).font(ROBOTO_BOLD_PATH)
-       .text(book.title, contentX, contentY, { align: 'center', width: contentWidth }); 
+        .text(book.title, contentX, contentY, { align: 'center', width: contentWidth }); 
     doc.moveDown(4);
     doc.fontSize(16).font(ROBOTO_REGULAR_PATH)
-       .text('A Story by Inkwell AI', contentX, doc.y, { align: 'center', width: contentWidth }); 
+        .text('A Story by Inkwell AI', contentX, doc.y, { align: 'center', width: contentWidth }); 
 
     // --- Chapter Pages ---
     for (const [index, chapter] of book.chapters.entries()) {
@@ -246,15 +227,15 @@ export const generateAndSaveTextBookPdf = async (book, productConfig) => {
 
         // Chapter title
         doc.fontSize(18).font(ROBOTO_BOLD_PATH)
-           .text(`Chapter ${chapter.chapter_number}`, contentX, contentY, { align: 'center', width: contentWidth }); 
+            .text(`Chapter ${chapter.chapter_number}`, contentX, contentY, { align: 'center', width: contentWidth }); 
         doc.moveDown(2);
 
         // Chapter content
         doc.fontSize(12).font(ROBOTO_REGULAR_PATH)
-           .text(chapter.content, contentX, doc.y, { 
-               align: 'justify',
-               width: contentWidth,
-           }); 
+            .text(chapter.content, contentX, doc.y, { 
+                align: 'justify',
+                width: contentWidth,
+            }); 
     }
     
     console.log(`[PDF Service: Textbook - Content] Final PDFKit page count before saving: ${doc.page.count || 0}`); 
@@ -297,83 +278,58 @@ function truncateText(doc, text, maxWidth, maxHeight, fontPath, fontSize) {
 }
 
 
-// First Pass: Generates the content PDF (no padding/evenness yet)
+// --- MODIFIED: The body of this function is replaced with the new 24-page structure logic ---
 export const generateAndSavePictureBookPdf = async (book, events, productConfig) => {
     // Get dimensions including bleed for PDF creation and safe zone for text
     const { pageWidthWithBleed, pageHeightWithBleed, bleedPoints, safeMarginPoints, contentX, contentY, contentWidth, contentHeight, layout } = getProductDimensions(productConfig.id);
 
     const doc = new PDFDocument({
-        size: [pageWidthWithBleed, pageHeightWithBleed], // Use dimensions including bleed
+        size: [pageWidthWithBleed, pageHeightWithBleed],
         layout: layout,
         autoFirstPage: false,
-        margins: { top: 0, bottom: 0, left: 0, right: 0 } // Margins set to 0 as we control content positioning
+        margins: { top: 0, bottom: 0, left: 0, right: 0 }
     });
 
     const tempPdfsDir = path.resolve(process.cwd(), 'tmp', 'pdfs');
     await fs.mkdir(tempPdfsDir, { recursive: true });
     const tempFilePath = path.join(tempPdfsDir, `interior_picturebook_content_${Date.now()}_${book.id}.pdf`);
 
-    // --- Interior Title Page ---
+    // --- PAGE 1: New Title Page ---
     doc.addPage();
-    console.log(`[PDF Service: Picture Book - Content] Added Interior Title Page. Current PDFKit page: ${doc.page.count || 0}`);
+    doc.rect(0, 0, pageWidthWithBleed, pageHeightWithBleed).fill('#FFFFFF'); // White background
+    doc.font(ROBOTO_BOLD_PATH).fontSize(28).fillColor('black')
+       .text(book.title, contentX, contentY + (contentHeight / 3), {
+            width: contentWidth,
+            align: 'center'
+       });
+    doc.moveDown(1);
+    doc.font(ROBOTO_REGULAR_PATH).fontSize(16).fillColor('black')
+       .text('by Inkwell AI', {
+            width: contentWidth,
+            align: 'center'
+       });
+    console.log(`[PDF Service: Picture Book] Added NEW Title Page. Page count: 1`);
 
-    if (book.cover_image_url) {
-        try {
-            console.log(`[PDF Service: Picture Book - Content] Attempting to load interior title page image from: ${book.cover_image_url}`);
-            const coverImageBuffer = await getImageBuffer(book.cover_image_url);
-            // Place image to fill the entire document, including the bleed area
-            doc.image(coverImageBuffer, 0, 0, { 
-                width: pageWidthWithBleed, 
-                height: pageHeightWithBleed,
-                fit: [pageWidthWithBleed, pageHeightWithBleed], 
-                valign: 'center', 
-                align: 'center' 
-            });
-            console.log(`[PDF Service: Picture Book - Content] Successfully embedded interior title page image (full bleed assumed).`);
-        } catch (imgErr) {
-            console.error(`[PDF Service: Picture Book - Content] Failed to load interior title page image from ${book.cover_image_url}:`, imgErr);
-            // Fallback: Gray background with book title centered in safe zone
-            doc.rect(0, 0, pageWidthWithBleed, pageHeightWithBleed).fill('#313131');
-            doc.fontSize(40).font(ROBOTO_BOLD_PATH)
-               .fillColor('#FFFFFF').text(book.title, contentX, contentY + contentHeight / 3, { // Center vertically in safe zone
-                   align: 'center', 
-                   width: contentWidth 
-               }); 
-        }
-    } else {
-        // Fallback: Gray background with book title centered in safe zone
-        doc.rect(0, 0, pageWidthWithBleed, pageHeightWithBleed).fill('#313131');
-        doc.fontSize(40).font(ROBOTO_BOLD_PATH)
-           .fillColor('#FFFFFF').text(book.title, contentX, contentY + contentHeight / 3, { 
-               align: 'center', 
-               width: contentWidth 
-           }); 
-        doc.moveDown(2);
-        doc.fontSize(18).font(ROBOTO_REGULAR_PATH)
-           .fillColor('#CCCCCC').text('A Personalized Story from Inkwell AI', contentX, doc.y, { 
-               align: 'center', 
-               width: contentWidth 
-           }); 
-    }
+    // --- PAGE 2: Blank Page ---
+    doc.addPage();
+    console.log(`[PDF Service: Picture Book] Added blank front page. Page count: 2`);
 
-    // Event pages
+
+    // --- PAGES 3-22: Content Event pages (Looping through the 20 events) ---
     for (const [idx, event] of events.entries()) {
         doc.addPage();
-        console.log(`[PDF Service: Picture Book - Content] Adding event page ${idx + 1} for event ID ${event.id}. Current PDFKit page: ${doc.page.count || 0}`);
+        const currentPageNum = idx + 3;
+        console.log(`[PDF Service: Picture Book] Adding event page ${idx + 1} for event ID ${event.id}. PDF Page: ${currentPageNum}`);
         
         const imageUrl = event.uploaded_image_url || event.image_url;
-        const storyText = event.story_text || ''; // NEW: Get story_text
-        const isBoldStoryText = event.is_bold_story_text || false; // NEW: Get bold preference
+        const storyText = event.story_text || '';
+        const isBoldStoryText = event.is_bold_story_text || false;
 
-        // Background color for page
         doc.rect(0, 0, pageWidthWithBleed, pageHeightWithBleed).fill('#FFFFFF'); // White background for content pages
 
-        // Image area: Full bleed
         if (imageUrl) {
             try {
-                console.log(`[PDF Service: Picture Book - Content] Fetching event image from: ${imageUrl}`);
                 const imageBuffer = await getImageBuffer(imageUrl);
-                // Place image to fill the entire document, including the bleed area
                 doc.image(imageBuffer, 0, 0, { 
                     width: pageWidthWithBleed, 
                     height: pageHeightWithBleed,
@@ -381,87 +337,54 @@ export const generateAndSavePictureBookPdf = async (book, events, productConfig)
                     valign: 'center', 
                     align: 'center'
                 });
-                console.log(`[PDF Service: Picture Book - Content] Successfully embedded event image from ${imageUrl} (full bleed assumed).`);
             } catch (imgErr) {
-                console.error(`[PDF Service: Picture Book - Content] Failed to load event image from ${imageUrl}:`, imgErr);
-                // Fallback: Gray placeholder for failed image load
+                console.error(`[PDF Service: Picture Book] Failed to load event image from ${imageUrl}:`, imgErr);
                 doc.rect(0, 0, pageWidthWithBleed, pageHeightWithBleed).fill('#CCCCCC');
                 doc.fontSize(24).fillColor('#333333').font(ROBOTO_BOLD_PATH)
-                   .text('Image Not Available', contentX, contentY + contentHeight / 2 - 20, { 
-                       align: 'center', 
-                       width: contentWidth 
-                   });
+                   .text('Image Not Available', contentX, contentY + contentHeight / 2 - 20, { align: 'center', width: contentWidth });
             }
         }
         
-        // Define areas for overlay_text and story_text within the safe zone
-        const overlayTextHeightFraction = 0.15; // Top 15% of safe height for overlay
-        const storyTextHeightFraction = 0.25; // Bottom 25% of safe height for story text
-        const verticalPaddingBetweenTextAreas = 10; // Padding in points
-
-        // Overlay Text: Placed in a safe zone over the image
-        if (event.overlay_text) {
-            const overlayTextY = contentY + (contentHeight * 0.75 - doc.heightOfString(event.overlay_text, { width: contentWidth, lineGap: 0, align: 'center' }) / 2); // Vertically center in bottom 25% of image, adjusted for text height
-            
-            doc.save(); // Save current state to restore after text background if needed
-            // Optional: Draw a semi-transparent background for overlay text for readability
-            // doc.rect(contentX, contentY + contentHeight * (1 - overlayTextHeightFraction), contentWidth, contentHeight * overlayTextHeightFraction).fillOpacity(0.7).fill(rgb(0, 0, 0)); 
-            // doc.fillOpacity(1); // Reset fill opacity
-
-            doc.fontSize(22).font(ROBOTO_BOLD_PATH).fillColor('#FFFFFF') // White, bold text for overlay
-               .text(
-                   event.overlay_text,
-                   contentX, // X position is safe zone start
-                   overlayTextY, 
-                   { 
-                       align: 'center', 
-                       width: contentWidth,
-                       height: contentHeight * overlayTextHeightFraction,
-                       lineGap: 0,
-                       valign: 'center' // Vertically center within the given height
-                   }
-               );
-            doc.restore(); // Restore state if background was drawn
-        }
-
-        // Story Text: Placed in a dedicated safe zone at the bottom of the page
-        if (storyText) { // Check for story_text
-            const storyTextY = pageHeightWithBleed - bleedPoints - safeMarginPoints - (contentHeight * storyTextHeightFraction); // Position story text block from bottom of safe area
+        // This renders the story text over the image, inside a semi-transparent box for readability
+        if (storyText) {
             const storyTextFont = isBoldStoryText ? ROBOTO_BOLD_PATH : ROBOTO_REGULAR_PATH;
-            const storyTextFontSize = 14; // Default font size for story text
+            const storyTextFontSize = 14;
+            const storyBoxHeight = 100; // Height of the text area box
+            const storyBoxWidth = contentWidth; 
+            const storyBoxX = contentX;
+            // Position the box at the bottom of the safe area
+            const storyBoxY = pageHeightWithBleed - contentY - storyBoxHeight;
 
-            // Calculate exact height needed for text
-            const textHeightNeeded = doc.font(storyTextFont).fontSize(storyTextFontSize).heightOfString(storyText, { width: contentWidth });
-            
-            let finalStoryText = storyText;
-            if (textHeightNeeded > (contentHeight * storyTextHeightFraction)) {
-                console.warn(`[PDF Service] Story text on page ${idx + 1} is too long (${textHeightNeeded.toFixed(2)} pts) for allocated space (${(contentHeight * storyTextHeightFraction).toFixed(2)} pts). Truncating...`);
-                finalStoryText = truncateText(doc, storyText, contentWidth, contentHeight * storyTextHeightFraction, storyTextFont, storyTextFontSize);
-            }
+            // Draw semi-transparent background for text
+            doc.save();
+            doc.rect(storyBoxX, storyBoxY, storyBoxWidth, storyBoxHeight).fillOpacity(0.7).fill('white');
+            doc.restore();
 
-            doc.fontSize(storyTextFontSize).font(storyTextFont).fillColor('#000000') // Black text for story
-               .text( 
-                   finalStoryText,
-                   contentX, // X position is safe zone start
-                   storyTextY + (contentHeight * storyTextHeightFraction - doc.heightOfString(finalStoryText, {width: contentWidth, lineGap: 0, align: 'justify'})) / 2, // Vertically center within its allocated height
+            // Truncate text if it overflows the box
+            const truncatedText = truncateText(doc, storyText, storyBoxWidth - 20, storyBoxHeight - 20, storyTextFont, storyTextFontSize);
+
+            doc.font(storyTextFont).fontSize(storyTextFontSize).fillColor('#000000')
+               .text(
+                   truncatedText,
+                   storyBoxX + 10,
+                   storyBoxY + 10,
                    { 
-                       align: 'justify', 
-                       width: contentWidth,
-                       height: contentHeight * storyTextHeightFraction,
-                       lineGap: 0,
+                       width: storyBoxWidth - 20,
+                       height: storyBoxHeight - 20,
+                       align: 'center',
                        valign: 'center'
                    }
                );
         }
-
-        // Page Number (within safe margin at bottom)
-        const pageNumberX = contentX;
-        const pageNumberY = pageHeightWithBleed - bleedPoints - safeMarginPoints - 18; // 18 points from bottom of safe margin
-        doc.fontSize(10).font(ROBOTO_REGULAR_PATH).fillColor('#000000')
-           .text(`${idx + 1}`, pageNumberX, pageNumberY, { align: 'center', width: contentWidth });
     }
-    
-    console.log(`[PDF Service: Picture Book - Content] Final PDFKit page count before saving: ${doc.page.count || 0}`); 
+
+    // --- PAGES 23-24: Blank End Pages ---
+    doc.addPage();
+    doc.addPage();
+    console.log(`[PDF Service: Picture Book] Added two blank end pages. Final page count: 24`);
+
+
+    console.log(`[PDF Service: Picture Book] Final PDFKit page count before saving: ${doc.page.count || 0}`); 
 
     doc.end();
 
@@ -473,14 +396,13 @@ export const generateAndSavePictureBookPdf = async (book, events, productConfig)
         const existingPdfBytes = await fs.readFile(tempFilePath);
         const pdfDoc = await PDFLibDocument.load(existingPdfBytes);
         trueContentPageCount = pdfDoc.getPageCount();
-        console.log(`[PDF Service: Picture Book - Content] ✅ True content page count from pdf-lib: ${trueContentPageCount}`);
+        console.log(`[PDF Service: Picture Book] ✅ True content page count from pdf-lib: ${trueContentPageCount}`);
     } catch (error) {
-        console.error(`[PDF Service: Picture Book - Content] ❌ Failed to get true content page count from PDF-Lib for ${tempFilePath}:`, error);
-        console.warn(`[PDF Service: Picture Book - Content] Returning pageCount: null due to pdf-lib error. Downstream must handle this.`);
+        console.error(`[PDF Service: Picture Book] ❌ Failed to get true content page count from PDF-Lib for ${tempFilePath}:`, error);
         trueContentPageCount = null;
     }
 
-    console.log(`[PDF Service: Picture Book - Content] Returning { path: ${tempFilePath}, pageCount: ${trueContentPageCount} }`);
+    console.log(`[PDF Service: Picture Book] Returning { path: ${tempFilePath}, pageCount: ${trueContentPageCount} }`);
     return { path: tempFilePath, pageCount: trueContentPageCount };
 };
 
