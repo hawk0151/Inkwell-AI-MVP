@@ -3,17 +3,17 @@
 // CHANGES:
 // - FINAL VERSION: Updated to use Stability AI's v2beta API, specifically 'stable-image-ultra' for direct high-resolution generation.
 // - REMOVED: The 'upscaleImageWithStabilityAI' helper function entirely, as it's no longer part of the generation pipeline.
-// - REMOVED: Imports for 'sharp' and 'form-data', as they are no longer required for image processing or the upscale API call.
+// - RE-INTRODUCED: Imports for 'form-data' and implemented its usage for the main generation API call,
+//   as the v2beta /generate/ultra endpoint also requires 'multipart/form-data'.
 // - Directly requests images at Lulu's target print dimensions (2556x3582 pixels at 300 DPI with bleed).
 // - Sets aspect_ratio and output_format for optimal generation.
 
 import axios from 'axios';
 import { v2 as cloudinary } from 'cloudinary';
 import { randomUUID } from 'crypto';
-import path from 'path'; // Still used for path.basename in original uploadImageToCloudinary for filename extraction, if needed.
-
+import path from 'path';
 // Removed 'sharp' import
-// Removed 'FormData' import
+import FormData from 'form-data'; // RE-INTRODUCED: Needed for multipart/form-data
 
 console.log("DEBUG: Cloudinary config values from process.env:");
 console.log("CLOUDINARY_CLOUD_NAME:", process.env.CLOUDINARY_CLOUD_NAME ? "SET" : "NOT SET");
@@ -28,59 +28,53 @@ cloudinary.config({
     secure: true
 });
 
-// The `upscaleImageWithStabilityAI` function has been REMOVED entirely from this file
-// as the strategy is now direct high-resolution generation via the v2beta API.
-
 export const generateImageFromApi = async (prompt, style) => {
     const apiKey = process.env.STABILITY_API_KEY;
     if (!apiKey) {
         throw new Error("Stability AI API key is not configured in .env file.");
     }
 
-    // NEW: Use the v2beta API and 'stable-image-ultra' engine
     const engineId = 'stable-image-ultra'; 
     const apiUrl = `https://api.stability.ai/v2beta/stable-image/generate/ultra`;
 
-    const fullPrompt = `A beautiful, whimsical, ${style}-style children's book illustration of: ${prompt}. Clean lines, vibrant pastel colors, storybook setting, safe for all audiences, high detail.` +
-                       ` Print-ready, high-resolution, 300 DPI.`; // Added print-ready keywords to prompt
+    const fullPrompt = `A beautiful, whimsical, ${style}-style children's book illustration of: ${prompt}. Clean lines, vibrant pastel colors, storybook setting, safe for all audiences, high detail. Print-ready, high-resolution, 300 DPI.`;
 
-    // Lulu's target dimensions for A4 Premium Picture Book (8.27x11.69") at 300 DPI with 0.125" bleed
-    const targetWidthPx = 2556; // (8.27 + 2*0.125) * 300
-    const targetHeightPx = 3582; // (11.69 + 2*0.125) * 300
-    const aspectRatio = '2:3'; // Closest common aspect ratio for the target dimensions (2556/3582 ≈ 0.713, 2/3 ≈ 0.667)
+    const targetWidthPx = 2556;
+    const targetHeightPx = 3582;
+    const aspectRatio = '2:3'; 
 
     console.log(`[Stability AI Generation] Generating image with Stable Image Ultra: ${targetWidthPx}x${targetHeightPx} for prompt: "${fullPrompt.substring(0, Math.min(fullPrompt.length, 75))}..."`);
     let base64GeneratedImage;
 
     try {
+        // NEW: Use FormData for the request body
+        const formData = new FormData();
+        formData.append('prompt', fullPrompt);
+        formData.append('output_format', 'jpeg');
+        formData.append('width', targetWidthPx.toString()); // Convert numbers to string for FormData
+        formData.append('height', targetHeightPx.toString()); // Convert numbers to string for FormData
+        formData.append('aspect_ratio', aspectRatio);
+        formData.append('seed', '0'); // Convert number to string for FormData
+        formData.append('style_preset', 'digital-art'); // Example, can be dynamic or chosen
+
         const response = await axios.post(
             apiUrl,
-            {
-                prompt: fullPrompt,
-                output_format: 'jpeg', // Recommended for smaller file sizes and print
-                width: targetWidthPx,   // Direct pixel width request
-                height: targetHeightPx, // Direct pixel height request
-                aspect_ratio: aspectRatio, // Guide for generation aspect ratio
-                seed: 0, // 0 for random seed, or set a specific number for reproducibility
-                style_preset: 'digital-art', // Or 'fantasy-art', 'photographic', etc., based on preference
-            },
+            formData, // Send FormData object directly
             {
                 headers: {
+                    ...formData.getHeaders(), // Let FormData set the correct Content-Type with boundary
                     'Authorization': `Bearer ${apiKey}`,
-                    'Content-Type': 'application/json', // v2beta API expects JSON for Ultra/Core generation
                     'Accept': 'application/json' // Request base64 JSON response
                 },
-                timeout: 60000 // Increased timeout for higher resolution generation
+                timeout: 60000
             }
         );
 
-        // Check v2beta response structure: it's typically 'image_base64' directly in the response body
         const image = response.data.image_base64; 
         if (image) {
             base64GeneratedImage = image;
             console.log(`[Stability AI Generation] ✅ ${targetWidthPx}x${targetHeightPx} image generated successfully.`);
         } else {
-            // Log full response data if image_base64 is missing for better debugging
             console.error('Stability AI API Response (missing image_base64):', JSON.stringify(response.data, null, 2));
             throw new Error('Failed to parse image from Stability AI API response: Missing image_base64.');
         }
@@ -90,12 +84,10 @@ export const generateImageFromApi = async (prompt, style) => {
         throw new Error(`An error occurred while generating the image: ${errorMessage}`);
     }
 
-    // No more upscaling or sharp cropping needed here, as the image is generated at the final size.
     return base64GeneratedImage;
 };
 
 // Keep existing uploadImageToCloudinary for general image uploads (e.g., user avatars, non-POD images)
-// This function remains unchanged from previous versions, as it's for general image uploads.
 export const uploadImageToCloudinary = (fileBuffer, folder, fileFormat = 'auto') => {
     return new Promise((resolve, reject) => {
         const publicId = randomUUID();
@@ -131,8 +123,6 @@ export const uploadImageToCloudinary = (fileBuffer, folder, fileFormat = 'auto')
     });
 };
 
-// Dedicated PDF Upload to Cloudinary for Lulu POD (no changes)
-// This function remains unchanged from previous versions, as it's for PDF-specific uploads.
 export const uploadPdfFileToCloudinary = (filePath, folder, publicIdPrefix) => {
     return new Promise((resolve, reject) => {
         const uniqueId = `${publicIdPrefix}_${randomUUID().substring(0, 8)}`;
