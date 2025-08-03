@@ -1,10 +1,10 @@
-import React, { useState, useEffect } from 'react'; // Import useEffect
+import React, { useState, useEffect } from 'react';
 import apiClient from '../services/apiClient';
 import { useAuth } from '../contexts/AuthContext';
 import { LoadingSpinner, Alert } from './common';
 
 function ImageEditor({ currentEvent, onImageUpdate }) {
-    const { token } = useAuth(); // Assuming token is used for auth headers
+    const { token } = useAuth();
     const [prompt, setPrompt] = useState('');
     const [style, setStyle] = useState('Watercolor');
     const [isGenerating, setIsGenerating] = useState(false);
@@ -12,20 +12,27 @@ function ImageEditor({ currentEvent, onImageUpdate }) {
     const [error, setError] = useState(null);
     const [selectedFile, setSelectedFile] = useState(null);
     
-    // NEW STATE: Manage the URL of the image currently displayed by ImageEditor
+    // Manage the URL of the image currently displayed by ImageEditor
+    // This state is initialized from props and then updated by useEffect and handlers.
     const [displayedImageUrl, setDisplayedImageUrl] = useState(
         currentEvent.uploaded_image_url || currentEvent.image_url
     );
 
-    // NEW useEffect: Sync displayedImageUrl with changes in currentEvent or image URLs
+    // REFINED useEffect: Sync displayedImageUrl and reset prompt/file whenever the page context changes
     useEffect(() => {
+        // Always sync the displayed image URL with the currentEvent props
         setDisplayedImageUrl(currentEvent.uploaded_image_url || currentEvent.image_url);
-        // Reset prompt and selected file when the page changes
-        if (prompt !== '' && currentEvent.image_url === null && currentEvent.uploaded_image_url === null) {
-            setPrompt(''); // Clear prompt if new page and no image
-        }
-        setSelectedFile(null); // Clear selected file when navigating pages
-    }, [currentEvent, currentEvent.uploaded_image_url, currentEvent.image_url]); // Depend on currentEvent and its image URLs
+        
+        // When the page number changes, it indicates we're looking at a different page.
+        // In this case, we should reset the prompt and selectedFile for a fresh start on the new page.
+        // This ensures the input fields don't carry over data from previous pages or image generations.
+        setPrompt(''); // Always clear prompt on page change
+        setSelectedFile(null); // Always clear selected file on page change
+        setError(null); // Clear any old errors
+        setIsGenerating(false); // Reset loading states
+        setIsUploading(false); // Reset loading states
+
+    }, [currentEvent.page_number, currentEvent.uploaded_image_url, currentEvent.image_url]); // Key: depend on page_number and image URLs for a full re-sync
 
     const artStyles = ['Watercolor', 'Cartoon', 'Photorealistic', 'Fantasy', 'Vintage'];
 
@@ -38,24 +45,25 @@ function ImageEditor({ currentEvent, onImageUpdate }) {
         setError(null);
         setSelectedFile(null); // Clear selected file if generating AI image
         
-        // Temporarily clear displayed image, show spinner
-        setDisplayedImageUrl(null); 
-        onImageUpdate(currentEvent.page_number - 1, 'uploaded_image_url', null); // Clear uploaded URL
-        onImageUpdate(currentEvent.page_number - 1, 'image_url', null); // Clear AI image URL (important for re-generation)
-
+        // Temporarily clear displayed image locally to show spinner, and clear parent's image URLs
+        setDisplayedImageUrl(null); // This makes the spinner appear
+        onImageUpdate(currentEvent.page_number - 1, 'uploaded_image_url', null); // Clear parent's uploaded URL
+        onImageUpdate(currentEvent.page_number - 1, 'image_url', null); // Clear parent's AI image URL
+        
         try {
             const response = await apiClient.post('/images/generate', { prompt, style });
             const newImageUrl = response.data.imageUrl;
             
-            onImageUpdate(currentEvent.page_number - 1, 'image_url', newImageUrl); // Update parent state with AI image
-            onImageUpdate(currentEvent.page_number - 1, 'image_style', style); // Update parent state with style
+            // Update parent state with AI image. Parent will then re-render this component with new props.
+            onImageUpdate(currentEvent.page_number - 1, 'image_url', newImageUrl);
+            onImageUpdate(currentEvent.page_number - 1, 'image_style', style);
             
-            setDisplayedImageUrl(newImageUrl); // Update local state for immediate display
+            // The useEffect will now reliably pick up the change to currentEvent.image_url and update displayedImageUrl.
         } catch (err) {
             setError("Failed to generate image. Please try again.");
             console.error(err);
-            // If generation fails, restore previous image if any or keep cleared
-            setDisplayedImageUrl(currentEvent.uploaded_image_url || currentEvent.image_url); // Revert on failure
+            // On failure, revert displayed image to whatever it was before trying to generate
+            setDisplayedImageUrl(currentEvent.uploaded_image_url || currentEvent.image_url); 
         } finally {
             setIsGenerating(false);
         }
@@ -72,9 +80,14 @@ function ImageEditor({ currentEvent, onImageUpdate }) {
                 setDisplayedImageUrl(reader.result); // Set local state to file preview
             };
             reader.readAsDataURL(file);
+
+            // Also clear the AI-generated image from the parent state when a file is selected for upload
+            onImageUpdate(currentEvent.page_number - 1, 'image_url', null);
+            onImageUpdate(currentEvent.page_number - 1, 'image_style', null);
         } else {
             setSelectedFile(null);
-            setDisplayedImageUrl(currentEvent.uploaded_image_url || currentEvent.image_url); // Revert to current event image if no file selected
+            // If no file selected (e.g., user cancels file picker), revert displayed image
+            setDisplayedImageUrl(currentEvent.uploaded_image_url || currentEvent.image_url); 
         }
     };
 
@@ -86,11 +99,11 @@ function ImageEditor({ currentEvent, onImageUpdate }) {
         setIsUploading(true);
         setError(null);
         
-        // Clear previous AI image URL, just in case
+        // Clear previous AI image URL and style in parent, and set local display to null for spinner
         onImageUpdate(currentEvent.page_number - 1, 'image_url', null);
         onImageUpdate(currentEvent.page_number - 1, 'image_style', null);
-        // onImageUpdate(currentEvent.page_number - 1, 'uploaded_image_url', null); // Removed, handled by handleFileChange preview
-        
+        setDisplayedImageUrl(null); // Show spinner
+
         const formData = new FormData();
         formData.append('image', selectedFile);
 
@@ -102,9 +115,8 @@ function ImageEditor({ currentEvent, onImageUpdate }) {
             });
             const newImageUrl = response.data.imageUrl;
 
-            onImageUpdate(currentEvent.page_number - 1, 'uploaded_image_url', newImageUrl); // Update parent state with uploaded image
-            
-            setDisplayedImageUrl(newImageUrl); // Update local state for immediate display
+            onImageUpdate(currentEvent.page_number - 1, 'uploaded_image_url', newImageUrl); // Update parent state
+            // setDisplayedImageUrl(newImageUrl); // REMOVED - useEffect will handle this.
             setSelectedFile(null); // Clear selected file after upload
         } catch (err) {
             setError("Failed to upload image. Please try again.");
@@ -121,18 +133,16 @@ function ImageEditor({ currentEvent, onImageUpdate }) {
 
             {/* Image display area */}
             <div className="relative w-full h-80 bg-slate-700 rounded-md overflow-hidden flex items-center justify-center">
-                {displayedImageUrl ? ( // Use local displayedImageUrl state
+                {displayedImageUrl ? (
                     <>
                         <img
                             src={displayedImageUrl}
                             alt={`Page ${currentEvent.page_number}`}
                             className="w-full h-full object-cover object-center"
                         />
-                        {/* Contextual UI Hint: Specific placeholder and styling for overlay text */}
                         <textarea
                             value={currentEvent.overlay_text || ''}
                             onChange={(e) => onImageUpdate(currentEvent.page_number - 1, 'overlay_text', e.target.value)}
-                            // Refined placeholder for clarity
                             placeholder="Type story text or a caption here (e.g., 'Leo bravely faced the dragon.')"
                             className="absolute inset-x-4 bottom-4 p-3 bg-black bg-opacity-75 text-white text-lg rounded-lg leading-tight resize-none focus:outline-none focus:ring-2 focus:ring-amber-500 transition placeholder-gray-300 font-bold text-center"
                             rows={3}
