@@ -1,9 +1,11 @@
+// frontend/src/pages/MyOrdersPage.jsx
 import React, { useEffect, useState } from 'react';
 import apiClient from '../services/apiClient';
 import { LoadingSpinner, Alert } from '../components/common.jsx';
 
 const MyOrdersPage = () => {
-    const [orders, setOrders] = useState([]);
+    // --- MODIFIED: Initial state changed from null to an empty array [] to prevent crash ---
+    const [orders, setOrders] = useState([]); 
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [statusCache, setStatusCache] = useState({});
@@ -11,7 +13,6 @@ const MyOrdersPage = () => {
     useEffect(() => {
         const fetchOrders = async () => {
             try {
-                // --- RESTORED: Calling the correct, protected endpoint ---
                 const response = await apiClient.get('/orders/my-orders');
                 setOrders(response.data || []);
             } catch (err) {
