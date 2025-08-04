@@ -11,6 +11,7 @@ import PictureBookPage from './pages/PictureBookPage.jsx';
 import MyProjectsPage from './pages/MyProjectsPage.jsx';
 import MyOrdersPage from './pages/MyOrdersPage.jsx';
 // --- Start of Success/Cancel Page Imports ---
+// REMOVED: import SuccessPage from './pages/SuccessPage.jsx'; // Removed as CheckoutSuccessPage is the main handler
 import CancelPage from './pages/CancelPage.jsx';
 // --- NEW IMPORT: CheckoutSuccessPage ---
 import CheckoutSuccessPage from './pages/CheckoutSuccessPage.jsx';
@@ -21,14 +22,10 @@ import FeedPage from './pages/FeedPage.jsx';
 import ProfilePage from './pages/ProfilePage.jsx';
 import EditProfilePage from './pages/EditProfilePage.jsx';
 import AboutHowItWorksPage from './pages/AboutHowItWorksPage.jsx';
-import PolicyPage from './pages/PolicyPage.jsx'; // Only PolicyPage needed for all legal docs
-
-// FIX: Import Logo (adjust path if your Logo lives elsewhere)
-import Logo from './components/Logo.jsx';
-
-// REMOVED: import TermsOfServicePage from './pages/TermsOfServicePage.jsx'; // <<< CRITICAL FIX: Removed direct import of old TermsOfServicePage
+import PolicyPage from './pages/PolicyPage.jsx';
+import TermsOfServicePage from './pages/TermsOfServicePage.jsx';
+import { Logo } from './components/common.jsx';
 // REMOVED: import ContactUsPage from './pages/ContactUsPage.jsx'; // Not adding this for now
-// REMOVED: Also implicitly removed any other direct policy page imports like PrivacyPolicy, ShippingPolicy, RefundPolicy, ReturnPolicy, if they existed.
 
 function ProtectedRoute({ children }) {
     const { currentUser } = useAuth();
@@ -40,13 +37,12 @@ const AppFooter = () => (
     <footer className="bg-black/20 mt-20 py-6 border-t border-white/10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center text-slate-400 text-sm">
             <div className="flex flex-wrap justify-center gap-x-6 gap-y-2">
-                {/* UPDATED: Links to single /policies route with hash segments for in-page navigation */}
-                <Link to="/policies#terms-of-service-section" className="hover:text-white transition-colors">Terms of Service</Link>
-                <Link to="/policies#privacy-policy-section" className="hover:text-white transition-colors">Privacy Policy</Link>
-                <Link to="/policies#shipping-policy-section" className="hover:text-white transition-colors">Shipping Policy</Link>
-                <Link to="/policies#refund-policy-section" className="hover:text-white transition-colors">Refund Policy</Link>
-                <Link to="/policies#return-policy-section" className="hover:text-white transition-colors">Return Policy</Link>
-                {/* Removed Contact Us link as per previous instruction */}
+                <Link to="/terms-of-service" className="hover:text-white transition-colors">Terms of Service</Link>
+                <Link to="/privacy-policy" className="hover:text-white transition-colors">Privacy Policy</Link>
+                <Link to="/shipping-policy" className="hover:text-white transition-colors">Shipping Policy</Link>
+                <Link to="/refund-policy" className="hover:text-white transition-colors">Refund Policy</Link>
+                <Link to="/return-policy" className="hover:text-white transition-colors">Return Policy</Link>
+                {/* REMOVED: <Link to="/contact-us" className="hover:text-white transition-colors">Contact Us</Link> */}
             </div>
             <p className="mt-4">&copy; {new Date().getFullYear()} Inkwell AI. All Rights Reserved.</p>
         </div>
@@ -256,8 +252,12 @@ function App() {
                     {/* MODIFIED: Update route path to /checkout-success */}
                     <Route path="/checkout-success" element={<CheckoutSuccessPage />} /> {/* This is the corrected route */}
                     <Route path="/cancel" element={<CancelPage />} />
-                    {/* CRITICAL FIX: Consolidated all policy routes to a single /policies path */}
-                    <Route path="/policies" element={<PolicyPage />} /> {/* New consolidated route */}
+                    {/* REMOVED: <Route path="/contact-us" element={<ContactUsPage />} /> */}
+                    <Route path="/terms-of-service" element={<TermsOfServicePage />} />
+                    <Route path="/privacy-policy" element={<PolicyPage type="privacy" />} />
+                    <Route path="/shipping-policy" element={<PolicyPage type="shipping" />} />
+                    <Route path="/refund-policy" element={<PolicyPage type="refund" />} />
+                    <Route path="/return-policy" element={<PolicyPage type="return" />} />
                     <Route path="/feed" element={<ProtectedRoute><FeedPage /></ProtectedRoute>} />
                     <Route path="/profile/:username" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
                     <Route path="/profile/edit" element={<ProtectedRoute><EditProfilePage /></ProtectedRoute>} />
@@ -266,8 +266,6 @@ function App() {
                     <Route path="/my-projects" element={<ProtectedRoute><MyProjectsPage /></ProtectedRoute>} />
                     <Route path="/my-orders" element={<ProtectedRoute><MyOrdersPage /></ProtectedRoute>} />
                     <Route path="/project/:bookId" element={<ProtectedRoute><PictureBookPage /></ProtectedRoute>} />
-                    {/* OPTIONAL SAFETY: catch-all could be added if desired */}
-                    {/* <Route path="*" element={<Navigate to="/" replace />} /> */}
                 </Routes>
             </main>
             <AppFooter />
