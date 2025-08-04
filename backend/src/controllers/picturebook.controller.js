@@ -12,7 +12,7 @@
 // - Corrected Lulu print cost extraction from 'line_item_costs[0].total_cost_incl_tax'.
 // - Added isPageCountFallback tracking for database record.
 // - MODIFIED: addTimelineEvent and getFullPictureBook now use 'story_text' and 'is_bold_story_text'
-//   instead of 'description' for picture book pages.
+//   instead of 'description' for picture book pages.
 // - FIXED: 'syntax error at or near " "' by re-typing SQL queries to remove hidden non-breaking spaces.
 
 import { getDb } from '../db/database.js';
@@ -244,12 +244,23 @@ export const createBookCheckoutSession = async (req, res) => {
         const pool = await getDb();
         client = await pool.connect();
 
+        // ADDED LOGS FOR DEBUGGING
+        console.log(`[Checkout DEBUG] Connected to DB pool for book ${bookId}.`);
+
         const book = await getFullPictureBook(bookId, req.userId, client);
-        if (!book) return res.status(404).json({ message: "Project not found." });
+        if (!book) {
+            console.error(`[Checkout ERROR] Project not found for bookId: ${bookId} and userId: ${req.userId}`);
+            return res.status(404).json({ message: "Project not found." });
+        }
+        console.log(`[Checkout DEBUG] Successfully fetched book details for book ${bookId}. Book title: ${book.title}`);
 
         const selectedProductConfig = LULU_PRODUCT_CONFIGURATIONS.find(p => p.id === book.lulu_product_id);
-        if (!selectedProductConfig) return res.status(500).json({ message: "Picture book product configuration not found." });
-        
+        if (!selectedProductConfig) {
+            console.error(`[Checkout ERROR] Picture book product configuration not found for luluProductId: ${book.lulu_product_id}`);
+            return res.status(500).json({ message: "Picture book product configuration not found." });
+        }
+        console.log(`[Checkout DEBUG] Selected product configuration: ${selectedProductConfig.name}`);
+
         console.log(`[Checkout] Generating Picture Book PDFs...`);
         const { path: interiorPath, pageCount: trueContentPageCount } = await generateAndSavePictureBookPdf(book, book.timeline, selectedProductConfig);
         tempInteriorPdfPath = interiorPath;
@@ -392,7 +403,8 @@ export const createBookCheckoutSession = async (req, res) => {
 
         res.status(200).json({ url: session.url });
     } catch (error) {
-        console.error("Failed to create checkout session (Picture Book):", error.stack);
+        console.error("Failed to create checkout session (Picture Book):", error.message); // Changed to error.message
+        console.error("Stack trace:", error.stack); // Added full stack trace
         res.status(500).json({ message: "Failed to create checkout session." });
     } finally {
         if (client) client.release();
