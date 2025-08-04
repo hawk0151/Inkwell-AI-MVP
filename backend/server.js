@@ -1,3 +1,4 @@
+// backend/server.js
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
@@ -11,6 +12,9 @@ import dns from 'dns/promises';
 import { setupDatabase } from './src/db/setupDatabase.js';
 import { stripeWebhook } from './src/controllers/stripe.controller.js';
 import { createTestCheckout } from './src/controllers/test.controller.js';
+
+// NEW: Import shipping routes
+import shippingRoutes from './src/routes/shipping.routes.js'; // ADDED THIS LINE
 
 async function checkDnsResolution() {
     const luluUrl = process.env.LULU_API_BASE_URL;
@@ -126,6 +130,7 @@ const startServer = async () => {
     app.use('/api/social', socialBookRoutes);
     app.use('/api/feed', feedRoutes);
     app.use('/api/v1/analytics', analyticsRoutes);
+    app.use('/api/shipping', shippingRoutes); // ADDED THIS LINE
 
     app.get('/health-check-version', (req, res) => {
       res.json({ 

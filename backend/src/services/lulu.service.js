@@ -289,6 +289,72 @@ export const getPrintJobCosts = async (lineItems, shippingAddress, selectedShipp
     }
 };
 
+// NEW FUNCTION: Attempts to get all available shipping options from Lulu by trying common levels
+export const getLuluShippingOptionsAndCosts = async (podPackageId, pageCount, shippingAddress) => {
+    console.log(`[Lulu Service] Attempting to get all shipping options for SKU: ${podPackageId}, Page Count: ${pageCount}, Address:`, shippingAddress);
+
+    // Common Lulu shipping levels to try. Adjust if Lulu has different/new levels.
+    const COMMON_LULU_SHIPPING_LEVELS = ['MAIL', 'STANDARD', 'EXPEDITED', 'EXPRESS'];
+    const availableOptions = [];
+    let basePrintCost = 0;
+    let currency = 'USD'; // Default currency
+
+    const lineItems = [{
+        pod_package_id: podPackageId,
+        page_count: pageCount,
+        quantity: 1
+    }];
+
+    for (const level of COMMON_LULU_SHIPPING_LEVELS) {
+        try {
+            console.log(`[Lulu Service] Probing shipping level: ${level}`);
+            const response = await getPrintJobCosts(lineItems, shippingAddress, level);
+            
+            // Assuming the first line item's total_cost_incl_tax is the print cost
+            if (response.lineItemCosts && response.lineItemCosts.length > 0) {
+                basePrintCost = parseFloat(response.lineItemCosts[0].total_cost_incl_tax);
+            }
+
+            // Lulu API returns shipping_options as an array, even if only one was requested (via selectedShippingLevel)
+            // We need to find the one that matches our queried level.
+            const matchedShippingOption = response.shippingOptions.find(opt => opt.level === level);
+
+            if (matchedShippingOption) {
+                availableOptions.push({
+                    level: matchedShippingOption.level,
+                    name: matchedShippingOption.name,
+                    costUsd: parseFloat(matchedShippingOption.total_cost_incl_tax), // Shipping cost for this level
+                    estimatedDeliveryDate: matchedShippingOption.estimated_delivery_date,
+                    // Store other relevant details if needed
+                });
+                currency = response.currency; // Update currency from response
+            }
+            console.log(`[Lulu Service] Successfully retrieved option for level: ${level}`);
+        } catch (error) {
+            // Log the error but don't re-throw, as we expect some levels might not be available
+            // or might fail for specific regions/products.
+            console.warn(`[Lulu Service] Failed to get shipping cost for level '${level}':`, error.message || error);
+        }
+    }
+
+    // Filter out invalid costs (e.g., NaN or 0 if they indicate an error)
+    const validOptions = availableOptions.filter(option => !isNaN(option.costUsd) && option.costUsd > 0);
+
+    // Sort options by cost, cheapest first
+    validOptions.sort((a, b) => a.costUsd - b.costUsd);
+
+    if (validOptions.length === 0 && COMMON_LULU_SHIPPING_LEVELS.length > 0) {
+        console.warn(`[Lulu Service] No valid shipping options retrieved for SKU ${podPackageId} to address`, shippingAddress);
+    }
+
+    return {
+        shippingOptions: validOptions,
+        printCost: basePrintCost,
+        currency: currency
+    };
+};
+
+
 export const createLuluPrintJob = async (orderDetails, shippingInfo) => {
     try {
         const token = await getLuluAuthToken();
