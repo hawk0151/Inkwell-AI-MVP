@@ -1,3 +1,4 @@
+// backend/src/services/stripe.service.js
 import stripe from 'stripe';
 import { getDb } from '../db/database.js';
 import { createLuluPrintJob } from '../services/lulu.service.js';
@@ -5,22 +6,36 @@ import { randomUUID } from 'crypto';
 
 const stripeClient = stripe(process.env.STRIPE_SECRET_KEY);
 
-export const createStripeCheckoutSession = async (productDetails, userId, orderId, bookId, bookType) => {
+// MODIFIED: Added shippingAddress parameter
+export const createStripeCheckoutSession = async (productDetails, shippingAddress, userId, orderId, bookId, bookType) => {
     try {
         const session = await stripeClient.checkout.sessions.create({
             payment_method_types: ['card'],
+            // MODIFIED: Pre-fill customer email and shipping address details
+            customer_email: shippingAddress.email,
             shipping_address_collection: {
                 allowed_countries: ['AU', 'US', 'CA', 'GB', 'NZ'],
             },
+            shipping_options: [
+                {
+                    shipping_rate_data: {
+                        type: 'fixed_amount',
+                        fixed_amount: {
+                            amount: productDetails.priceInCents, // Use the total price from productDetails
+                            currency: 'usd', // Use USD as per your pricing structure
+                        },
+                        display_name: 'Shipping & Handling', // Generic name for the single rate
+                    },
+                },
+            ],
             line_items: [
                 {
                     price_data: {
-                        currency: 'aud',
+                        currency: 'usd', // MODIFIED: Changed to USD to match total price
                         product_data: {
                             name: productDetails.name,
                             description: productDetails.description,
                         },
-                        // --- MODIFIED: Use the final price in cents passed from the controller ---
                         unit_amount: productDetails.priceInCents,
                     },
                     quantity: 1,
@@ -85,7 +100,7 @@ const handleSuccessfulCheckout = async (session) => {
             postcode: fullSession.shipping_details.address.postal_code,
             country_code: fullSession.shipping_details.address.country,
             state_code: fullSession.shipping_details.address.state,
-            email: fullSessio.customer_details.email,
+            email: fullSession.customer_details.email,
             phone_number: fullSession.customer_details.phone || '000-000-0000',
         };
 
