@@ -14,7 +14,7 @@ import { stripeWebhook } from './src/controllers/stripe.controller.js';
 import { createTestCheckout } from './src/controllers/test.controller.js';
 
 // NEW: Import shipping routes
-import shippingRoutes from './src/routes/shipping.routes.js'; // ADDED THIS LINE
+import shippingRoutes from './src/routes/shipping.routes.js'; // MODIFIED: Added .js extension
 
 async function checkDnsResolution() {
     const luluUrl = process.env.LULU_API_BASE_URL;
