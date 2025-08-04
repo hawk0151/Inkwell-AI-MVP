@@ -11,9 +11,17 @@ import jsonwebtoken from 'jsonwebtoken';
 import path from 'path';
 import fs from 'fs/promises';
 
-// ADDED: Import JWT_QUOTE_SECRET from environment or define default
+const AUD_TO_USD_EXCHANGE_RATE = 0.66;
 const JWT_QUOTE_SECRET = process.env.JWT_QUOTE_SECRET || 'your_super_secret_jwt_quote_key_please_change_this_in_production';
-const AUD_TO_USD_EXCHANGE_RATE = 0.66; // Ensure this matches lulu.service.js
+
+// MODIFIED: Added FALLBACK_SHIPPING_OPTION constant to this file.
+const FALLBACK_SHIPPING_OPTION = {
+    level: 'FALLBACK_STANDARD',
+    name: 'Standard Shipping (Fallback)',
+    costUsd: 15.00, // Example fixed cost in USD
+    estimatedDeliveryDate: '7-21 business days',
+    isFallback: true
+};
 
 let AbortController;
 if (typeof globalThis.AbortController === 'function') {
@@ -167,7 +175,6 @@ export const getTextBooks = async (req, res) => {
     try {
         const pool = await getDb();
         client = await pool.connect();
-        // MODIFIED: Re-typed SQL query to remove hidden characters
         const booksResult = await client.query(`
 SELECT tb.id, tb.title, tb.last_modified, tb.lulu_product_id, tb.is_public, tb.cover_image_url, tb.total_chapters, tb.prompt_details
 FROM text_books tb
@@ -215,7 +222,6 @@ export const getTextBookDetails = async (req, res) => {
 
 export const createCheckoutSessionForTextBook = async (req, res) => {
     const { bookId } = req.params;
-    // MODIFIED: Expect selectedShippingLevel and quoteToken from request body
     const { shippingAddress, selectedShippingLevel, quoteToken } = req.body; 
     let client;
     let tempInteriorPdfPath = null;
@@ -233,10 +239,9 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
         email: shippingAddress.email ? shippingAddress.email.trim() : '',
     };
 
-    // Validate all final required shipping address fields
     if (!trimmedAddress.name || !trimmedAddress.street1 || !trimmedAddress.city ||
         !trimmedAddress.postcode || !trimmedAddress.country_code ||
-        !trimmedAddress.phone_number || !trimmedAddress.email || !selectedShippingLevel || !quoteToken) { // ADDED selectedShippingLevel and quoteToken validation
+        !trimmedAddress.phone_number || !trimmedAddress.email || !selectedShippingLevel || !quoteToken) {
         console.error("Missing required checkout fields or invalid request:", { trimmedAddress, selectedShippingLevel, quoteTokenPresent: !!quoteToken });
         const missingFields = [];
         if (!trimmedAddress.name) missingFields.push('name');
@@ -262,7 +267,6 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
     console.log(`[Checkout] Initiating checkout for book ${bookId} to country: ${trimmedAddress.country_code} with shipping level: ${selectedShippingLevel}`);
 
     try {
-        // VERIFY QUOTE TOKEN FIRST
         let decodedQuote;
         try {
             decodedQuote = jsonwebtoken.verify(quoteToken, JWT_QUOTE_SECRET);
@@ -272,17 +276,13 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
             return res.status(403).json({ message: 'Invalid or expired shipping quote. Please get a new quote.' });
         }
 
-        // Validate decoded quote against current request
         if (decodedQuote.bookId !== bookId || decodedQuote.bookType !== 'textBook' || decodedQuote.pageCount === undefined || decodedQuote.luluSku === undefined) {
             console.error('[Checkout ERROR] Quote token content mismatch:', { requestBookId: bookId, decoded: decodedQuote });
             return res.status(400).json({ message: 'Shipping quote details do not match the selected book.' });
         }
-        // Basic address matching for security (country and postcode should match)
         if (decodedQuote.shippingAddress.country_code !== trimmedAddress.country_code || 
             decodedQuote.shippingAddress.postcode !== trimmedAddress.postcode) {
             console.warn('[Checkout WARNING] Quote token address mismatch (country/postcode). Proceeding but noted:', { decodedAddress: decodedQuote.shippingAddress, currentAddress: trimmedAddress });
-            // Decide if this should be a hard error or just a warning based on your security needs.
-            // For now, we'll allow but warn. A stricter approach might return 400 here.
         }
 
         const pool = await getDb();
@@ -294,7 +294,6 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
         const selectedProductConfig = LULU_PRODUCT_CONFIGURATIONS.find(p => p.id === book.lulu_product_id);
         if (!selectedProductConfig) return res.status(400).json({ message: 'Invalid product ID.' });
 
-        // RE-GENERATE PDFs to ensure fresh content and accurate page count for final order
         console.log(`[Checkout] Re-generating PDFs for book ${bookId} for final order...`);
         const { path: interiorPath, pageCount: trueContentPageCount } = await generateAndSaveTextBookPdf(book, selectedProductConfig);
         tempInteriorPdfPath = interiorPath;
@@ -344,9 +343,7 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
         }];
 
         const luluShippingAddressForCost = {
-            // Use the address details from the original quote token for accurate cost calculation, if needed by Lulu,
-            // but primarily for country_code and postcode which impact pricing.
-            name: trimmedAddress.name, // Use the full address provided now, which should match or be more complete
+            name: trimmedAddress.name,
             street1: trimmedAddress.street1,
             street2: trimmedAddress.street2,
             city: trimmedAddress.city,
@@ -357,13 +354,47 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
             email: trimmedAddress.email,
         };
 
-        // Call getPrintJobCosts with the SELECTED shipping level
-        // This ensures we get the exact cost for the chosen option at the time of checkout.
-        const luluCostsResponse = await getPrintJobCosts(printCostLineItems, luluShippingAddressForCost, selectedShippingLevel); 
+        // MODIFIED: Check for fallback shipping level before calling Lulu
+        let luluCostsResponse;
+        let luluShippingCostUSD;
+        const isFallback = selectedShippingLevel === FALLBACK_SHIPPING_OPTION.level;
+        const PROFIT_MARGIN_USD = selectedProductConfig.basePrice - selectedProductConfig.basePrice * 0.5;
+
+        if (isFallback) {
+            console.log(`[Checkout] Using fallback shipping rate. Probing Lulu for print and fulfillment costs with a valid shipping level.`);
+            // We need a valid Lulu shipping level to get the base print/fulfillment costs
+            const validLuluLevelForProbe = 'MAIL';
+            try {
+                luluCostsResponse = await getPrintJobCosts(printCostLineItems, luluShippingAddressForCost, validLuluLevelForProbe);
+                luluShippingCostUSD = FALLBACK_SHIPPING_OPTION.costUsd; // Use our hardcoded cost, not Lulu's
+            } catch (luluError) {
+                console.error(`[Checkout] Error getting Lulu print/fulfillment cost during fallback: ${luluError.message}. Using dummy print/fulfillment costs.`);
+                // If even the probe for base costs fails, use a fallback cost for print too
+                luluCostsResponse = {
+                    lineItemCosts: [{ total_cost_incl_tax: (selectedProductConfig.basePrice / AUD_TO_USD_EXCHANGE_RATE) * 0.7 }], // Estimate 70% of base price
+                    fulfillmentCost: { total_cost_incl_tax: 0 }
+                };
+                luluShippingCostUSD = FALLBACK_SHIPPING_OPTION.costUsd;
+            }
+        } else {
+            // Standard (non-fallback) flow
+            try {
+                luluCostsResponse = await getPrintJobCosts(printCostLineItems, luluShippingAddressForCost, selectedShippingLevel);
+                const selectedShippingOption = luluCostsResponse.shippingOptions.find(opt => opt.level === selectedShippingLevel);
+                if (!selectedShippingOption) {
+                    throw new Error(`Selected shipping level '${selectedShippingLevel}' not found in Lulu response for final calculation.`);
+                }
+                const luluShippingCostAUD = parseFloat(selectedShippingOption.total_cost_incl_tax);
+                luluShippingCostUSD = parseFloat((luluShippingCostAUD * AUD_TO_USD_EXCHANGE_RATE).toFixed(4));
+            } catch (luluError) {
+                console.error(`[Checkout] Error fetching print costs from Lulu: ${luluError.message}. Error details:`, luluError.response?.data);
+                throw luluError;
+            }
+        }
 
         if (!luluCostsResponse?.lineItemCosts?.[0]?.total_cost_incl_tax) {
-            console.error("[Checkout] Lulu API response missing expected 'lineItemCosts[0].total_cost_incl_tax' structure or is empty/invalid type:", luluCostsResponse);
-            throw new Error("Failed to retrieve valid item print cost from Lulu API: Unexpected response structure or missing cost.");
+            console.error("[Checkout] Lulu API response missing expected structure:", luluCostsResponse);
+            throw new Error("Failed to retrieve valid item print cost from Lulu API.");
         }
         const luluPrintCostAUD = parseFloat(luluCostsResponse.lineItemCosts[0].total_cost_incl_tax);
         if (isNaN(luluPrintCostAUD) || luluPrintCostAUD <= 0) {
@@ -372,48 +403,32 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
         }
         console.log(`[Checkout] Lulu Print Cost (AUD): $${luluPrintCostAUD.toFixed(4)}`);
 
-        // Extract the selected shipping level cost from the response
-        const selectedShippingOption = luluCostsResponse.shippingOptions.find(opt => opt.level === selectedShippingLevel);
-        if (!selectedShippingOption) {
-            console.error(`[Checkout] Selected shipping level '${selectedShippingLevel}' not found in Lulu response for final calculation.`);
-            throw new Error(`Selected shipping option is not valid for this destination or product at final checkout.`);
-        }
-        const luluShippingCostAUD = parseFloat(selectedShippingOption.total_cost_incl_tax);
-        console.log(`[Checkout] Lulu Dynamic Shipping Cost (AUD) for level ${selectedShippingLevel}: $${luluShippingCostAUD.toFixed(4)}`);
-
         const luluFulfillmentCostAUD = parseFloat(luluCostsResponse.fulfillmentCost?.total_cost_incl_tax || 0);
         console.log(`[Checkout] Lulu Fulfillment Cost (AUD): $${luluFulfillmentCostAUD.toFixed(4)}`);
 
         const luluPrintCostUSD = parseFloat((luluPrintCostAUD * AUD_TO_USD_EXCHANGE_RATE).toFixed(4));
-        const luluShippingCostUSD = parseFloat((luluShippingCostAUD * AUD_TO_USD_EXCHANGE_RATE).toFixed(4));
         const luluFulfillmentCostUSD = parseFloat((luluFulfillmentCostAUD * AUD_TO_USD_EXCHANGE_RATE).toFixed(4));
         
-        // Your fixed profit margin (retained)
-        const PROFIT_MARGIN_USD = selectedProductConfig.basePrice - selectedProductConfig.basePrice * 0.5; // Example: 50% margin on basePrice
-
         const finalPriceDollars = parseFloat((luluPrintCostUSD + luluShippingCostUSD + luluFulfillmentCostUSD + PROFIT_MARGIN_USD).toFixed(4));
         const finalPriceInCents = Math.round(finalPriceDollars * 100);
 
-
         console.log(`[Checkout] Final Pricing Breakdown (Textbook):`);
         console.log(`  - Lulu Print Cost: $${luluPrintCostUSD.toFixed(2)} USD (from $${luluPrintCostAUD.toFixed(2)} AUD)`);
-        console.log(`  - Dynamic Shipping Cost (${selectedShippingLevel}): $${luluShippingCostUSD.toFixed(2)} USD (from $${luluShippingCostAUD.toFixed(2)} AUD)`);
+        console.log(`  - Dynamic Shipping Cost (${selectedShippingLevel}): $${luluShippingCostUSD.toFixed(2)} USD`); // Label now matches level
         console.log(`  - Fulfillment Cost: $${luluFulfillmentCostUSD.toFixed(2)} USD (from $${luluFulfillmentCostAUD.toFixed(2)} AUD)`);
         console.log(`  - Profit Margin: $${PROFIT_MARGIN_USD.toFixed(2)} USD`);
         console.log(`  -----------------------------------------`);
         console.log(`  - Total Price for Stripe: $${finalPriceDollars.toFixed(2)} USD (${finalPriceInCents} cents)`);
 
         const orderId = randomUUID();
-        // --- CRITICAL: Update INSERT statement for orders table to match new columns and dynamic shipping data ---
-        // The orders table was previously corrected to include 'shipping_level_selected' and 'lulu_fulfillment_cost_usd'
         const insertOrderSql = `
             INSERT INTO orders (
                 id, user_id, book_id, book_type, book_title, lulu_product_id, status,
                 total_price_usd, currency, interior_pdf_url, cover_pdf_url, created_at, actual_page_count, is_fallback,
                 lulu_print_cost_usd, lulu_shipping_cost_usd, profit_usd,
-                shipping_level_selected, lulu_fulfillment_cost_usd, -- NEW COLUMNS
+                shipping_level_selected, lulu_fulfillment_cost_usd,
                 stripe_session_id, lulu_order_id, lulu_job_id, lulu_job_status, order_date, updated_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)`;
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)`;
 
         await client.query(insertOrderSql, [
             orderId,                                  // $1
@@ -429,18 +444,18 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
             coverPdfUrl,                              // $11 (cover_pdf_url)
             new Date().toISOString(),                 // $12 (created_at)
             actualFinalPageCount,                     // $13 (actual_page_count)
-            isPageCountFallback,                      // $14 (is_fallback)
+            isFallback,                               // $14 (is_fallback) - MODIFIED
             luluPrintCostUSD,                         // $15 (lulu_print_cost_usd)
             luluShippingCostUSD,                      // $16 (lulu_shipping_cost_usd - changed from flat)
             PROFIT_MARGIN_USD,                        // $17 (profit_usd)
-            selectedShippingLevel,                    // $18 (shipping_level_selected - NEW)
-            luluFulfillmentCostUSD,                   // $19 (lulu_fulfillment_cost_usd - NEW)
+            selectedShippingLevel,                    // $18 (shipping_level_selected)
+            luluFulfillmentCostUSD,                   // $19 (lulu_fulfillment_cost_usd)
             null,                                     // $20 (stripe_session_id)
             null,                                     // $21 (lulu_order_id)
             null,                                     // $22 (lulu_job_id)
             null,                                     // $23 (lulu_job_status)
-            // new Date().toISOString(),                 // $22 (order_date - removed, now automatically assigned by db. or update if it exists for some reason.)
-            // new Date().toISOString()                  // $23 (updated_at - removed, now automatically assigned by db. or update if it exists for some reason.)
+            new Date().toISOString(),               // $24
+            new Date().toISOString()                // $25
         ]);
         console.log(`[Checkout] Created pending order record ${orderId}.`);
 
@@ -449,7 +464,7 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
         const session = await createStripeCheckoutSession(
             {
                 name: book.title,
-                description: `Inkwell AI Custom Book - ${selectedProductConfig.name} (${selectedShippingLevel} shipping)`, // Include shipping level in description
+                description: `Inkwell AI Custom Book - ${selectedProductConfig.name} (${selectedShippingLevel} shipping)`,
                 priceInCents: finalPriceInCents
             },
             req.userId, orderId, bookId, 'textBook'
@@ -472,7 +487,7 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
             }
         } else if (error.message.includes('shipping_address')) {
             detailedError = 'The shipping address provided is invalid. Please check all fields and ensure they are correct.';
-        } else if (error.message.includes('Quote token')) { // ADDED: Specific error handling for JWT issues
+        } else if (error.message.includes('Quote token')) {
             detailedError = error.message;
         }
         res.status(500).json({ message: 'Failed to create checkout session.', detailedError });
