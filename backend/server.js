@@ -13,8 +13,21 @@ import { setupDatabase } from './src/db/setupDatabase.js';
 import { stripeWebhook } from './src/controllers/stripe.controller.js';
 import { createTestCheckout } from './src/controllers/test.controller.js';
 
-// NEW: Import shipping routes
-import shippingRoutes from './src/api/shipping.routes.js'; // MODIFIED: Corrected path from 'routes' to 'api'
+import shippingRoutes from './src/api/shipping.routes.js';
+import orderRoutes from './src/api/order.routes.js';
+import pictureBookRoutes from './src/api/picturebook.routes.js';
+import textBookRoutes from './src/api/textbook.routes.js';
+import imageRoutes from './src/api/image.routes.js';
+import userRoutes from './src/api/user.routes.js';
+import analyticsRoutes from './src/api/analytics.routes.js';
+import profileRoutes from './src/api/profile.routes.js';
+import socialBookRoutes from './src/api/social.book.routes.js';
+import feedRoutes from './src/api/feed.routes.js';
+import storyRoutes from './src/api/story.routes.js';
+import productRoutes from './src/api/product.routes.js';
+import paypalRoutes from './src/api/paypal.routes.js';
+
+import { handleWebhook } from './src/controllers/order.controller.js'; // Assuming order.controller.js has a handleWebhook export
 
 async function checkDnsResolution() {
     const luluUrl = process.env.LULU_API_BASE_URL;
@@ -58,29 +71,7 @@ const startServer = async () => {
         credential: admin.credential.cert(serviceAccount)
     });
 
-    // --- REFINEMENT: More specific Firebase init log ---
     console.log('✅ Firebase initialized for project:', serviceAccount.project_id);
-
-    // --- REFINEMENT: Wrap dynamic imports in try/catch for robust startup ---
-    let orderRoutes, pictureBookRoutes, textBookRoutes, imageRoutes, userRoutes, analyticsRoutes, profileRoutes, socialBookRoutes, feedRoutes, storyRoutes, productRoutes, paypalRoutes, handleWebhook;
-    try {
-        paypalRoutes = (await import('./src/api/paypal.routes.js')).default;
-        storyRoutes = (await import('./src/api/story.routes.js')).default;
-        productRoutes = (await import('./src/api/product.routes.js')).default;
-        orderRoutes = (await import('./src/api/order.routes.js')).default;
-        pictureBookRoutes = (await import('./src/api/picturebook.routes.js')).default;
-        imageRoutes = (await import('./src/api/image.routes.js')).default;
-        textBookRoutes = (await import('./src/api/textbook.routes.js')).default;
-        userRoutes = (await import('./src/api/user.routes.js')).router;
-        analyticsRoutes = (await import('./src/api/analytics.routes.js')).router;
-        profileRoutes = (await import('./src/api/profile.routes.js')).default;
-        socialBookRoutes = (await import('./src/api/social.book.routes.js')).default;
-        feedRoutes = (await import('./src/api/feed.routes.js')).default;
-        handleWebhook = (await import('./src/controllers/order.controller.js')).handleWebhook;
-    } catch (err) {
-        console.error("❌ CRITICAL: Failed to import routes. Server cannot start.", err);
-        process.exit(1);
-    }
 
     const app = express();
     const PORT = process.env.PORT || 5001;
@@ -107,14 +98,18 @@ const startServer = async () => {
     console.log("DEBUG: CORS middleware applied with preflight handling.");
 
     app.use(morgan('dev'));
-    
-    app.post('/api/orders/webhook', express.raw({ type: 'application/json' }), handleWebhook);
-    app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), stripeWebhook);
 
+    // MODIFIED: This is the critical change. express.json() is now at the top
+    // to handle general API requests, and webhooks are handled by express.raw()
+    // on their specific routes.
     app.use(express.json());
     app.use(express.urlencoded({ extended: true }));
     app.use(cookieParser());
     app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
+    
+    // Webhook routes use express.raw to get the raw body for signature verification.
+    app.post('/api/orders/webhook', express.raw({ type: 'application/json' }), handleWebhook);
+    app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), stripeWebhook);
 
     // Route Definitions
     app.get('/api/test/create-checkout', createTestCheckout);
@@ -130,7 +125,7 @@ const startServer = async () => {
     app.use('/api/social', socialBookRoutes);
     app.use('/api/feed', feedRoutes);
     app.use('/api/v1/analytics', analyticsRoutes);
-    app.use('/api/shipping', shippingRoutes); // ADDED THIS LINE
+    app.use('/api/shipping', shippingRoutes);
 
     app.get('/health-check-version', (req, res) => {
       res.json({ 
