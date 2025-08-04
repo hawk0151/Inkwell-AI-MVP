@@ -22,10 +22,10 @@ import FeedPage from './pages/FeedPage.jsx';
 import ProfilePage from './pages/ProfilePage.jsx';
 import EditProfilePage from './pages/EditProfilePage.jsx';
 import AboutHowItWorksPage from './pages/AboutHowItWorksPage.jsx';
-import PolicyPage from './pages/PolicyPage.jsx';
+import PolicyPage from './pages/PolicyPage.jsx'; // Only PolicyPage needed for all legal docs
 // REMOVED: import TermsOfServicePage from './pages/TermsOfServicePage.jsx'; // <<< CRITICAL FIX: Removed direct import of old TermsOfServicePage
-import { Logo } from './components/common.jsx';
 // REMOVED: import ContactUsPage from './pages/ContactUsPage.jsx'; // Not adding this for now
+// REMOVED: Also implicitly removed any other direct policy page imports like PrivacyPolicy, ShippingPolicy, RefundPolicy, ReturnPolicy, if they existed.
 
 function ProtectedRoute({ children }) {
     const { currentUser } = useAuth();
@@ -37,12 +37,13 @@ const AppFooter = () => (
     <footer className="bg-black/20 mt-20 py-6 border-t border-white/10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center text-slate-400 text-sm">
             <div className="flex flex-wrap justify-center gap-x-6 gap-y-2">
-                <Link to="/terms-of-service" className="hover:text-white transition-colors">Terms of Service</Link>
-                <Link to="/privacy-policy" className="hover:text-white transition-colors">Privacy Policy</Link>
-                <Link to="/shipping-policy" className="hover:text-white transition-colors">Shipping Policy</Link>
-                <Link to="/refund-policy" className="hover:text-white transition-colors">Refund Policy</Link>
-                <Link to="/return-policy" className="hover:text-white transition-colors">Return Policy</Link>
-                {/* REMOVED: <Link to="/contact-us" className="hover:text-white transition-colors">Contact Us</Link> */}
+                {/* UPDATED: Links to single /policies route with hash segments for in-page navigation */}
+                <Link to="/policies#terms-of-service-section" className="hover:text-white transition-colors">Terms of Service</Link>
+                <Link to="/policies#privacy-policy-section" className="hover:text-white transition-colors">Privacy Policy</Link>
+                <Link to="/policies#shipping-policy-section" className="hover:text-white transition-colors">Shipping Policy</Link>
+                <Link to="/policies#refund-policy-section" className="hover:text-white transition-colors">Refund Policy</Link>
+                <Link to="/policies#return-policy-section" className="hover:text-white transition-colors">Return Policy</Link>
+                {/* Removed Contact Us link as per previous instruction */}
             </div>
             <p className="mt-4">&copy; {new Date().getFullYear()} Inkwell AI. All Rights Reserved.</p>
         </div>
@@ -253,12 +254,14 @@ function App() {
                     <Route path="/checkout-success" element={<CheckoutSuccessPage />} /> {/* This is the corrected route */}
                     <Route path="/cancel" element={<CancelPage />} />
                     {/* REMOVED: <Route path="/contact-us" element={<ContactUsPage />} /> */}
-                    {/* CRITICAL FIX: Route /terms-of-service to PolicyPage with type="terms" */}
-                    <Route path="/terms-of-service" element={<PolicyPage type="terms" />} /> 
-                    <Route path="/privacy-policy" element={<PolicyPage type="privacy" />} />
-                    <Route path="/shipping-policy" element={<PolicyPage type="shipping" />} />
-                    <Route path="/refund-policy" element={<PolicyPage type="refund" />} />
-                    <Route path="/return-policy" element={<PolicyPage type="return" />} />
+                    {/* CRITICAL FIX: Consolidated all policy routes to a single /policies path */}
+                    <Route path="/policies" element={<PolicyPage />} /> {/* New consolidated route */}
+                    {/* REMOVED: Old individual policy routes */}
+                    {/* <Route path="/terms-of-service" element={<PolicyPage type="terms" />} /> */}
+                    {/* <Route path="/privacy-policy" element={<PolicyPage type="privacy" />} /> */}
+                    {/* <Route path="/shipping-policy" element={<PolicyPage type="shipping" />} /> */}
+                    {/* <Route path="/refund-policy" element={<PolicyPage type="refund" />} /> */}
+                    {/* <Route path="/return-policy" element={<PolicyPage type="return" />} /> */}
                     <Route path="/feed" element={<ProtectedRoute><FeedPage /></ProtectedRoute>} />
                     <Route path="/profile/:username" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
                     <Route path="/profile/edit" element={<ProtectedRoute><EditProfilePage /></ProtectedRoute>} />
