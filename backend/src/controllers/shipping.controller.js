@@ -5,7 +5,7 @@ import { LULU_PRODUCT_CONFIGURATIONS, getLuluShippingOptionsAndCosts } from '../
 import { generateAndSaveTextBookPdf, generateAndSavePictureBookPdf, finalizePdfPageCount } from '../services/pdf.service.js';
 import jsonwebtoken from 'jsonwebtoken';
 import fs from 'fs/promises';
-import path from 'path'; // Needed for cleanup paths
+import path from 'path';
 
 const AUD_TO_USD_EXCHANGE_RATE = 0.66;
 const JWT_QUOTE_SECRET = process.env.JWT_QUOTE_SECRET || 'your_super_secret_jwt_quote_key_please_change_this_in_production';
@@ -20,7 +20,33 @@ const FALLBACK_SHIPPING_OPTION = {
     isFallback: true // Flag to indicate this is a fallback option
 };
 
-// ... (getFullTextBook, getFullPictureBook, VALID_ISO_COUNTRY_CODES remain the same) ...
+// MODIFIED: Added VALID_ISO_COUNTRY_CODES to this file
+const VALID_ISO_COUNTRY_CODES = new Set([
+    'AF', 'AX', 'AL', 'DZ', 'AS', 'AD', 'AO', 'AI', 'AQ', 'AG', 'AR', 'AM', 'AW', 'AU', 'AT', 'AZ', 'BS', 'BH', 'BD', 'BB', 'BY', 'BE', 'BZ', 'BJ', 'BM', 'BT', 'BO', 'BQ', 'BA', 'BW', 'BV', 'BR', 'IO', 'BN', 'BG', 'BF', 'BI', 'CV', 'KH', 'CM', 'CA', 'KY', 'CF', 'TD', 'CL', 'CN', 'CX', 'CC', 'CO', 'KM', 'CD', 'CG', 'CK', 'CR', 'CI', 'HR', 'CU', 'CW', 'CY', 'CZ', 'DK', 'DJ', 'DM', 'DO', 'EC', 'EG', 'SV', 'GQ', 'ER', 'EE', 'SZ', 'ET', 'FK', 'FO', 'FJ', 'FI', 'FR', 'GF', 'PF', 'TF', 'GA', 'GM', 'GE', 'DE', 'GH', 'GI', 'GR', 'GL', 'GD', 'GP', 'GU', 'GT', 'GG', 'GN', 'GW', 'GY', 'HT', 'HM', 'VA', 'HN', 'HK', 'HU', 'IS', 'IN', 'ID', 'IR', 'IQ', 'IE', 'IM', 'IL', 'IT', 'JM', 'JP', 'JE', 'JO', 'KZ', 'KE', 'KI', 'KP', 'KR', 'KW', 'KG', 'LA', 'LV', 'LB', 'LS', 'LR', 'LY', 'LI', 'LT', 'LU', 'MO', 'MG', 'MW', 'MY', 'MV', 'ML', 'MT', 'MH', 'MQ', 'MR', 'MU', 'YT', 'MX', 'FM', 'MD', 'MC', 'MN', 'ME', 'MS', 'MA', 'MZ', 'MM', 'NA', 'NR', 'NP', 'NL', 'NC', 'NZ', 'NI', 'NE', 'NG', 'NU', 'NF', 'MP', 'NO', 'OM', 'PK', 'PW', 'PS', 'PA', 'PG', 'PY', 'PE', 'PH', 'PN', 'PL', 'PT', 'PR', 'QA', 'MK', 'RO', 'RU', 'RW', 'RE', 'SA', 'SN', 'RS', 'SC', 'SL', 'SG', 'SX', 'SK', 'SI', 'SB', 'SO', 'ZA', 'GS', 'SS', 'ES', 'LK', 'SD', 'SR', 'SJ', 'SE', 'CH', 'SY', 'TW', 'TJ', 'TZ', 'TH', 'TL', 'TG', 'TK', 'TO', 'TT', 'TN', 'TR', 'TM', 'TC', 'TV', 'UG', 'UA', 'AE', 'GB', 'US', 'UM', 'UY', 'UZ', 'VU', 'VE', 'VN', 'VG', 'VI', 'WF', 'EH', 'YE', 'ZM', 'ZW'
+]);
+
+// Helper function to fetch full text book details (copied to avoid circular dependencies for now)
+async function getFullTextBook(bookId, userId, client) {
+    const bookResult = await client.query(`SELECT * FROM text_books WHERE id = $1 AND user_id = $2`, [bookId, userId]);
+    const book = bookResult.rows[0];
+    if (!book) return null;
+
+    const chaptersResult = await client.query(`SELECT * FROM chapters WHERE book_id = $1 ORDER BY chapter_number ASC`, [bookId]);
+    book.chapters = chaptersResult.rows;
+    return book;
+}
+
+// Helper function to fetch full picture book details (copied to avoid circular dependencies for now)
+async function getFullPictureBook(bookId, userId, client) {
+    const bookResult = await client.query(`SELECT * FROM picture_books WHERE id = $1 AND user_id = $2`, [bookId, userId]);
+    const book = bookResult.rows[0];
+    if (!book) return null;
+
+    const eventsSql = `SELECT *, uploaded_image_url, overlay_text, story_text, is_bold_story_text FROM timeline_events WHERE book_id = $1 ORDER BY page_number ASC`;
+    const timelineResult = await client.query(eventsSql, [bookId]);
+    book.timeline = timelineResult.rows;
+    return book;
+}
 
 export const getShippingQuotes = async (req, res) => {
     let client;
@@ -101,7 +127,6 @@ export const getShippingQuotes = async (req, res) => {
             );
         } catch (luluServiceError) {
             console.warn(`[Shipping Quotes WARNING] Direct Lulu service call failed. Falling back to fixed rate. Error: ${luluServiceError.message}`);
-            // If the Lulu service call itself throws an error, we catch it and proceed to fallback
             dynamicShippingResult = { shippingOptions: [], printCost: 0, currency: 'AUD' }; // Provide empty results to trigger fallback
         }
 
@@ -113,47 +138,37 @@ export const getShippingQuotes = async (req, res) => {
             finalShippingOptions = dynamicShippingResult.shippingOptions;
             luluPrintCostAUD = dynamicShippingResult.printCost;
         } else {
-            // Apply fallback logic if no dynamic options were retrieved
             console.warn(`[Shipping Quotes] No dynamic shipping options found for ${selectedProductConfig.luluSku} to ${trimmedAddress.country_code}. Applying fallback shipping rate.`);
             finalShippingOptions.push(FALLBACK_SHIPPING_OPTION);
-            // If Lulu didn't return a print cost, we might need a fallback for that too,
-            // or assume basePrice is primary. For now, use 0 if no dynamic result provided it.
-            luluPrintCostAUD = selectedProductConfig.basePrice / AUD_TO_USD_EXCHANGE_RATE; // Estimate print cost from base price if no Lulu response
+            luluPrintCostAUD = selectedProductConfig.basePrice / AUD_TO_USD_EXCHANGE_RATE;
             isFallbackApplied = true;
         }
 
-        // Convert print cost to USD for the quote
         const luluPrintCostUSD = parseFloat((luluPrintCostAUD * AUD_TO_USD_EXCHANGE_RATE).toFixed(2));
         const baseProductPriceUSD = selectedProductConfig.basePrice;
 
-        // Prepare shipping options for frontend with USD costs (if not already done for fallback option)
         const formattedShippingOptions = finalShippingOptions.map(option => ({
             level: option.level,
             name: option.name,
             costUsd: option.isFallback ? option.costUsd : parseFloat((option.costUsd * AUD_TO_USD_EXCHANGE_RATE).toFixed(2)),
             estimatedDeliveryDate: option.estimatedDeliveryDate,
-            isFallback: option.isFallback || false // Ensure fallback flag is carried over
+            isFallback: option.isFallback || false
         }));
         
         if (formattedShippingOptions.length === 0) {
-            // This should ideally not happen if FALLBACK_SHIPPING_OPTION is always pushed
             console.error(`[Shipping Quotes ERROR] No shipping options generated, even after fallback. This indicates a logic error.`);
             return res.status(500).json({ message: "Failed to generate any shipping options." });
         }
 
-
-        // Generate a signed quote token
         const payload = {
             bookId: bookId,
             bookType: bookType,
             luluSku: selectedProductConfig.luluSku,
             pageCount: actualFinalPageCount,
-            shippingAddress: trimmedAddress, // Store the address used for quoting
-            printCostAud: luluPrintCostAUD, // Store original AUD print cost
-            baseProductPriceUsd: baseProductPriceUSD, // Store the base product price
-            isFallback: isFallbackApplied, // Flag in the token itself
-            // Do NOT store individual shipping costs here, as they are dynamic and vary by level.
-            // The selectedShippingLevel from the frontend will be re-verified at final checkout.
+            shippingAddress: trimmedAddress,
+            printCostAud: luluPrintCostAUD,
+            baseProductPriceUsd: baseProductPriceUSD,
+            isFallback: isFallbackApplied,
         };
         const quoteToken = jsonwebtoken.sign(payload, JWT_QUOTE_SECRET, { expiresIn: `${QUOTE_TOKEN_EXPIRY_MINUTES}m` });
         const expiresAt = new Date(Date.now() + QUOTE_TOKEN_EXPIRY_MINUTES * 60 * 1000).toISOString();
