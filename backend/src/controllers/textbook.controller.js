@@ -7,7 +7,7 @@ import { LULU_PRODUCT_CONFIGURATIONS, getCoverDimensionsFromApi, getPrintOptions
 import { generateAndSaveTextBookPdf, generateCoverPdf, finalizePdfPageCount } from '../services/pdf.service.js';
 import { uploadPdfFileToCloudinary } from '../services/image.service.js';
 import { createStripeCheckoutSession } from '../services/stripe.service.js';
-import jsonwebtoken from 'jsonwebtoken'; // ADDED: Import jsonwebtoken
+import jsonwebtoken from 'jsonwebtoken';
 import path from 'path';
 import fs from 'fs/promises';
 
@@ -167,11 +167,12 @@ export const getTextBooks = async (req, res) => {
     try {
         const pool = await getDb();
         client = await pool.connect();
+        // MODIFIED: Re-typed SQL query to remove hidden characters
         const booksResult = await client.query(`
-            SELECT tb.id, tb.title, tb.last_modified, tb.lulu_product_id, tb.is_public, tb.cover_image_url, tb.total_chapters, tb.prompt_details
-            FROM text_books tb
-            WHERE tb.user_id = $1
-            ORDER BY tb.last_modified DESC`, [userId]);
+SELECT tb.id, tb.title, tb.last_modified, tb.lulu_product_id, tb.is_public, tb.cover_image_url, tb.total_chapters, tb.prompt_details
+FROM text_books tb
+WHERE tb.user_id = $1
+ORDER BY tb.last_modified DESC`, [userId]);
         const books = booksResult.rows;
         if (!printOptionsCache) {
             printOptionsCache = await getPrintOptions();
@@ -442,6 +443,8 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
             // new Date().toISOString()                  // $23 (updated_at - removed, now automatically assigned by db. or update if it exists for some reason.)
         ]);
         console.log(`[Checkout] Created pending order record ${orderId}.`);
+
+        const finalPriceInCentsForStripe = Math.round(finalPriceDollars * 100);
 
         const session = await createStripeCheckoutSession(
             {
