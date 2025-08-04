@@ -152,13 +152,14 @@ const policyContent = {
         content: (
             <>
                 <h2>1. Processing Time</h2>
+                {/* CRITICAL FIX: Wrapped list items in a proper <ul> tag */}
                 <ul>
                     <li><strong>Digital Products (e.g., AI-generated digital book files):</strong> Orders are typically processed instantly or within 24 hours. You will receive a download link via email or through your account dashboard.</li>
                     <li><strong>Physical Products (e.g., printed books):</strong> Each physical book is a custom, print-on-demand product. Please allow <strong>2–7 business days for production and quality control</strong> before your order is dispatched from our printing partner.</li>
                 </ul>
 
                 <h2>2. Carriers & Tracking</h2>
-                <p>We partner with reputable shipping carriers to deliver your orders. Once your physical book order has been dispatched, you will receive a shipping confirmation email containing your tracking number and a link to track your parcel. Our primary carriers include [List Carriers, e.g., Australia Post, FedEx, DHL, USPS, Royal Mail].</p>
+                <p>We partner with reputable shipping carriers to deliver your orders. Once your physical book order has been dispatched, you will receive a shipping confirmation email containing your tracking number and a link to track your parcel. Our primary carriers include **Australia Post, FedEx, DHL, USPS, Royal Mail**.</p> {/* Replaced placeholder */}
 
                 <h2>3. International Orders</h2>
                 <p>We proudly ship to select international destinations. Please be aware that for international orders, customers are solely responsible for any applicable customs fees, import duties, taxes, or brokerage charges that may be imposed by their country's customs authorities upon delivery. These charges are outside of our control and are not included in the item price or shipping cost.</p>
@@ -194,7 +195,7 @@ const policyContent = {
                 <ol>
                     <li>Email our support team at [support email] within <strong>14 days of delivery</strong>.</li>
                     <li>Include your order number, a detailed description of the issue, and clear photographic evidence of the damage or defect.</li>
-                    <li>Our team will assess your claim and may provide instructions for return (if applicable) or confirm a replacement.</li>
+                    <li>Our team will assess your claim and may provide further instructions, including a return shipping label if a physical return is required. Do not send products back without prior authorization.</li>
                 </ol>
                 <p>We aim to process valid refund requests within 7 business days of approval. Refunds will be issued to the original payment method. Replacements will be processed as new orders and shipped as quickly as possible.</p>
                 <p>For clarity, dissatisfaction with the *content* of a physical book (e.g., phrasing, plot points, AI-generated images) is not grounds for a refund once the purchase has been made and the product was delivered as previewed, as per our "Review Before Purchase" clause in the <Link to="/terms-of-service" className="text-indigo-400 hover:text-indigo-300 transition-colors">Terms of Service</Link>.</p>
@@ -241,44 +242,44 @@ const policyContent = {
                 <p>We aim to process returns and issue refunds/replacements within 7 business days of approval or receipt of the returned item.</p>
 
                 <h2>5. Content Dissatisfaction</h2>
-                <p>As per our "Review Before Purchase" clause in the <Link to="/terms-of-service" className="text-indigo-400 hover:text-indigo-300 transition-colors">Terms of Service</Link>, returns are not accepted based on subjective dissatisfaction with the AI-generated content (e.g., specific phrasing, plot elements, or image interpretations) once the purchase has been made and the product delivered as previewed.</p>
+                <p>As per our "Review Before Purchase" clause in the <Link to="/terms-of-service" className="text-indigo-400 hover:text-indigo-300 transition-colors">Terms of Service</Link>, returns are not accepted based on subjective dissatisfaction with the AI-generated content (e.g., specific phrasing, plot elements, or image interpretations) once the purchase has been made and the product was delivered as previewed.</p>
             </>
         ),
     },
 };
 
 function PolicyPage({ type = 'privacy' }) {
-  const data = policyContent[type];
+    const data = policyContent[type];
 
-  if (!data) {
-    return (
-        <div className="fade-in max-w-4xl mx-auto p-8 text-center">
-            <h1 className="text-4xl font-bold text-white mb-6">Policy Not Found</h1>
-            <p className="text-slate-300">The requested policy could not be found.</p>
-            <div className="mt-8">
-                <Link to="/" className="text-indigo-400 hover:text-indigo-300 transition-colors">
-                &larr; Back to Home
-                </Link>
-            </div>
-        </div>
-    );
-  }
+    if (!data) {
+        return (
+            <div className="fade-in max-w-4xl mx-auto p-8 text-center">
+                <h1 className="text-4xl font-bold text-white mb-6">Policy Not Found</h1>
+                <p className="text-slate-300">The requested policy could not be found.</p>
+                <div className="mt-8">
+                    <Link to="/" className="text-indigo-400 hover:text-indigo-300 transition-colors">
+                        &larr; Back to Home
+                    </Link>
+                </div>
+            </div>
+        );
+    }
 
-  const { title, content } = data;
+    const { title, content } = data;
 
-  return (
-    <div className="fade-in max-w-4xl mx-auto bg-slate-800/50 p-8 md:p-12 rounded-2xl shadow-xl border border-slate-700">
-      <h1 className="text-4xl font-bold font-serif text-white mb-6">{title}</h1>
-      <div className="prose prose-lg max-w-none text-slate-300 prose-headings:text-amber-500 prose-p:leading-relaxed">
-        {content}
-      </div>
-       <div className="mt-8 border-t border-slate-700 pt-6">
-         <Link to="/" className="text-indigo-400 hover:text-indigo-300 transition-colors">
-            &larr; Back to Home
-         </Link>
-       </div>
-    </div>
-  );
+    return (
+        <div className="fade-in max-w-4xl mx-auto bg-slate-800/50 p-8 md:p-12 rounded-2xl shadow-xl border border-slate-700">
+            <h1 className="text-4xl font-bold font-serif text-white mb-6">{title}</h1>
+            <div className="prose prose-lg max-w-none text-slate-300 prose-headings:text-amber-500 prose-p:leading-relaxed">
+                {content}
+            </div>
+               <div className="mt-8 border-t border-slate-700 pt-6">
+                 <Link to="/" className="text-indigo-400 hover:text-indigo-300 transition-colors">
+                     &larr; Back to Home
+                   </Link>
+               </div>
+        </div>
+    );
 }
 
 export default PolicyPage;
