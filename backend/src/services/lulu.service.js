@@ -285,6 +285,10 @@ export const getPrintJobCosts = async (lineItems, shippingAddress, selectedShipp
 
     } catch (error) {
         console.error("Error getting print job costs from Lulu:", error.response ? error.response.data : error.message);
+        // MODIFIED: Log full Lulu response data for better debugging
+        if (error.response && error.response.data) {
+            console.error("Lulu API Error Details:", JSON.stringify(error.response.data, null, 2));
+        }
         throw new Error(`Failed to get print job costs from Lulu.`);
     }
 };
@@ -305,10 +309,25 @@ export const getLuluShippingOptionsAndCosts = async (podPackageId, pageCount, sh
         quantity: 1
     }];
 
+    // MODIFIED: Construct a more complete dummy address for Lulu probing
+    // This helps satisfy Lulu's validation even if frontend only provides partial info initially
+    const fullShippingAddressForLuluProbe = {
+        name: shippingAddress.name || 'Dummy Name', // Provide a default if empty
+        street1: shippingAddress.street1 || '123 Dummy St', // Use provided street1, fallback to dummy
+        street2: shippingAddress.street2 || '', // Keep empty if not provided
+        city: shippingAddress.city || 'Dummy City', // Provide a default if empty
+        state_code: shippingAddress.state_code || '', // Can be empty if not applicable or provided
+        postcode: shippingAddress.postcode || '10001', // Provide a common dummy postcode if empty
+        country_code: shippingAddress.country_code, // This is expected to always be provided by frontend
+        phone_number: shippingAddress.phone_number || '555-555-5555', // Provide a dummy phone number
+        email: shippingAddress.email || 'dummy@example.com' // Provide a dummy email
+    };
+
+
     for (const level of COMMON_LULU_SHIPPING_LEVELS) {
         try {
             console.log(`[Lulu Service] Probing shipping level: ${level}`);
-            const response = await getPrintJobCosts(lineItems, shippingAddress, level);
+            const response = await getPrintJobCosts(lineItems, fullShippingAddressForLuluProbe, level); // Use enhanced dummy address
             
             // Assuming the first line item's total_cost_incl_tax is the print cost
             if (response.lineItemCosts && response.lineItemCosts.length > 0) {
@@ -323,7 +342,7 @@ export const getLuluShippingOptionsAndCosts = async (podPackageId, pageCount, sh
                 availableOptions.push({
                     level: matchedShippingOption.level,
                     name: matchedShippingOption.name,
-                    costUsd: parseFloat(matchedShippingOption.total_cost_incl_tax), // Shipping cost for this level
+                    costUsd: parseFloat(matchedShippingOption.total_cost_incl_tax), // Shipping cost for this level (still AUD at this stage in Lulu response)
                     estimatedDeliveryDate: matchedShippingOption.estimated_delivery_date,
                     // Store other relevant details if needed
                 });
@@ -333,7 +352,10 @@ export const getLuluShippingOptionsAndCosts = async (podPackageId, pageCount, sh
         } catch (error) {
             // Log the error but don't re-throw, as we expect some levels might not be available
             // or might fail for specific regions/products.
-            console.warn(`[Lulu Service] Failed to get shipping cost for level '${level}':`, error.message || error);
+            console.warn(`[Lulu Service] Failed to get shipping cost for level '${level}': ${error.message || error}`);
+            if (error.response && error.response.data) { // ADDED: Log full error data for the probe attempts
+                console.warn(`[Lulu Service] Lulu Probe Error Details for ${level}:`, JSON.stringify(error.response.data, null, 2));
+            }
         }
     }
 
