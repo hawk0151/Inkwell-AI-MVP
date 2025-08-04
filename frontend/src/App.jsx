@@ -253,7 +253,8 @@ function App() {
                     <Route path="/checkout-success" element={<CheckoutSuccessPage />} /> {/* This is the corrected route */}
                     <Route path="/cancel" element={<CancelPage />} />
                     {/* REMOVED: <Route path="/contact-us" element={<ContactUsPage />} /> */}
-                    <Route path="/terms-of-service" element={<TermsOfServicePage />} /> {/* <<< THIS ROUTE NEEDS TO BE UPDATED */}
+                    {/* CRITICAL FIX: Route /terms-of-service to PolicyPage with type="terms" */}
+                    <Route path="/terms-of-service" element={<PolicyPage type="terms" />} /> 
                     <Route path="/privacy-policy" element={<PolicyPage type="privacy" />} />
                     <Route path="/shipping-policy" element={<PolicyPage type="shipping" />} />
                     <Route path="/refund-policy" element={<PolicyPage type="refund" />} />
