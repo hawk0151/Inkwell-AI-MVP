@@ -12,21 +12,23 @@ const useDebouncedEffect = (callback, delay, deps) => {
     const callbackRef = useRef(callback);
     useEffect(() => { callbackRef.current = callback; }, [callback]);
     useEffect(() => {
-        if (deps.every(dep => dep !== undefined)) {
-            const handler = setTimeout(() => { callbackRef.current(); }, delay);
-            return () => { clearTimeout(handler); };
-        }
+        const handler = setTimeout(() => {
+            if (deps.every(dep => dep !== undefined)) {
+                callbackRef.current();
+            }
+        }, delay);
+        return () => { clearTimeout(handler); };
     }, [delay, ...deps]);
 };
 
 // Simplified list of valid countries for the dropdown
 const COUNTRIES = [
-    { code: 'US', name: 'United States' },
-    { code: 'AU', name: 'Australia' },
-    { code: 'GB', name: 'United Kingdom' },
-    { code: 'CA', name: 'Canada' },
-    { code: 'MX', name: 'Mexico' },
-    { code: 'NZ', name: 'New Zealand' },
+    { code: 'US', name: 'United States', stateRequired: true },
+    { code: 'AU', name: 'Australia', stateRequired: true },
+    { code: 'GB', name: 'United Kingdom', stateRequired: false },
+    { code: 'CA', name: 'Canada', stateRequired: true },
+    { code: 'MX', name: 'Mexico', stateRequired: false },
+    { code: 'NZ', name: 'New Zealand', stateRequired: false },
 ];
 
 // --- Sub-component: Chapter (Accordion for displaying story chapters) ---
@@ -115,17 +117,10 @@ const PromptForm = ({ isLoading, onSubmit, productName }) => {
 
 // --- MODIFIED SUB-COMPONENT: Production-ready multi-step Checkout Modal ---
 const CheckoutModal = ({ isOpen, onClose, bookId, bookType, onSubmit }) => {
+    // We now have a single, canonical address state for the entire modal
     const [checkoutStep, setCheckoutStep] = useState('shipping_input');
-    const [fullShippingAddress, setFullShippingAddress] = useState({
-        name: '',
-        street1: '',
-        street2: '',
-        city: '',
-        state_code: '',
-        postcode: '',
-        country_code: '',
-        phone_number: '',
-        email: '',
+    const [shippingAddress, setShippingAddress] = useState({
+        name: '', street1: '', street2: '', city: '', state_code: '', postcode: '', country_code: '', phone_number: '', email: ''
     });
     const [formErrors, setFormErrors] = useState({});
     const [shippingOptions, setShippingOptions] = useState([]);
@@ -139,38 +134,45 @@ const CheckoutModal = ({ isOpen, onClose, bookId, bookType, onSubmit }) => {
     const buttonClasses = "bg-green-600 text-white font-bold py-2 px-6 rounded-lg hover:bg-green-700 disabled:bg-green-300 transition";
 
     const handleFullAddressChange = (e) => {
-        setFullShippingAddress(prev => ({ ...prev, [e.target.name]: e.target.value }));
+        setShippingAddress(prev => ({ ...prev, [e.target.name]: e.target.value }));
         setFormErrors({});
     };
 
     const validateFullAddressForm = () => {
         const errors = {};
-        if (!fullShippingAddress.name.trim()) errors.name = 'Full Name is required.';
-        if (!fullShippingAddress.street1.trim()) errors.street1 = 'Street Address is required.';
-        if (!fullShippingAddress.city.trim()) errors.city = 'City is required.';
-        if (!fullShippingAddress.postcode.trim()) errors.postcode = 'Postal code is required.';
-        if (!fullShippingAddress.country_code.trim()) errors.country_code = 'Country is required.';
-        if (!fullShippingAddress.email.trim() || !fullShippingAddress.email.includes('@')) errors.email = 'Valid email is required.';
-        if (!fullShippingAddress.phone_number.trim()) errors.phone_number = 'Phone number is required.';
+        const selectedCountry = COUNTRIES.find(c => c.code === shippingAddress.country_code);
+
+        if (!shippingAddress.name.trim()) errors.name = 'Full Name is required.';
+        if (!shippingAddress.street1.trim()) errors.street1 = 'Street Address is required.';
+        if (!shippingAddress.city.trim()) errors.city = 'City is required.';
+        if (!shippingAddress.postcode.trim()) errors.postcode = 'Postal code is required.';
+        if (!shippingAddress.country_code.trim()) errors.country_code = 'Country is required.';
+        if (selectedCountry?.stateRequired && !shippingAddress.state_code.trim()) errors.state_code = 'State/Province is required for this country.';
+        if (!shippingAddress.email.trim() || !shippingAddress.email.includes('@')) errors.email = 'Valid email is required.';
+        if (!shippingAddress.phone_number.trim()) errors.phone_number = 'Phone number is required.';
+
         setFormErrors(errors);
         return Object.keys(errors).length === 0;
     };
-
+    
+    // The main function to fetch quotes. Now uses the full address directly.
     const fetchShippingQuotes = useCallback(async () => {
-        if (!bookId || !validateFullAddressForm()) {
-            setModalError('Please fill out the complete shipping address before getting quotes.');
+        if (!bookId) {
+            setModalError('Missing book ID. Cannot get shipping quotes.');
             return;
         }
+
         setIsLoadingOptions(true);
         setModalError(null);
         setShippingOptions([]);
         setSelectedShippingLevel(null);
         setQuoteDetails(null);
+        
         try {
             const response = await apiClient.post('/shipping/quotes', {
                 bookId,
                 bookType,
-                shippingAddress: fullShippingAddress,
+                shippingAddress, // Send the full, real address from state
             });
             setShippingOptions(response.data.shipping_options);
             setQuoteDetails({
@@ -192,39 +194,37 @@ const CheckoutModal = ({ isOpen, onClose, bookId, bookType, onSubmit }) => {
         } finally {
             setIsLoadingOptions(false);
         }
-    }, [bookId, bookType, fullShippingAddress]);
-    
-    useEffect(() => {
-        if (isOpen && checkoutStep === 'shipping_input' && fullShippingAddress.country_code && validateFullAddressForm()) {
-            fetchShippingQuotes();
-        }
-    }, [isOpen, checkoutStep, fullShippingAddress, fetchShippingQuotes]);
+    }, [bookId, bookType, shippingAddress]);
 
-    const handleProceedToNextStep = async () => {
+    // MODIFIED: The button click is now the explicit trigger for fetching options
+    const handleGetOptions = async (e) => {
+        e.preventDefault(); // Prevents default form submission
         setModalError(null);
-        setFormErrors({});
-
-        if (checkoutStep === 'shipping_input') {
+        if (validateFullAddressForm()) {
             await fetchShippingQuotes();
-        } else if (checkoutStep === 'shipping_options') {
-            if (!selectedShippingLevel) {
-                setFormErrors({ general: 'Please select a shipping option.' });
-                setModalError('Please select a shipping option to proceed.');
-                return;
+        } else {
+            setModalError("Please correct the errors in the shipping address form.");
+        }
+    };
+
+    const handleProceedToPayment = async () => {
+        setModalError(null);
+        if (!selectedShippingLevel) {
+            setModalError('Please select a shipping option to proceed.');
+            return;
+        }
+        setIsProcessingCheckout(true);
+        try {
+            const finalShippingOption = shippingOptions.find(opt => opt.level === selectedShippingLevel);
+            if (!finalShippingOption || !quoteDetails || !quoteDetails.quote_token) {
+                throw new Error("Missing shipping option details or quote token for checkout.");
             }
-            setIsProcessingCheckout(true);
-            try {
-                const finalShippingOption = shippingOptions.find(opt => opt.level === selectedShippingLevel);
-                if (!finalShippingOption || !quoteDetails || !quoteDetails.quote_token) {
-                    throw new Error("Missing shipping option details or quote token for checkout.");
-                }
-                await onSubmit(fullShippingAddress, selectedShippingLevel, quoteDetails.quote_token);
-            } catch (err) {
-                console.error('handleProceedToNextStep (Final Checkout): Could not proceed to checkout:', err);
-                setModalError(err.response?.data?.detailedError || err.response?.data?.message || 'Could not proceed to checkout. Please try again.');
-            } finally {
-                setIsProcessingCheckout(false);
-            }
+            await onSubmit(shippingAddress, selectedShippingLevel, quoteDetails.quote_token);
+        } catch (err) {
+            console.error('handleProceedToPayment (Final Checkout): Could not proceed to checkout:', err);
+            setModalError(err.response?.data?.detailedError || err.response?.data?.message || 'Could not proceed to checkout. Please try again.');
+        } finally {
+            setIsProcessingCheckout(false);
         }
     };
 
@@ -242,30 +242,61 @@ const CheckoutModal = ({ isOpen, onClose, bookId, bookType, onSubmit }) => {
             return (
                 <>
                     <h3 className="text-xl font-semibold text-white mb-4">Enter Full Shipping Details</h3>
-                    <p className="text-sm text-slate-300 mb-4">These details are used to get an accurate shipping quote and for your final payment via Stripe.</p>
-                    <form onSubmit={(e) => { e.preventDefault(); handleProceedToNextStep(); }} className="space-y-5">
-                        <div><label htmlFor="fullName" className="block text-sm font-medium text-slate-300 mb-1">Full Name</label>
-                            <input type="text" id="fullName" name="name" value={fullShippingAddress.name} onChange={handleFullAddressChange} placeholder="John Doe" required className={inputClasses} />
+                    <p className="text-sm text-slate-300 mb-4">These details are used to get an accurate shipping quote.</p>
+                    <form onSubmit={handleGetOptions} className="space-y-5">
+                        <div>
+                            <label htmlFor="fullName" className="block text-sm font-medium text-slate-300 mb-1">Full Name</label>
+                            <input type="text" id="fullName" name="name" value={shippingAddress.name} onChange={handleFullAddressChange} placeholder="John Doe" required className={inputClasses} />
                             {formErrors.name && <p className="text-red-400 text-xs mt-1">{formErrors.name}</p>}
                         </div>
-                        <div><label htmlFor="email" className="block text-sm font-medium text-slate-300 mb-1">Email</label>
-                            <input type="email" id="email" name="email" value={fullShippingAddress.email} onChange={handleFullAddressChange} placeholder="john.doe@example.com" required className={inputClasses} />
+                        <div>
+                            <label htmlFor="email" className="block text-sm font-medium text-slate-300 mb-1">Email</label>
+                            <input type="email" id="email" name="email" value={shippingAddress.email} onChange={handleFullAddressChange} placeholder="john.doe@example.com" required className={inputClasses} />
                             {formErrors.email && <p className="text-red-400 text-xs mt-1">{formErrors.email}</p>}
                         </div>
-                        <div><label htmlFor="phone_number" className="block text-sm font-medium text-slate-300 mb-1">Phone Number</label>
-                            <input type="tel" id="phone_number" name="phone_number" value={fullShippingAddress.phone_number} onChange={handleFullAddressChange} placeholder="555-123-4567" required className={inputClasses} />
+                        <div>
+                            <label htmlFor="phone_number" className="block text-sm font-medium text-slate-300 mb-1">Phone Number</label>
+                            <input type="tel" id="phone_number" name="phone_number" value={shippingAddress.phone_number} onChange={handleFullAddressChange} placeholder="555-123-4567" required className={inputClasses} />
                             {formErrors.phone_number && <p className="text-red-400 text-xs mt-1">{formErrors.phone_number}</p>}
                         </div>
-                        <div><label htmlFor="country_code" className="block text-sm font-medium text-slate-300 mb-1">Country</label>
-                            <select id="country_code" name="country_code" value={fullShippingAddress.country_code} onChange={handleFullAddressChange} required className={inputClasses}>
+                        <div>
+                            <label htmlFor="country_code" className="block text-sm font-medium text-slate-300 mb-1">Country</label>
+                            <select id="country_code" name="country_code" value={shippingAddress.country_code} onChange={handleFullAddressChange} required className={inputClasses}>
                                 <option value="">Select a country</option>
                                 {COUNTRIES.map(c => (<option key={c.code} value={c.code}>{c.name}</option>))}
                             </select>
                             {formErrors.country_code && <p className="text-red-400 text-xs mt-1">{formErrors.country_code}</p>}
                         </div>
-                        <button type="submit" disabled={isLoadingOptions} className={`${buttonClasses} w-full`}>
-                            {isLoadingOptions ? 'Getting Shipping Options...' : 'Get Shipping Options'}
-                        </button>
+                        <div>
+                            <label htmlFor="postcode" className="block text-sm font-medium text-slate-300 mb-1">Postal Code</label>
+                            <input type="text" id="postcode" name="postcode" value={shippingAddress.postcode} onChange={handleFullAddressChange} placeholder="12345" required className={inputClasses} />
+                            {formErrors.postcode && <p className="text-red-400 text-xs mt-1">{formErrors.postcode}</p>}
+                        </div>
+                        <div>
+                            <label htmlFor="state_code" className="block text-sm font-medium text-slate-300 mb-1">State/Province</label>
+                            <input type="text" id="state_code" name="state_code" value={shippingAddress.state_code} onChange={handleFullAddressChange} placeholder="NY" className={inputClasses} />
+                            {formErrors.state_code && <p className="text-red-400 text-xs mt-1">{formErrors.state_code}</p>}
+                        </div>
+                        <div>
+                            <label htmlFor="city" className="block text-sm font-medium text-slate-300 mb-1">City</label>
+                            <input type="text" id="city" name="city" value={shippingAddress.city} onChange={handleFullAddressChange} placeholder="Springfield" required className={inputClasses} />
+                            {formErrors.city && <p className="text-red-400 text-xs mt-1">{formErrors.city}</p>}
+                        </div>
+                        <div>
+                            <label htmlFor="street1" className="block text-sm font-medium text-slate-300 mb-1">Street Address 1</label>
+                            <input type="text" id="street1" name="street1" value={shippingAddress.street1} onChange={handleFullAddressChange} placeholder="123 Main St" required className={inputClasses} />
+                            {formErrors.street1 && <p className="text-red-400 text-xs mt-1">{formErrors.street1}</p>}
+                        </div>
+                        <div>
+                            <label htmlFor="street2" className="block text-sm font-medium text-slate-300 mb-1">Street Address 2 (Optional)</label>
+                            <input type="text" id="street2" name="street2" value={shippingAddress.street2} onChange={handleFullAddressChange} placeholder="Apt 4B" className={inputClasses} />
+                        </div>
+                        <div className="mt-6 flex items-center justify-end space-x-4">
+                            <button type="button" onClick={onClose} className="text-slate-400 hover:text-white transition text-lg">Cancel</button>
+                            <button type="submit" disabled={isLoadingOptions || !validateFullAddressForm()} className={`${buttonClasses} text-lg`}>
+                                {isLoadingOptions ? 'Getting Shipping Options...' : 'Get Shipping Options'}
+                            </button>
+                        </div>
                     </form>
                 </>
             );
@@ -292,8 +323,8 @@ const CheckoutModal = ({ isOpen, onClose, bookId, bookType, onSubmit }) => {
                         </div>
                     )}
                     <div className="mt-8 flex items-center justify-end space-x-4">
-                        <button type="button" onClick={() => { setCheckoutStep('shipping_input'); setShippingOptions([]); setQuoteDetails(null); }} className="text-slate-400 hover:text-white transition text-lg">Go Back</button>
-                        <button onClick={handleProceedToNextStep} disabled={isProcessingCheckout || !selectedShippingLevel} className={`${buttonClasses} text-lg`}>
+                        <button type="button" onClick={() => setCheckoutStep('shipping_input')} className="text-slate-400 hover:text-white transition text-lg">Go Back</button>
+                        <button onClick={handleProceedToPayment} disabled={isProcessingCheckout || !selectedShippingLevel} className={`${buttonClasses} text-lg`}>
                             {isProcessingCheckout ? 'Processing...' : 'Proceed to Payment'}
                         </button>
                     </div>
@@ -310,15 +341,42 @@ const CheckoutModal = ({ isOpen, onClose, bookId, bookType, onSubmit }) => {
                             className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center z-50 p-4" onClick={onClose}>
                     <motion.div initial={{ scale: 0.9, y: -20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }}
                                 className="bg-slate-800 rounded-3xl shadow-2xl border border-slate-700 w-full max-w-md p-8" onClick={(e) => e.stopPropagation()}>
-                        <div className="space-y-5">
-                            {renderFormContent()}
-                        </div>
+                        <h2 className="text-3xl font-bold text-white mb-4">
+                            {checkoutStep === 'shipping_input' && 'Enter Full Shipping Details'}
+                            {checkoutStep === 'shipping_options' && 'Select Shipping Option'}
+                        </h2>
+                        <p className="text-slate-300 mb-6 text-base">
+                            {checkoutStep === 'shipping_input' && 'These details are used to get an accurate shipping quote.'}
+                            {checkoutStep === 'shipping_options' && 'Choose a shipping method. Prices are estimates and finalized at checkout.'}
+                        </p>
+                        {modalError && <Alert type="error" message={modalError} onClose={() => setModalError(null)} className="mb-4" />}
+                        {isLoadingOptions && <LoadingSpinner text="Getting shipping options..." className="my-4" />}
+                        {isProcessingCheckout && <LoadingSpinner text="Processing checkout..." className="my-4" />}
+
+                        {renderFormContent()}
+                        
+                        {currentTotalDisplayPrice !== null && checkoutStep === 'shipping_options' && (
+                            <p className="text-lg font-bold text-white mt-4 text-center">
+                                Total Estimated Price: ${currentTotalDisplayPrice.toFixed(2)} USD
+                                {quoteDetails?.expires_at && (
+                                    <span className="block text-sm text-slate-400 font-normal">
+                                        Quote valid until: {new Date(quoteDetails.expires_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true })}
+                                    </span>
+                                )}
+                                {selectedShippingLevel && (
+                                    <span className="block text-sm text-slate-400 font-normal mt-1">
+                                        (Print: ${quoteDetails.print_cost_usd.toFixed(2)}, Shipping: {shippingOptions.find(opt => opt.level === selectedShippingLevel)?.costUsd?.toFixed(2)})
+                                    </span>
+                                )}
+                            </p>
+                        )}
                     </motion.div>
                 </motion.div>
             )}
         </AnimatePresence>
     );
 };
+
 
 // --- Sub-component: FauxReview ---
 const FauxReview = ({ quote, author, avatar }) => (
