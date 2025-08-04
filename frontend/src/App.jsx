@@ -23,7 +23,7 @@ import ProfilePage from './pages/ProfilePage.jsx';
 import EditProfilePage from './pages/EditProfilePage.jsx';
 import AboutHowItWorksPage from './pages/AboutHowItWorksPage.jsx';
 import PolicyPage from './pages/PolicyPage.jsx';
-import TermsOfServicePage from './pages/TermsOfServicePage.jsx';
+// REMOVED: import TermsOfServicePage from './pages/TermsOfServicePage.jsx'; // <<< CRITICAL FIX: Removed direct import of old TermsOfServicePage
 import { Logo } from './components/common.jsx';
 // REMOVED: import ContactUsPage from './pages/ContactUsPage.jsx'; // Not adding this for now
 
@@ -253,7 +253,7 @@ function App() {
                     <Route path="/checkout-success" element={<CheckoutSuccessPage />} /> {/* This is the corrected route */}
                     <Route path="/cancel" element={<CancelPage />} />
                     {/* REMOVED: <Route path="/contact-us" element={<ContactUsPage />} /> */}
-                    <Route path="/terms-of-service" element={<TermsOfServicePage />} />
+                    <Route path="/terms-of-service" element={<TermsOfServicePage />} /> {/* <<< THIS ROUTE NEEDS TO BE UPDATED */}
                     <Route path="/privacy-policy" element={<PolicyPage type="privacy" />} />
                     <Route path="/shipping-policy" element={<PolicyPage type="shipping" />} />
                     <Route path="/refund-policy" element={<PolicyPage type="refund" />} />
