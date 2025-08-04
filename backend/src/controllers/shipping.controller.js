@@ -11,7 +11,7 @@ const AUD_TO_USD_EXCHANGE_RATE = 0.66;
 const JWT_QUOTE_SECRET = process.env.JWT_QUOTE_SECRET || 'your_super_secret_jwt_quote_key_please_change_this_in_production';
 const QUOTE_TOKEN_EXPIRY_MINUTES = 10;
 
-// NEW: Define a fallback shipping option
+// MODIFIED: Added FALLBACK_SHIPPING_OPTION constant
 const FALLBACK_SHIPPING_OPTION = {
     level: 'FALLBACK_STANDARD',
     name: 'Standard Shipping (Fallback)',
@@ -55,13 +55,20 @@ export const getShippingQuotes = async (req, res) => {
     const userId = req.userId;
 
     const trimmedAddress = {
-        country_code: shippingAddress?.country_code?.trim().toUpperCase() || '',
+        name: shippingAddress?.name?.trim() || '',
+        street1: shippingAddress?.street1?.trim() || '',
+        street2: shippingAddress?.street2?.trim() || '',
+        city: shippingAddress?.city?.trim() || '',
+        state_code: shippingAddress?.state_code?.trim() || '',
         postcode: shippingAddress?.postcode?.trim() || '',
-        street1: shippingAddress?.street1?.trim() || ''
+        country_code: shippingAddress?.country_code?.trim().toUpperCase() || '',
+        phone_number: shippingAddress?.phone_number?.trim() || '',
+        email: shippingAddress?.email?.trim() || ''
     };
 
-    if (!bookId || !bookType || !trimmedAddress.country_code) {
-        return res.status(400).json({ message: "Book ID, book type, and country code are required." });
+    // MODIFIED: Validation now requires all fields for an accurate quote
+    if (!bookId || !bookType || !trimmedAddress.country_code || !trimmedAddress.name || !trimmedAddress.street1 || !trimmedAddress.city || !trimmedAddress.postcode) {
+        return res.status(400).json({ message: "Book ID, book type, and a full shipping address (name, street1, city, postcode, country_code) are required." });
     }
     if (!['textBook', 'pictureBook'].includes(bookType)) {
         return res.status(400).json({ message: "Invalid book type provided. Must be 'textBook' or 'pictureBook'." });
@@ -70,7 +77,7 @@ export const getShippingQuotes = async (req, res) => {
         return res.status(400).json({ message: `Invalid country code: ${trimmedAddress.country_code}. Please use a valid ISO Alpha-2 code.` });
     }
 
-    console.log(`[Shipping Quotes] Request for book ${bookId} (${bookType}) to country: ${trimmedAddress.country_code}, postcode: ${trimmedAddress.postcode || 'N/A'}`);
+    console.log(`[Shipping Quotes] Request for book ${bookId} (${bookType}) to address:`, trimmedAddress);
 
     try {
         const pool = await getDb();
@@ -120,10 +127,11 @@ export const getShippingQuotes = async (req, res) => {
 
         let dynamicShippingResult;
         try {
+            // MODIFIED: Pass the full, real address directly
             dynamicShippingResult = await getLuluShippingOptionsAndCosts(
                 selectedProductConfig.luluSku,
                 actualFinalPageCount,
-                trimmedAddress
+                trimmedAddress // Use the full, real address
             );
         } catch (luluServiceError) {
             console.warn(`[Shipping Quotes WARNING] Direct Lulu service call failed. Falling back to fixed rate. Error: ${luluServiceError.message}`);
@@ -165,7 +173,7 @@ export const getShippingQuotes = async (req, res) => {
             bookType: bookType,
             luluSku: selectedProductConfig.luluSku,
             pageCount: actualFinalPageCount,
-            shippingAddress: trimmedAddress,
+            shippingAddress: trimmedAddress, // Store the full, real address used for quoting
             printCostAud: luluPrintCostAUD,
             baseProductPriceUsd: baseProductPriceUSD,
             isFallback: isFallbackApplied,

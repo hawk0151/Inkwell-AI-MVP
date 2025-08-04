@@ -293,7 +293,7 @@ export const getPrintJobCosts = async (lineItems, shippingAddress, selectedShipp
     }
 };
 
-// NEW FUNCTION: Attempts to get all available shipping options from Lulu by trying common levels
+// MODIFIED: Simplified to use the provided full address directly, no dummy address generation
 export const getLuluShippingOptionsAndCosts = async (podPackageId, pageCount, shippingAddress) => {
     console.log(`[Lulu Service] Attempting to get all shipping options for SKU: ${podPackageId}, Page Count: ${pageCount}, Address:`, shippingAddress);
 
@@ -303,58 +303,7 @@ export const getLuluShippingOptionsAndCosts = async (podPackageId, pageCount, sh
 
     const availableOptions = [];
     let basePrintCost = 0;
-    let currency = 'USD'; // Default currency (will be updated by Lulu response)
-
-    // Helper map for common dummy address details per country for Lulu probing
-    const COMMON_DUMMY_ADDRESS_DETAILS = {
-        'AU': {
-            city: 'Sydney',
-            postcode: '2000',
-            state_code: 'NSW' // Corrected: Specific state for Australia
-        },
-        'US': {
-            city: 'New York',
-            postcode: '10001',
-            state_code: 'NY'
-        },
-        'CA': {
-            city: 'Toronto',
-            postcode: 'M5V 2H1',
-            state_code: 'ON'
-        },
-        'GB': {
-            city: 'London',
-            postcode: 'SW1A 0AA',
-            state_code: '' // UK generally doesn't require state_code for all postcodes
-        },
-        'NZ': {
-            city: 'Auckland',
-            postcode: '1010',
-            state_code: ''
-        },
-        'MX': {
-            city: 'Mexico City',
-            postcode: '01000',
-            state_code: 'CMX'
-        }
-        // Add more as needed for other supported countries
-    };
-
-    const selectedCountryCode = shippingAddress.country_code;
-    const dummyDetails = COMMON_DUMMY_ADDRESS_DETAILS[selectedCountryCode] || {};
-
-    const fullShippingAddressForLuluProbe = {
-        name: shippingAddress.name || 'Dummy Customer',
-        street1: shippingAddress.street1 || dummyDetails.street1 || '123 Test St',
-        street2: shippingAddress.street2 || '',
-        city: shippingAddress.city || dummyDetails.city || 'Anytown',
-        state_code: shippingAddress.state_code || dummyDetails.state_code || '', // Prioritize provided state_code, then country-specific dummy, then empty
-        postcode: shippingAddress.postcode || dummyDetails.postcode || '90210',
-        country_code: selectedCountryCode,
-        phone_number: shippingAddress.phone_number || '555-555-5555',
-        email: shippingAddress.email || 'dummy@example.com'
-    };
-
+    let currency = 'AUD'; // Default currency (will be updated by Lulu response)
 
     const lineItems = [{
         pod_package_id: podPackageId,
@@ -365,7 +314,7 @@ export const getLuluShippingOptionsAndCosts = async (podPackageId, pageCount, sh
     for (const level of COMMON_LULU_SHIPPING_LEVELS) {
         try {
             console.log(`[Lulu Service] Probing shipping level: ${level}`);
-            const response = await getPrintJobCosts(lineItems, fullShippingAddressForLuluProbe, level);
+            const response = await getPrintJobCosts(lineItems, shippingAddress, level); // MODIFIED: Use the real address directly
             
             // Extract the base print cost from the first successful response
             if (basePrintCost === 0 && response.lineItemCosts && response.lineItemCosts.length > 0) {
@@ -375,7 +324,6 @@ export const getLuluShippingOptionsAndCosts = async (podPackageId, pageCount, sh
             // MODIFIED: Corrected the typo response.response.data to response.shippingOptions
             if (response.shippingOptions && response.shippingOptions.length > 0) {
                 response.shippingOptions.forEach(luluOption => {
-                    // Only add if this option (by its unique level) hasn't been added yet
                     if (!availableOptions.some(ao => ao.level === luluOption.level)) {
                         availableOptions.push({
                             level: luluOption.level,
@@ -385,7 +333,7 @@ export const getLuluShippingOptionsAndCosts = async (podPackageId, pageCount, sh
                         });
                     }
                 });
-                currency = response.currency; // Ensure currency is updated
+                currency = response.currency;
             }
             console.log(`[Lulu Service] Successfully processed options for probe level: ${level}`);
         } catch (error) {
