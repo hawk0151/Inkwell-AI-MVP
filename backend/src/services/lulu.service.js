@@ -186,7 +186,7 @@ export async function getCoverDimensionsFromApi(podPackageId, pageCount) {
     if (coverDimensionsCache.has(cacheKey)) {
         return coverDimensionsCache.get(cacheKey);
     }
-    const endpoint = `${process.env.LULU_API_BASE_URL.replace(/\/$/, '')}/cover-dimensions`; // Corrected endpoint for cover dimensions
+    const endpoint = `${process.env.LULU_API_BASE_URL.replace(/\/$/, '')}/cover-dimensions`;
     try {
         await ensureHostnameResolvable(endpoint);
         const token = await getLuluAuthToken();
@@ -203,38 +203,39 @@ export async function getCoverDimensionsFromApi(podPackageId, pageCount) {
                 }
             );
         }, 3, 300);
+
         const dimensions = response.data;
+        // --- ADD THIS LOG TO SEE THE FULL RESPONSE ---
+        console.log(`[Lulu Service DEBUG] Full Lulu cover dimensions API response for SKU ${podPackageId}:`, JSON.stringify(dimensions, null, 2));
+
         const ptToMm = (pt) => pt * (25.4 / 72);
-        
-        // Lulu's cover dimensions API usually returns in points, so convert to mm
-        if (typeof dimensions.width_pts === 'undefined' || typeof dimensions.height_pts === 'undefined') {
-             // Fallback for older API versions or unexpected response
-             console.warn("[Lulu Service] API response for cover dimensions did not contain 'width_pts' or 'height_pts'. Checking for 'width'/'height' in mm.");
-             if (typeof dimensions.width === 'undefined' || typeof dimensions.height === 'undefined' || dimensions.unit !== 'mm') {
-                throw new Error('Unexpected Lulu API response for cover dimensions (missing expected fields).');
-             }
-             // If already in mm, just use them
-             const widthMm = parseFloat(dimensions.width);
-             const heightMm = parseFloat(dimensions.height);
-             const result = {
-                width: widthMm,
-                height: heightMm,
-                layout: widthMm > heightMm ? 'landscape' : 'portrait'
-             };
-             coverDimensionsCache.set(cacheKey, result);
-             return result;
+
+        let widthMm, heightMm;
+
+        // Prioritize width_pts and height_pts if available (common in recent Lulu API)
+        if (typeof dimensions.width_pts === 'number' && typeof dimensions.height_pts === 'number') {
+            widthMm = ptToMm(dimensions.width_pts);
+            heightMm = ptToMm(dimensions.height_pts);
+            console.log(`[Lulu Service] Using width_pts and height_pts from response.`);
+        }
+        // Fallback to width/height with unit check
+        else if (typeof dimensions.width === 'number' && typeof dimensions.height === 'number' && dimensions.unit === 'mm') {
+            widthMm = dimensions.width;
+            heightMm = dimensions.height;
+            console.log(`[Lulu Service] Using width and height in mm from response.`);
+        }
+        // If neither, then it's an unexpected response
+        else {
+            throw new Error('Unexpected Lulu API response for cover dimensions: Missing expected "width_pts"/"height_pts" or "width"/"height" (in mm).');
         }
 
-        const widthMm = ptToMm(parseFloat(dimensions.width_pts));
-        const heightMm = ptToMm(parseFloat(dimensions.height_pts));
-        
         const result = {
             width: widthMm,
             height: heightMm,
             layout: widthMm > heightMm ? 'landscape' : 'portrait'
         };
         coverDimensionsCache.set(cacheKey, result);
-        console.log(`[Lulu Service] ✅ Successfully retrieved cover dimensions: W=${widthMm.toFixed(2)}mm, H=${heightMm.toFixed(2)}mm (from points)`);
+        console.log(`[Lulu Service] ✅ Successfully retrieved and parsed cover dimensions: W=${widthMm.toFixed(2)}mm, H=${heightMm.toFixed(2)}mm`);
         return result;
 
     } catch (error) {
@@ -245,14 +246,14 @@ export async function getCoverDimensionsFromApi(podPackageId, pageCount) {
 }
 
 export const getPrintJobCosts = async (lineItems, shippingAddress) => {
-    const endpoint = `${process.env.LULU_API_BASE_URL.replace(/\/$/, '')}/print-job-cost-calculations`; // Corrected endpoint
+    const endpoint = `${process.env.LULU_API_BASE_URL.replace(/\/$/, '')}/print-job-cost-calculations`;
     try {
         await ensureHostnameResolvable(endpoint);
         const token = await getLuluAuthToken();
         const payload = {
             line_items: lineItems,
             shipping_address: shippingAddress,
-            shipping_level: "MAIL" // Default to MAIL as per previous successful calls
+            shipping_level: "MAIL"
         };
         const response = await retryWithBackoff(async () => {
             return await axios.post(endpoint, payload, {
