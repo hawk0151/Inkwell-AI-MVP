@@ -158,8 +158,7 @@ async function getLuluAuthToken() {
         const response = await retryWithBackoff(async () => {
             return await axios.post(
                 authUrl,
-                'grant_type=client_credentials',
-                'client_id=' + process.env.LULU_CLIENT_ID, // Explicitly send client_id in body as well
+                'grant_type=client_credentials', // MODIFIED: This should be the only data argument
                 {
                     headers: {
                         'Content-Type': 'application/x-www-form-urlencoded',
