@@ -298,7 +298,8 @@ export const getLuluShippingOptionsAndCosts = async (podPackageId, pageCount, sh
     console.log(`[Lulu Service] Attempting to get all shipping options for SKU: ${podPackageId}, Page Count: ${pageCount}, Address:`, shippingAddress);
 
     // Common Lulu shipping levels to try. Adjust if Lulu has different/new levels.
-    const COMMON_LULU_SHIPPING_LEVELS = ['MAIL', 'STANDARD', 'EXPEDITED', 'EXPRESS'];
+    const COMMON_LULU_SHIPPING_LEVELS = ['MAIL', 'PRIORITY_MAIL', 'EXPEDITED', 'EXPRESS']; // Removed STANDARD and GROUND for broader compatibility
+
     const availableOptions = [];
     let basePrintCost = 0;
     let currency = 'USD'; // Default currency
@@ -306,28 +307,34 @@ export const getLuluShippingOptionsAndCosts = async (podPackageId, pageCount, sh
     // Helper map for common dummy address details per country for Lulu probing
     const COMMON_DUMMY_ADDRESS_DETAILS = {
         'AU': {
-            city: 'Sydney', // Valid major city in AU
-            postcode: '2000' // Valid Sydney postcode
+            city: 'Sydney',
+            postcode: '2000',
+            state_code: 'NSW' // MODIFIED: Added specific state for Australia
         },
         'US': {
             city: 'New York',
-            postcode: '10001'
+            postcode: '10001',
+            state_code: 'NY' // ADDED: Specific state for USA
         },
         'CA': {
             city: 'Toronto',
-            postcode: 'M5V 2H1' // Example Canadian postcode
+            postcode: 'M5V 2H1',
+            state_code: 'ON' // ADDED: Specific state for Canada
         },
         'GB': {
             city: 'London',
-            postcode: 'SW1A 0AA' // Example UK postcode
+            postcode: 'SW1A 0AA',
+            state_code: '' // UK does not always require state_code, leave blank if not needed
         },
         'NZ': {
             city: 'Auckland',
-            postcode: '1010' // Example NZ postcode
+            postcode: '1010',
+            state_code: '' // NZ does not always require state_code
         },
         'MX': {
             city: 'Mexico City',
-            postcode: '01000' // Example MX postcode
+            postcode: '01000',
+            state_code: 'CMX' // Example state/district for Mexico City
         }
         // Add more as needed for other supported countries
     };
@@ -340,7 +347,7 @@ export const getLuluShippingOptionsAndCosts = async (podPackageId, pageCount, sh
         street1: shippingAddress.street1 || dummyDetails.street1 || '123 Test St', // Prioritize provided street1, then country-specific dummy, then generic
         street2: shippingAddress.street2 || '', // Keep empty if not provided
         city: shippingAddress.city || dummyDetails.city || 'Anytown', // Prioritize provided city, then country-specific dummy, then generic
-        state_code: shippingAddress.state_code || dummyDetails.state_code || '',
+        state_code: shippingAddress.state_code || dummyDetails.state_code || '', // MODIFIED: Prioritize provided state_code, then country-specific dummy
         postcode: shippingAddress.postcode || dummyDetails.postcode || '90210', // Prioritize provided postcode, then country-specific dummy, then generic
         country_code: selectedCountryCode, // Always use the provided country_code
         phone_number: shippingAddress.phone_number || '555-555-5555',
