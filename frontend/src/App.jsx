@@ -1,8 +1,7 @@
 // frontend/src/App.jsx
-// MODIFIED: Added useRef and useEffect for the dropdown
+// MODIFIED: Added useRef and useEffect for the dropdown, and automatic hash scrolling support
 import React, { useState, useRef, useEffect } from 'react';
-import { Routes, Route, useNavigate, useLocation, Link } from 'react-router-dom';
-// MODIFIED: Import AnimatePresence for the dropdown animation
+import { Routes, Route, useNavigate, useLocation, Link, Navigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { AuthProvider, useAuth } from './contexts/AuthContext.jsx';
 import LoginPage from './pages/LoginPage.jsx';
@@ -10,22 +9,17 @@ import ProductSelectionPage from './pages/ProductSelectionPage.jsx';
 import PictureBookPage from './pages/PictureBookPage.jsx';
 import MyProjectsPage from './pages/MyProjectsPage.jsx';
 import MyOrdersPage from './pages/MyOrdersPage.jsx';
-// --- Start of Success/Cancel Page Imports ---
-// REMOVED: import SuccessPage from './pages/SuccessPage.jsx'; // Removed as CheckoutSuccessPage is the main handler
 import CancelPage from './pages/CancelPage.jsx';
-// --- NEW IMPORT: CheckoutSuccessPage ---
 import CheckoutSuccessPage from './pages/CheckoutSuccessPage.jsx';
-// --- End of Success/Cancel Page Imports ---
 import NovelPage from './pages/NovelPage.jsx';
 import NovelSelectionPage from './pages/NovelSelectionPage.jsx';
 import FeedPage from './pages/FeedPage.jsx';
 import ProfilePage from './pages/ProfilePage.jsx';
 import EditProfilePage from './pages/EditProfilePage.jsx';
 import AboutHowItWorksPage from './pages/AboutHowItWorksPage.jsx';
-import PolicyPage from './pages/PolicyPage.jsx'; // Only PolicyPage needed for all legal docs
-// REMOVED: import TermsOfServicePage from './pages/TermsOfServicePage.jsx'; // <<< CRITICAL FIX: Removed direct import of old TermsOfServicePage
-// REMOVED: import ContactUsPage from './pages/ContactUsPage.jsx'; // Not adding this for now
-// REMOVED: Also implicitly removed any other direct policy page imports like PrivacyPolicy, ShippingPolicy, RefundPolicy, ReturnPolicy, if they existed.
+import PolicyPage from './pages/PolicyPage.jsx'; // Consolidated policy page
+import Home from './pages/Home'; // assuming Home exists
+import Logo from './components/Logo.jsx'; // assuming Logo component exists
 
 function ProtectedRoute({ children }) {
     const { currentUser } = useAuth();
@@ -33,30 +27,50 @@ function ProtectedRoute({ children }) {
     return children;
 }
 
+// Scroll-to-hash helper: scrolls into view when the location hash changes or on initial load
+function ScrollToHash() {
+    const location = useLocation();
+
+    useEffect(() => {
+        if (location.hash) {
+            // slight delay to allow target element to render
+            setTimeout(() => {
+                const id = location.hash.substring(1);
+                const el = document.getElementById(id);
+                if (el) {
+                    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+            }, 50);
+        } else {
+            // no hash: optionally scroll to top
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+    }, [location]);
+
+    return null;
+}
+
 const AppFooter = () => (
     <footer className="bg-black/20 mt-20 py-6 border-t border-white/10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center text-slate-400 text-sm">
             <div className="flex flex-wrap justify-center gap-x-6 gap-y-2">
-                {/* UPDATED: Links to single /policies route with hash segments for in-page navigation */}
                 <Link to="/policies#terms-of-service-section" className="hover:text-white transition-colors">Terms of Service</Link>
                 <Link to="/policies#privacy-policy-section" className="hover:text-white transition-colors">Privacy Policy</Link>
                 <Link to="/policies#shipping-policy-section" className="hover:text-white transition-colors">Shipping Policy</Link>
                 <Link to="/policies#refund-policy-section" className="hover:text-white transition-colors">Refund Policy</Link>
                 <Link to="/policies#return-policy-section" className="hover:text-white transition-colors">Return Policy</Link>
-                {/* Removed Contact Us link as per previous instruction */}
             </div>
             <p className="mt-4">&copy; {new Date().getFullYear()} Inkwell AI. All Rights Reserved.</p>
         </div>
     </footer>
 );
 
-// NEW: Profile Dropdown Component to declutter the navbar
+// Profile Dropdown Component
 const ProfileDropdown = ({ user, onLogout }) => {
     const [isOpen, setIsOpen] = useState(false);
     const dropdownRef = useRef(null);
     const navigate = useNavigate();
 
-    // Close dropdown if clicked outside
     useEffect(() => {
         const handleClickOutside = (event) => {
             if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
@@ -64,9 +78,7 @@ const ProfileDropdown = ({ user, onLogout }) => {
             }
         };
         document.addEventListener('mousedown', handleClickOutside);
-        return () => {
-            document.removeEventListener('mousedown', handleClickOutside);
-        };
+        return () => document.removeEventListener('mousedown', handleClickOutside);
     }, []);
 
     const handleNavigate = (path) => {
@@ -88,9 +100,9 @@ const ProfileDropdown = ({ user, onLogout }) => {
                     className="w-8 h-8 rounded-full bg-slate-700 object-cover"
                 />
                 <span className="text-white font-medium text-sm hidden lg:block">{user.username}</span>
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className={`w-5 h-5 text-slate-400 transition-transform ${isOpen ? 'rotate-180' : ''}`}>
-                        <path fillRule="evenodd" d="M5.22 8.22a.75.75 0 0 1 1.06 0L10 11.94l3.72-3.72a.75.75 0 1 1 1.06 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L5.22 9.28a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" />
-                    </svg>
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className={`w-5 h-5 text-slate-400 transition-transform ${isOpen ? 'rotate-180' : ''}`}>
+                    <path fillRule="evenodd" d="M5.22 8.22a.75.75 0 0 1 1.06 0L10 11.94l3.72-3.72a.75.75 0 1 1 1.06 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L5.22 9.28a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" />
+                </svg>
             </button>
             <AnimatePresence>
                 {isOpen && (
@@ -102,11 +114,11 @@ const ProfileDropdown = ({ user, onLogout }) => {
                         className="absolute right-0 mt-2 w-48 bg-slate-800 border border-slate-700 rounded-md shadow-lg z-20"
                     >
                         <div className="py-1">
-                            <a onClick={() => handleNavigate(`/profile/${encodeURIComponent(user.username)}`)} className="cursor-pointer block px-4 py-2 text-sm text-slate-300 hover:bg-slate-700">My Profile</a>
-                            <a onClick={() => handleNavigate('/my-projects')} className="cursor-pointer block px-4 py-2 text-sm text-slate-300 hover:bg-slate-700">My Projects</a>
-                            <a onClick={() => handleNavigate('/my-orders')} className="cursor-pointer block px-4 py-2 text-sm text-slate-300 hover:bg-slate-700">My Orders</a>
+                            <button onClick={() => handleNavigate(`/profile/${encodeURIComponent(user.username)}`)} className="w-full text-left block px-4 py-2 text-sm text-slate-300 hover:bg-slate-700">My Profile</button>
+                            <button onClick={() => handleNavigate('/my-projects')} className="w-full text-left block px-4 py-2 text-sm text-slate-300 hover:bg-slate-700">My Projects</button>
+                            <button onClick={() => handleNavigate('/my-orders')} className="w-full text-left block px-4 py-2 text-sm text-slate-300 hover:bg-slate-700">My Orders</button>
                             <div className="border-t border-slate-700 my-1"></div>
-                            <a onClick={handleLogout} className="cursor-pointer block px-4 py-2 text-sm text-red-400 hover:bg-slate-700">Logout</a>
+                            <button onClick={handleLogout} className="w-full text-left block px-4 py-2 text-sm text-red-400 hover:bg-slate-700">Logout</button>
                         </div>
                     </motion.div>
                 )}
@@ -121,28 +133,28 @@ function App() {
     const location = useLocation();
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
-    const isLinkActive = (path) => location.pathname.startsWith(path);
+    const isLinkActive = (path) => location.pathname === path || location.pathname.startsWith(path + '/');
 
     const NavLink = ({ to, children }) => (
-        <a
-            href={to}
-            onClick={(e) => { e.preventDefault(); navigate(to); setIsMobileMenuOpen(false); }}
+        <Link
+            to={to}
+            onClick={() => setIsMobileMenuOpen(false)}
             className={`px-3 py-2 rounded-md text-sm font-medium transition-colors ${
                 isLinkActive(to) ? 'bg-white/10 text-white' : 'text-slate-300 hover:bg-white/10 hover:text-white'
             }`}
         >
             {children}
-        </a>
+        </Link>
     );
 
     const MobileNavLink = ({ to, children }) => (
-        <a
-            href={to}
-            onClick={(e) => { e.preventDefault(); navigate(to); setIsMobileMenuOpen(false); }}
+        <Link
+            to={to}
+            onClick={() => setIsMobileMenuOpen(false)}
             className="block px-3 py-2 text-base font-medium text-white hover:bg-gray-700 rounded-md"
         >
             {children}
-        </a>
+        </Link>
     );
 
     if (loading) {
@@ -155,25 +167,17 @@ function App() {
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-gray-900 to-black text-white font-inter flex flex-col">
+            <ScrollToHash />
             <nav className="bg-black/20 backdrop-blur-lg shadow-lg sticky top-0 z-50 border-b border-white/10">
-               <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                     <div className="flex items-center justify-between h-16">
-                        <a
-                            href="/"
-                            onClick={(e) => {
-                                e.preventDefault();
-                                navigate('/');
-                                setIsMobileMenuOpen(false);
-                            }}
-                            className="cursor-pointer"
-                        >
+                        <Link to="/" onClick={() => setIsMobileMenuOpen(false)} className="cursor-pointer">
                             <Logo />
-                        </a>
+                        </Link>
                         <div className="hidden md:flex items-center space-x-4">
                             <NavLink to="/">Create</NavLink>
                             <NavLink to="/feed">Feed</NavLink>
                             <NavLink to="/about-how-it-works">About & How It Works</NavLink>
-                            {/* MODIFIED: Replaced individual links with the ProfileDropdown */}
                             {currentUser ? (
                                 <ProfileDropdown
                                     user={currentUser}
@@ -210,7 +214,6 @@ function App() {
                         </div>
                     </div>
                 </div>
-                {/* Mobile Menu still has individual links, which is fine for that layout */}
                 {isMobileMenuOpen && (
                     <div className="md:hidden">
                         <div className="px-2 pt-2 pb-3 space-y-1 sm:px-3">
@@ -244,24 +247,23 @@ function App() {
                     </div>
                 )}
             </nav>
+
             <main className="max-w-7xl mx-auto py-10 px-4 sm:px-6 lg:px-8 flex-grow w-full">
                 <Routes>
                     <Route path="/" element={<ProductSelectionPage />} />
                     <Route path="/select-novel" element={<NovelSelectionPage />} />
                     <Route path="/login" element={<LoginPage />} />
                     <Route path="/about-how-it-works" element={<AboutHowItWorksPage />} />
-                    {/* MODIFIED: Update route path to /checkout-success */}
-                    <Route path="/checkout-success" element={<CheckoutSuccessPage />} /> {/* This is the corrected route */}
+                    <Route path="/checkout-success" element={<CheckoutSuccessPage />} />
                     <Route path="/cancel" element={<CancelPage />} />
-                    {/* REMOVED: <Route path="/contact-us" element={<ContactUsPage />} /> */}
-                    {/* CRITICAL FIX: Consolidated all policy routes to a single /policies path */}
-                    <Route path="/policies" element={<PolicyPage />} /> {/* New consolidated route */}
-                    {/* REMOVED: Old individual policy routes */}
-                    {/* <Route path="/terms-of-service" element={<PolicyPage type="terms" />} /> */}
-                    {/* <Route path="/privacy-policy" element={<PolicyPage type="privacy" />} /> */}
-                    {/* <Route path="/shipping-policy" element={<PolicyPage type="shipping" />} /> */}
-                    {/* <Route path="/refund-policy" element={<PolicyPage type="refund" />} /> */}
-                    {/* <Route path="/return-policy" element={<PolicyPage type="return" />} /> */}
+                    <Route path="/policies" element={<PolicyPage />} />
+                    {/* Legacy shortcuts */}
+                    <Route path="/terms" element={<Navigate to="/policies#terms-of-service-section" replace />} />
+                    <Route path="/privacy" element={<Navigate to="/policies#privacy-policy-section" replace />} />
+                    <Route path="/refund" element={<Navigate to="/policies#refund-policy-section" replace />} />
+                    <Route path="/return" element={<Navigate to="/policies#return-policy-section" replace />} />
+                    <Route path="/shipping" element={<Navigate to="/policies#shipping-policy-section" replace />} />
+
                     <Route path="/feed" element={<ProtectedRoute><FeedPage /></ProtectedRoute>} />
                     <Route path="/profile/:username" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
                     <Route path="/profile/edit" element={<ProtectedRoute><EditProfilePage /></ProtectedRoute>} />
@@ -270,8 +272,11 @@ function App() {
                     <Route path="/my-projects" element={<ProtectedRoute><MyProjectsPage /></ProtectedRoute>} />
                     <Route path="/my-orders" element={<ProtectedRoute><MyOrdersPage /></ProtectedRoute>} />
                     <Route path="/project/:bookId" element={<ProtectedRoute><PictureBookPage /></ProtectedRoute>} />
+                    {/* Fallback to home for unknown routes */}
+                    <Route path="*" element={<Navigate to="/" replace />} />
                 </Routes>
             </main>
+
             <AppFooter />
         </div>
     );

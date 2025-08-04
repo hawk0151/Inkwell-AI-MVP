@@ -58,7 +58,6 @@ const policyContent = {
                 <ul>
                     <li>You have had the **full and complete opportunity to review all aspects** of your generated book and order — including but not limited to, the entire text content, available visual previews, product specifications, page layouts, formatting, spelling, grammar, and final pricing — before making payment.</li>
                     <li>You are **solely responsible** for thoroughly reviewing and ensuring all details (including content accuracy and aesthetic preferences) are correct and satisfactory before finalizing your purchase.</li>
-                    <li>Once an order is confirmed, production or delivery will proceed as per our <Link to="/policies#refund-policy-section" className="text-indigo-400 hover:text-indigo-300 transition-colors">Refund Policy</Link> and <Link to="/policies#return-policy-section" className="text-indigo-400 hover:text-indigo-300 transition-colors">Return Policy</Link>.</li>
                     <li>Inkwell AI is not responsible for errors, omissions, or undesired subjective outputs (e.g., specific phrasing, plot elements, or visual interpretations by the AI that deviate from your personal ideal) resulting from your failure to adequately review and confirm your order prior to payment. **By completing your purchase, you explicitly acknowledge and accept the product as previewed.**</li>
                 </ul>
 
