@@ -205,28 +205,35 @@ export async function getCoverDimensionsFromApi(podPackageId, pageCount) {
         }, 3, 300);
 
         const dimensions = response.data;
-        // --- ADD THIS LOG TO SEE THE FULL RESPONSE ---
+        // --- ADDED LOG TO SEE THE FULL RESPONSE ---
         console.log(`[Lulu Service DEBUG] Full Lulu cover dimensions API response for SKU ${podPackageId}:`, JSON.stringify(dimensions, null, 2));
 
         const ptToMm = (pt) => pt * (25.4 / 72);
 
         let widthMm, heightMm;
 
-        // Prioritize width_pts and height_pts if available (common in recent Lulu API)
-        if (typeof dimensions.width_pts === 'number' && typeof dimensions.height_pts === 'number') {
+        // NEW LOGIC: Check for 'width'/'height' and 'unit' fields first.
+        // The current response shows 'width', 'height', and 'unit' as 'pt'
+        if (typeof dimensions.width === 'string' && typeof dimensions.height === 'string' && dimensions.unit === 'pt') {
+            widthMm = ptToMm(parseFloat(dimensions.width));
+            heightMm = ptToMm(parseFloat(dimensions.height));
+            console.log(`[Lulu Service] Using width and height (in pts) from response.`);
+        }
+        // Fallback for width_pts/height_pts (older version or different products)
+        else if (typeof dimensions.width_pts === 'number' && typeof dimensions.height_pts === 'number') {
             widthMm = ptToMm(dimensions.width_pts);
             heightMm = ptToMm(dimensions.height_pts);
             console.log(`[Lulu Service] Using width_pts and height_pts from response.`);
         }
-        // Fallback to width/height with unit check
+        // Fallback for width/height with unit 'mm' (less common for cover dimensions API)
         else if (typeof dimensions.width === 'number' && typeof dimensions.height === 'number' && dimensions.unit === 'mm') {
             widthMm = dimensions.width;
             heightMm = dimensions.height;
-            console.log(`[Lulu Service] Using width and height in mm from response.`);
+            console.log(`[Lulu Service] Using width and height (in mm) from response.`);
         }
-        // If neither, then it's an unexpected response
+        // If none of the expected formats are found, throw an error
         else {
-            throw new Error('Unexpected Lulu API response for cover dimensions: Missing expected "width_pts"/"height_pts" or "width"/"height" (in mm).');
+            throw new Error('Unexpected Lulu API response for cover dimensions: Missing expected "width"/"height" (in pts or mm) or "width_pts"/"height_pts".');
         }
 
         const result = {
