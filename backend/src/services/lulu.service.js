@@ -303,26 +303,56 @@ export const getLuluShippingOptionsAndCosts = async (podPackageId, pageCount, sh
     let basePrintCost = 0;
     let currency = 'USD'; // Default currency
 
+    // Helper map for common dummy address details per country for Lulu probing
+    const COMMON_DUMMY_ADDRESS_DETAILS = {
+        'AU': {
+            city: 'Sydney', // Valid major city in AU
+            postcode: '2000' // Valid Sydney postcode
+        },
+        'US': {
+            city: 'New York',
+            postcode: '10001'
+        },
+        'CA': {
+            city: 'Toronto',
+            postcode: 'M5V 2H1' // Example Canadian postcode
+        },
+        'GB': {
+            city: 'London',
+            postcode: 'SW1A 0AA' // Example UK postcode
+        },
+        'NZ': {
+            city: 'Auckland',
+            postcode: '1010' // Example NZ postcode
+        },
+        'MX': {
+            city: 'Mexico City',
+            postcode: '01000' // Example MX postcode
+        }
+        // Add more as needed for other supported countries
+    };
+
+    const selectedCountryCode = shippingAddress.country_code;
+    const dummyDetails = COMMON_DUMMY_ADDRESS_DETAILS[selectedCountryCode] || {};
+
+    const fullShippingAddressForLuluProbe = {
+        name: shippingAddress.name || 'Dummy Customer', // Provide a default if empty
+        street1: shippingAddress.street1 || dummyDetails.street1 || '123 Test St', // Prioritize provided street1, then country-specific dummy, then generic
+        street2: shippingAddress.street2 || '', // Keep empty if not provided
+        city: shippingAddress.city || dummyDetails.city || 'Anytown', // Prioritize provided city, then country-specific dummy, then generic
+        state_code: shippingAddress.state_code || dummyDetails.state_code || '',
+        postcode: shippingAddress.postcode || dummyDetails.postcode || '90210', // Prioritize provided postcode, then country-specific dummy, then generic
+        country_code: selectedCountryCode, // Always use the provided country_code
+        phone_number: shippingAddress.phone_number || '555-555-5555',
+        email: shippingAddress.email || 'dummy@example.com'
+    };
+
+
     const lineItems = [{
         pod_package_id: podPackageId,
         page_count: pageCount,
         quantity: 1
     }];
-
-    // MODIFIED: Construct a more complete dummy address for Lulu probing
-    // This helps satisfy Lulu's validation even if frontend only provides partial info initially
-    const fullShippingAddressForLuluProbe = {
-        name: shippingAddress.name || 'Dummy Name', // Provide a default if empty
-        street1: shippingAddress.street1 || '123 Dummy St', // Use provided street1, fallback to dummy
-        street2: shippingAddress.street2 || '', // Keep empty if not provided
-        city: shippingAddress.city || 'Dummy City', // Provide a default if empty
-        state_code: shippingAddress.state_code || '', // Can be empty if not applicable or provided
-        postcode: shippingAddress.postcode || '10001', // Provide a common dummy postcode if empty
-        country_code: shippingAddress.country_code, // This is expected to always be provided by frontend
-        phone_number: shippingAddress.phone_number || '555-555-5555', // Provide a dummy phone number
-        email: shippingAddress.email || 'dummy@example.com' // Provide a dummy email
-    };
-
 
     for (const level of COMMON_LULU_SHIPPING_LEVELS) {
         try {
