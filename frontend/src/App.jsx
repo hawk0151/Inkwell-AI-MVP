@@ -1,8 +1,6 @@
 // frontend/src/App.jsx
-// MODIFIED: Added useRef and useEffect for the dropdown
 import React, { useState, useRef, useEffect } from 'react';
 import { Routes, Route, useNavigate, useLocation, Link } from 'react-router-dom';
-// MODIFIED: Import AnimatePresence for the dropdown animation
 import { motion, AnimatePresence } from 'framer-motion';
 import { AuthProvider, useAuth } from './contexts/AuthContext.jsx';
 import LoginPage from './pages/LoginPage.jsx';
@@ -10,12 +8,8 @@ import ProductSelectionPage from './pages/ProductSelectionPage.jsx';
 import PictureBookPage from './pages/PictureBookPage.jsx';
 import MyProjectsPage from './pages/MyProjectsPage.jsx';
 import MyOrdersPage from './pages/MyOrdersPage.jsx';
-// --- Start of Success/Cancel Page Imports ---
-// REMOVED: import SuccessPage from './pages/SuccessPage.jsx'; // Removed as CheckoutSuccessPage is the main handler
 import CancelPage from './pages/CancelPage.jsx';
-// --- NEW IMPORT: CheckoutSuccessPage ---
 import CheckoutSuccessPage from './pages/CheckoutSuccessPage.jsx';
-// --- End of Success/Cancel Page Imports ---
 import NovelPage from './pages/NovelPage.jsx';
 import NovelSelectionPage from './pages/NovelSelectionPage.jsx';
 import FeedPage from './pages/FeedPage.jsx';
@@ -23,9 +17,7 @@ import ProfilePage from './pages/ProfilePage.jsx';
 import EditProfilePage from './pages/EditProfilePage.jsx';
 import AboutHowItWorksPage from './pages/AboutHowItWorksPage.jsx';
 import PolicyPage from './pages/PolicyPage.jsx';
-// REMOVED: import TermsOfServicePage from './pages/TermsOfServicePage.jsx'; // <<< CRITICAL FIX: Removed direct import of old TermsOfServicePage
 import { Logo } from './components/common.jsx';
-// REMOVED: import ContactUsPage from './pages/ContactUsPage.jsx'; // Not adding this for now
 
 function ProtectedRoute({ children }) {
     const { currentUser } = useAuth();
@@ -37,25 +29,23 @@ const AppFooter = () => (
     <footer className="bg-black/20 mt-20 py-6 border-t border-white/10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center text-slate-400 text-sm">
             <div className="flex flex-wrap justify-center gap-x-6 gap-y-2">
-                <Link to="/terms-of-service" className="hover:text-white transition-colors">Terms of Service</Link>
-                <Link to="/privacy-policy" className="hover:text-white transition-colors">Privacy Policy</Link>
-                <Link to="/shipping-policy" className="hover:text-white transition-colors">Shipping Policy</Link>
-                <Link to="/refund-policy" className="hover:text-white transition-colors">Refund Policy</Link>
-                <Link to="/return-policy" className="hover:text-white transition-colors">Return Policy</Link>
-                {/* REMOVED: <Link to="/contact-us" className="hover:text-white transition-colors">Contact Us</Link> */}
+                {/* All footer links should point to /policies with the correct hash */}
+                <Link to="/policies#terms-of-service-section" className="hover:text-white transition-colors">Terms of Service</Link>
+                <Link to="/policies#privacy-policy-section" className="hover:text-white transition-colors">Privacy Policy</Link>
+                <Link to="/policies#shipping-policy-section" className="hover:text-white transition-colors">Shipping Policy</Link>
+                <Link to="/policies#refund-policy-section" className="hover:text-white transition-colors">Refund Policy</Link>
+                <Link to="/policies#return-policy-section" className="hover:text-white transition-colors">Return Policy</Link>
             </div>
             <p className="mt-4">&copy; {new Date().getFullYear()} Inkwell AI. All Rights Reserved.</p>
         </div>
     </footer>
 );
 
-// NEW: Profile Dropdown Component to declutter the navbar
 const ProfileDropdown = ({ user, onLogout }) => {
     const [isOpen, setIsOpen] = useState(false);
     const dropdownRef = useRef(null);
     const navigate = useNavigate();
 
-    // Close dropdown if clicked outside
     useEffect(() => {
         const handleClickOutside = (event) => {
             if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
@@ -87,9 +77,9 @@ const ProfileDropdown = ({ user, onLogout }) => {
                     className="w-8 h-8 rounded-full bg-slate-700 object-cover"
                 />
                 <span className="text-white font-medium text-sm hidden lg:block">{user.username}</span>
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className={`w-5 h-5 text-slate-400 transition-transform ${isOpen ? 'rotate-180' : ''}`}>
-                        <path fillRule="evenodd" d="M5.22 8.22a.75.75 0 0 1 1.06 0L10 11.94l3.72-3.72a.75.75 0 1 1 1.06 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L5.22 9.28a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" />
-                    </svg>
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className={`w-5 h-5 text-slate-400 transition-transform ${isOpen ? 'rotate-180' : ''}`}>
+                    <path fillRule="evenodd" d="M5.22 8.22a.75.75 0 0 1 1.06 0L10 11.94l3.72-3.72a.75.75 0 1 1 1.06 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L5.22 9.28a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" />
+                </svg>
             </button>
             <AnimatePresence>
                 {isOpen && (
@@ -172,7 +162,6 @@ function App() {
                             <NavLink to="/">Create</NavLink>
                             <NavLink to="/feed">Feed</NavLink>
                             <NavLink to="/about-how-it-works">About & How It Works</NavLink>
-                            {/* MODIFIED: Replaced individual links with the ProfileDropdown */}
                             {currentUser ? (
                                 <ProfileDropdown
                                     user={currentUser}
@@ -209,7 +198,6 @@ function App() {
                         </div>
                     </div>
                 </div>
-                {/* Mobile Menu still has individual links, which is fine for that layout */}
                 {isMobileMenuOpen && (
                     <div className="md:hidden">
                         <div className="px-2 pt-2 pb-3 space-y-1 sm:px-3">
@@ -249,15 +237,16 @@ function App() {
                     <Route path="/select-novel" element={<NovelSelectionPage />} />
                     <Route path="/login" element={<LoginPage />} />
                     <Route path="/about-how-it-works" element={<AboutHowItWorksPage />} />
-                    {/* MODIFIED: Update route path to /checkout-success */}
-                    <Route path="/checkout-success" element={<CheckoutSuccessPage />} /> {/* This is the corrected route */}
+                    <Route path="/checkout-success" element={<CheckoutSuccessPage />} />
                     <Route path="/cancel" element={<CancelPage />} />
-                    {/* REMOVED: <Route path="/contact-us" element={<ContactUsPage />} /> */}
-                    <Route path="/terms-of-service" element={<TermsOfServicePage />} /> {/* <<< THIS ROUTE NEEDS TO BE UPDATED */}
-                    <Route path="/privacy-policy" element={<PolicyPage type="privacy" />} />
-                    <Route path="/shipping-policy" element={<PolicyPage type="shipping" />} />
-                    <Route path="/refund-policy" element={<PolicyPage type="refund" />} />
-                    <Route path="/return-policy" element={<PolicyPage type="return" />} />
+                    {/* CRITICAL FIX: Consolidated Policy Route - All policy links now go through this single route */}
+                    <Route path="/policies" element={<PolicyPage />} />
+                    {/* REMOVED: Individual policy routes are no longer needed */}
+                    {/* <Route path="/terms-of-service" element={<TermsOfServicePage />} /> */}
+                    {/* <Route path="/privacy-policy" element={<PolicyPage type="privacy" />} /> */}
+                    {/* <Route path="/shipping-policy" element={<PolicyPage type="shipping" />} /> */}
+                    {/* <Route path="/refund-policy" element={<PolicyPage type="refund" />} /> */}
+                    {/* <Route path="/return-policy" element={<PolicyPage type="return" />} /> */}
                     <Route path="/feed" element={<ProtectedRoute><FeedPage /></ProtectedRoute>} />
                     <Route path="/profile/:username" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
                     <Route path="/profile/edit" element={<ProtectedRoute><EditProfilePage /></ProtectedRoute>} />

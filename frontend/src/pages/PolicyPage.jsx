@@ -1,11 +1,11 @@
 // frontend/src/pages/PolicyPage.jsx
 import React, { useEffect } from 'react';
-import { Link, useLocation } from 'react-router-dom'; // Import useLocation for hash scrolling
+import { Link, useLocation } from 'react-router-dom';
 
 const policyContent = {
-    terms: { // NEW POLICY TYPE: Terms of Service
+    terms: {
         title: 'Terms of Service — Inkwell AI',
-        id: 'terms-of-service-section', // Unique ID for section
+        id: 'terms-of-service-section',
         content: (
             <>
                 <p><strong>Effective Date: 2025-08-04</strong></p>
@@ -94,7 +94,7 @@ const policyContent = {
     },
     privacy: {
         title: 'Privacy Policy — Inkwell AI',
-        id: 'privacy-policy-section', // Unique ID
+        id: 'privacy-policy-section',
         content: (
             <>
                 <p><strong>Compliance: Australian Privacy Act 1988 (Cth) &amp; NZ Privacy Act 2020</strong></p>
@@ -145,24 +145,23 @@ const policyContent = {
                 <p>Where your data may be transferred to and processed in countries outside of Australia or New Zealand (e.g., for data hosting or third-party service providers), we ensure that appropriate safeguards are in place to protect your privacy rights in accordance with applicable laws.</p>
 
                 <h2>7. Contact for Privacy</h2>
-                <p>For any questions or concerns regarding this Privacy Policy or your personal data, please contact us at: 📧 <a href="mailto:contact@inkwellai.com" className="text-indigo-400 hover:text-indigo-300 transition-colors">contact@inkwellai.com</a></p> {/* Replaced placeholder */}
+                <p>For any questions or concerns regarding this Privacy Policy or your personal data, please contact us at: 📧 <a href="mailto:privacy@inkwellai.com" className="text-indigo-400 hover:text-indigo-300 transition-colors">privacy@inkwellai.com</a></p>
             </>
         ),
     },
     shipping: {
         title: 'Shipping Policy — Inkwell AI',
-        id: 'shipping-policy-section', // Unique ID
+        id: 'shipping-policy-section',
         content: (
             <>
                 <h2>1. Processing Time</h2>
-                {/* CRITICAL FIX: Wrapped list items in a proper <ul> tag */}
                 <ul>
                     <li><strong>Digital Products (e.g., AI-generated digital book files):</strong> Orders are typically processed instantly or within 24 hours. You will receive a download link via email or through your account dashboard.</li>
                     <li><strong>Physical Products (e.g., printed books):</strong> Each physical book is a custom, print-on-demand product. Please allow <strong>2–7 business days for production and quality control</strong> before your order is dispatched from our printing partner.</li>
                 </ul>
 
                 <h2>2. Carriers & Tracking</h2>
-                <p>We partner with reputable shipping carriers to deliver your orders. Once your physical book order has been dispatched, you will receive a shipping confirmation email containing your tracking number and a link to track your parcel. Our primary carriers include **Australia Post, FedEx, DHL, USPS, Royal Mail**.</p> {/* Replaced placeholder */}
+                <p>We partner with reputable shipping carriers to deliver your orders. Once your physical book order has been dispatched, you will receive a shipping confirmation email containing your tracking number and a link to track your parcel. Our primary carriers include **Australia Post, FedEx, DHL, USPS, Royal Mail**.</p>
 
                 <h2>3. International Orders</h2>
                 <p>We proudly ship to select international destinations. Please be aware that for international orders, customers are solely responsible for any applicable customs fees, import duties, taxes, or brokerage charges that may be imposed by their country's customs authorities upon delivery. These charges are outside of our control and are not included in the item price or shipping cost.</p>
@@ -174,7 +173,7 @@ const policyContent = {
     },
     refund: {
         title: 'Refund Policy — Inkwell AI',
-        id: 'refund-policy-section', // Unique ID
+        id: 'refund-policy-section',
         content: (
             <>
                 <h2>1. Digital Products</h2>
@@ -197,7 +196,7 @@ const policyContent = {
                 <h2>3. Process for Physical Product Refunds/Replacements</h2>
                 <p>To request a refund or replacement for a damaged, defective, or incorrect physical product:</p>
                 <ol>
-                    <li>Email our support team at <a href="mailto:support@inkwellai.com" className="text-indigo-400 hover:text-indigo-300 transition-colors">support@inkwellai.com</a> within <strong>14 days of delivery</strong>.</li> {/* Replaced placeholder */}
+                    <li>Email our support team at <a href="mailto:support@inkwellai.com" className="text-indigo-400 hover:text-indigo-300 transition-colors">support@inkwellai.com</a> within <strong>14 days of delivery</strong>.</li>
                     <li>Include your order number, a detailed description of the issue, and clear photographic evidence of the damage or defect.</li>
                     <li>Our team will assess your claim and may provide further instructions, including a return shipping label if a physical return is required. Do not send products back without prior authorization.</li>
                 </ol>
@@ -208,7 +207,7 @@ const policyContent = {
     },
     return: {
         title: 'Return Policy — Inkwell AI',
-        id: 'return-policy-section', // Unique ID
+        id: 'return-policy-section',
         content: (
             <>
                 <h2>1. Eligibility for Returns</h2>
@@ -253,14 +252,15 @@ const policyContent = {
     },
 };
 
-function PolicyPage() { // Removed default prop 'type = privacy' as it's now dynamically set by route
-    const location = useLocation(); // Hook to get current URL and hash
-    const initialPolicyType = location.hash ? location.hash.substring(1).replace('-section', '') : 'terms'; // Default to 'terms' or 'privacy' if no hash. Changed default to terms.
+function PolicyPage() {
+    const location = useLocation();
 
-    // Derive the policy type from the URL hash, or fallback to 'terms'
-    const policyType = Object.keys(policyContent).includes(initialPolicyType) ? initialPolicyType : 'terms';
+    // The logic to derive initialPolicyType from hash is removed as we now render all.
+    // However, the useEffect to scroll to hash remains crucial.
 
-    const data = policyContent[policyType];
+    // This data variable is no longer used to filter content,
+    // but the PolicyPage still needs to determine which section to scroll to.
+    const initialPolicyType = location.hash ? location.hash.substring(1) : 'terms-of-service-section';
 
     // Scroll to section on mount or hash change
     useEffect(() => {
@@ -268,30 +268,18 @@ function PolicyPage() { // Removed default prop 'type = privacy' as it's now dyn
             const id = location.hash.substring(1); // Remove '#'
             const element = document.getElementById(id);
             if (element) {
-                // Use smooth scroll behavior
                 element.scrollIntoView({ behavior: 'smooth', block: 'start' });
             }
         } else {
-            // If no hash, scroll to top on initial load
-            window.scrollTo({ top: 0, behavior: 'smooth' });
+            // If no hash, scroll to the top of the 'terms' section on initial load
+            const defaultElement = document.getElementById('terms-of-service-section');
+            if (defaultElement) {
+                defaultElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            } else {
+                window.scrollTo({ top: 0, behavior: 'smooth' }); // Fallback
+            }
         }
-    }, [location.hash, policyType]); // Rerun effect when hash or policyType changes
-
-    if (!data) {
-        return (
-            <div className="fade-in max-w-4xl mx-auto p-8 text-center">
-                <h1 className="text-4xl font-bold text-white mb-6">Policy Not Found</h1>
-                <p className="text-slate-300">The requested policy could not be found.</p>
-                <div className="mt-8">
-                    <Link to="/" className="text-indigo-400 hover:text-indigo-300 transition-colors">
-                        &larr; Back to Home
-                    </Link>
-                </div>
-            </div>
-        );
-    }
-
-    const { title, content, id } = data; // Destructure ID as well
+    }, [location.hash]); // Rerun effect when hash changes
 
     return (
         <div className="fade-in max-w-4xl mx-auto bg-slate-800/50 p-8 md:p-12 rounded-2xl shadow-xl border border-slate-700">
@@ -311,12 +299,12 @@ function PolicyPage() { // Removed default prop 'type = privacy' as it's now dyn
 
             {/* Render all policy content sequentially */}
             {Object.keys(policyContent).map((key) => (
-                <div key={key} id={policyContent[key].id} className="mb-12 last:mb-0"> {/* Use unique ID here */}
+                <div key={key} id={policyContent[key].id} className="mb-12 last:mb-0">
                     <h1 className="text-4xl font-bold font-serif text-white mb-6">
                         {policyContent[key].title}
                     </h1>
-                    {/* CRITICAL FIX: Ensure ALL text is white within prose */}
-                    <div className="prose prose-lg max-w-none text-slate-300 prose-p:text-white prose-li:text-white prose-strong:text-white prose-headings:text-amber-500 prose-a:text-indigo-400 prose-a:hover:text-indigo-300 prose-p:leading-relaxed">
+                    {/* CRITICAL FIX: Ensure ALL text is white within prose for better readability */}
+                    <div className="prose prose-lg max-w-none text-white prose-p:text-white prose-li:text-white prose-strong:text-white prose-headings:text-amber-500 prose-a:text-indigo-400 prose-a:hover:text-indigo-300 prose-p:leading-relaxed">
                         {policyContent[key].content}
                     </div>
                 </div>
