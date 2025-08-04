@@ -298,43 +298,44 @@ export const getLuluShippingOptionsAndCosts = async (podPackageId, pageCount, sh
     console.log(`[Lulu Service] Attempting to get all shipping options for SKU: ${podPackageId}, Page Count: ${pageCount}, Address:`, shippingAddress);
 
     // Common Lulu shipping levels to try. Adjust if Lulu has different/new levels.
-    const COMMON_LULU_SHIPPING_LEVELS = ['MAIL', 'PRIORITY_MAIL', 'EXPEDITED', 'EXPRESS']; // Removed STANDARD and GROUND for broader compatibility
+    // Based on Lulu's API spec and prior errors, these are more likely to be globally available.
+    const COMMON_LULU_SHIPPING_LEVELS = ['MAIL', 'PRIORITY_MAIL', 'EXPEDITED', 'EXPRESS']; 
 
     const availableOptions = [];
     let basePrintCost = 0;
-    let currency = 'USD'; // Default currency
+    let currency = 'USD'; // Default currency (will be updated by Lulu response)
 
     // Helper map for common dummy address details per country for Lulu probing
     const COMMON_DUMMY_ADDRESS_DETAILS = {
         'AU': {
             city: 'Sydney',
             postcode: '2000',
-            state_code: 'NSW' // MODIFIED: Added specific state for Australia
+            state_code: 'NSW' // Corrected: Specific state for Australia
         },
         'US': {
             city: 'New York',
             postcode: '10001',
-            state_code: 'NY' // ADDED: Specific state for USA
+            state_code: 'NY'
         },
         'CA': {
             city: 'Toronto',
             postcode: 'M5V 2H1',
-            state_code: 'ON' // ADDED: Specific state for Canada
+            state_code: 'ON'
         },
         'GB': {
             city: 'London',
             postcode: 'SW1A 0AA',
-            state_code: '' // UK does not always require state_code, leave blank if not needed
+            state_code: '' // UK generally doesn't require state_code for all postcodes
         },
         'NZ': {
             city: 'Auckland',
             postcode: '1010',
-            state_code: '' // NZ does not always require state_code
+            state_code: ''
         },
         'MX': {
             city: 'Mexico City',
             postcode: '01000',
-            state_code: 'CMX' // Example state/district for Mexico City
+            state_code: 'CMX'
         }
         // Add more as needed for other supported countries
     };
@@ -343,13 +344,13 @@ export const getLuluShippingOptionsAndCosts = async (podPackageId, pageCount, sh
     const dummyDetails = COMMON_DUMMY_ADDRESS_DETAILS[selectedCountryCode] || {};
 
     const fullShippingAddressForLuluProbe = {
-        name: shippingAddress.name || 'Dummy Customer', // Provide a default if empty
-        street1: shippingAddress.street1 || dummyDetails.street1 || '123 Test St', // Prioritize provided street1, then country-specific dummy, then generic
-        street2: shippingAddress.street2 || '', // Keep empty if not provided
-        city: shippingAddress.city || dummyDetails.city || 'Anytown', // Prioritize provided city, then country-specific dummy, then generic
-        state_code: shippingAddress.state_code || dummyDetails.state_code || '', // MODIFIED: Prioritize provided state_code, then country-specific dummy
-        postcode: shippingAddress.postcode || dummyDetails.postcode || '90210', // Prioritize provided postcode, then country-specific dummy, then generic
-        country_code: selectedCountryCode, // Always use the provided country_code
+        name: shippingAddress.name || 'Dummy Customer',
+        street1: shippingAddress.street1 || dummyDetails.street1 || '123 Test St',
+        street2: shippingAddress.street2 || '',
+        city: shippingAddress.city || dummyDetails.city || 'Anytown',
+        state_code: shippingAddress.state_code || dummyDetails.state_code || '', // Prioritize provided state_code, then country-specific dummy, then empty
+        postcode: shippingAddress.postcode || dummyDetails.postcode || '90210',
+        country_code: selectedCountryCode,
         phone_number: shippingAddress.phone_number || '555-555-5555',
         email: shippingAddress.email || 'dummy@example.com'
     };
@@ -364,42 +365,39 @@ export const getLuluShippingOptionsAndCosts = async (podPackageId, pageCount, sh
     for (const level of COMMON_LULU_SHIPPING_LEVELS) {
         try {
             console.log(`[Lulu Service] Probing shipping level: ${level}`);
-            const response = await getPrintJobCosts(lineItems, fullShippingAddressForLuluProbe, level); // Use enhanced dummy address
+            const response = await getPrintJobCosts(lineItems, fullShippingAddressForLuluProbe, level);
             
-            // Assuming the first line item's total_cost_incl_tax is the print cost
-            if (response.lineItemCosts && response.lineItemCosts.length > 0) {
+            // Extract the base print cost from the first successful response
+            if (basePrintCost === 0 && response.lineItemCosts && response.lineItemCosts.length > 0) {
                 basePrintCost = parseFloat(response.lineItemCosts[0].total_cost_incl_tax);
             }
 
-            // Lulu API returns shipping_options as an array, even if only one was requested (via selectedShippingLevel)
-            // We need to find the one that matches our queried level.
-            const matchedShippingOption = response.shippingOptions.find(opt => opt.level === level);
-
-            if (matchedShippingOption) {
-                availableOptions.push({
-                    level: matchedShippingOption.level,
-                    name: matchedShippingOption.name,
-                    costUsd: parseFloat(matchedShippingOption.total_cost_incl_tax), // Shipping cost for this level (still AUD at this stage in Lulu response)
-                    estimatedDeliveryDate: matchedShippingOption.estimated_delivery_date,
-                    // Store other relevant details if needed
+            // MODIFIED: Instead of finding a specific level, add all options returned by Lulu for this probe.
+            // This is more robust as Lulu might return generic "Standard" for a "MAIL" probe etc.
+            if (response.shippingOptions && response.response.data.shipping_options.length > 0) { // Check response.response.data.shipping_options
+                response.shippingOptions.forEach(luluOption => {
+                    // Only add if this option (by its unique level) hasn't been added yet
+                    if (!availableOptions.some(ao => ao.level === luluOption.level)) {
+                        availableOptions.push({
+                            level: luluOption.level,
+                            name: luluOption.name,
+                            costUsd: parseFloat(luluOption.total_cost_incl_tax), // This is still AUD from Lulu, will be converted in controller
+                            estimatedDeliveryDate: luluOption.estimated_delivery_date,
+                        });
+                    }
                 });
-                currency = response.currency; // Update currency from response
+                currency = response.currency; // Ensure currency is updated
             }
-            console.log(`[Lulu Service] Successfully retrieved option for level: ${level}`);
+            console.log(`[Lulu Service] Successfully processed options for probe level: ${level}`);
         } catch (error) {
-            // Log the error but don't re-throw, as we expect some levels might not be available
-            // or might fail for specific regions/products.
             console.warn(`[Lulu Service] Failed to get shipping cost for level '${level}': ${error.message || error}`);
-            if (error.response && error.response.data) { // ADDED: Log full error data for the probe attempts
+            if (error.response && error.response.data) {
                 console.warn(`[Lulu Service] Lulu Probe Error Details for ${level}:`, JSON.stringify(error.response.data, null, 2));
             }
         }
     }
 
-    // Filter out invalid costs (e.g., NaN or 0 if they indicate an error)
     const validOptions = availableOptions.filter(option => !isNaN(option.costUsd) && option.costUsd > 0);
-
-    // Sort options by cost, cheapest first
     validOptions.sort((a, b) => a.costUsd - b.costUsd);
 
     if (validOptions.length === 0 && COMMON_LULU_SHIPPING_LEVELS.length > 0) {
