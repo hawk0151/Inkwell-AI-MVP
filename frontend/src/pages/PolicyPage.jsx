@@ -58,6 +58,7 @@ const policyContent = {
                 <ul>
                     <li>You have had the **full and complete opportunity to review all aspects** of your generated book and order — including but not limited to, the entire text content, available visual previews, product specifications, page layouts, formatting, spelling, grammar, and final pricing — before making payment.</li>
                     <li>You are **solely responsible** for thoroughly reviewing and ensuring all details (including content accuracy and aesthetic preferences) are correct and satisfactory before finalizing your purchase.</li>
+                    <li>Once an order is confirmed, production or delivery will proceed as per our <Link to="/policies#refund-policy-section" className="text-indigo-400 hover:text-indigo-300 transition-colors">Refund Policy</Link> and <Link to="/policies#return-policy-section" className="text-indigo-400 hover:text-indigo-300 transition-colors">Return Policy</Link>.</li>
                     <li>Inkwell AI is not responsible for errors, omissions, or undesired subjective outputs (e.g., specific phrasing, plot elements, or visual interpretations by the AI that deviate from your personal ideal) resulting from your failure to adequately review and confirm your order prior to payment. **By completing your purchase, you explicitly acknowledge and accept the product as previewed.**</li>
                 </ul>
 
@@ -316,7 +317,7 @@ function PolicyPage() { // Removed default prop 'type = privacy' as it's now dyn
                     </h1>
                     {/* CRITICAL FIX: Ensure ALL text is white within prose */}
                     <div className="prose prose-lg max-w-none text-slate-300 prose-p:text-white prose-li:text-white prose-strong:text-white prose-headings:text-amber-500 prose-a:text-indigo-400 prose-a:hover:text-indigo-300 prose-p:leading-relaxed">
-                        {content} {/* HERE: Use {policyContent[key].content} not {content} */}
+                        {policyContent[key].content}
                     </div>
                 </div>
             ))}
