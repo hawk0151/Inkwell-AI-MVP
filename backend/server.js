@@ -18,8 +18,9 @@ import orderRoutes from './src/api/order.routes.js';
 import pictureBookRoutes from './src/api/picturebook.routes.js';
 import textBookRoutes from './src/api/textbook.routes.js';
 import imageRoutes from './src/api/image.routes.js';
-import userRoutes from './src/api/user.routes.js';
-import analyticsRoutes from './src/api/analytics.routes.js';
+// MODIFIED: Correctly importing named exports
+import { router as userRoutes } from './src/api/user.routes.js';
+import { router as analyticsRoutes } from './src/api/analytics.routes.js';
 import profileRoutes from './src/api/profile.routes.js';
 import socialBookRoutes from './src/api/social.book.routes.js';
 import feedRoutes from './src/api/feed.routes.js';
@@ -27,7 +28,7 @@ import storyRoutes from './src/api/story.routes.js';
 import productRoutes from './src/api/product.routes.js';
 import paypalRoutes from './src/api/paypal.routes.js';
 
-import { handleWebhook } from './src/controllers/order.controller.js'; // Assuming order.controller.js has a handleWebhook export
+import { handleWebhook } from './src/controllers/order.controller.js';
 
 async function checkDnsResolution() {
     const luluUrl = process.env.LULU_API_BASE_URL;
@@ -99,19 +100,14 @@ const startServer = async () => {
 
     app.use(morgan('dev'));
 
-    // MODIFIED: This is the critical change. express.json() is now at the top
-    // to handle general API requests, and webhooks are handled by express.raw()
-    // on their specific routes.
     app.use(express.json());
     app.use(express.urlencoded({ extended: true }));
     app.use(cookieParser());
     app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
     
-    // Webhook routes use express.raw to get the raw body for signature verification.
     app.post('/api/orders/webhook', express.raw({ type: 'application/json' }), handleWebhook);
     app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), stripeWebhook);
 
-    // Route Definitions
     app.get('/api/test/create-checkout', createTestCheckout);
     app.use('/api/story', storyRoutes);
     app.use('/api/products', productRoutes);
