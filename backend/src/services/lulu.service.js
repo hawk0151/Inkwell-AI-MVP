@@ -372,9 +372,8 @@ export const getLuluShippingOptionsAndCosts = async (podPackageId, pageCount, sh
                 basePrintCost = parseFloat(response.lineItemCosts[0].total_cost_incl_tax);
             }
 
-            // MODIFIED: Instead of finding a specific level, add all options returned by Lulu for this probe.
-            // This is more robust as Lulu might return generic "Standard" for a "MAIL" probe etc.
-            if (response.shippingOptions && response.response.data.shipping_options.length > 0) { // Check response.response.data.shipping_options
+            // MODIFIED: Corrected the typo response.response.data to response.shippingOptions
+            if (response.shippingOptions && response.shippingOptions.length > 0) {
                 response.shippingOptions.forEach(luluOption => {
                     // Only add if this option (by its unique level) hasn't been added yet
                     if (!availableOptions.some(ao => ao.level === luluOption.level)) {
