@@ -75,23 +75,22 @@ export const LULU_PRODUCT_CONFIGURATIONS = [
         isDefault: false // Not default for picture books
     },
     {
-        // THIS IS YOUR UPDATED PICTURE BOOK CONFIGURATION with the correct SKU and isDefault: true
-        id: 'A4PREMIUM_FC_8.27x11.69', // This ID is still used in your DB
-        name: 'A4 Landscape Hardcover Picture Book (11.94 x 8.52")', // Updated name to match screenshot/common usage
-        trimSize: '11.94x8.52', // Updated to match the landscape dimensions
-        luluSku: '1169X0827FCPRECW080CW444MXX', // <-- THIS IS THE NEW, CORRECT SKU
-        basePrice: 69.99, // Assuming original base price
-        defaultPageCount: 40, // Retaining values from your previous lulu.service.js for this product
+        id: 'A4PREMIUM_FC_8.27x11.69',
+        name: 'A4 Landscape Hardcover Picture Book (11.94 x 8.52")',
+        trimSize: '11.94x8.52',
+        luluSku: '1169X0827FCPRECW080CW444MXX',
+        basePrice: 69.99,
+        defaultPageCount: 40,
         minPageCount: 24,
-        maxPageCount: 800, // Matches the screenshot
+        maxPageCount: 800,
         wordsPerPage: 120,
         defaultWordsPerPage: 120,
-        totalChapters: 1, // Picture books typically have one "story"
+        totalChapters: 1,
         category: 'pictureBook',
         bleedMm: 3.175,
         safeMarginMm: 6.35,
         type: 'pictureBook',
-        isDefault: true // Set this as the default picture book product
+        isDefault: true
     }
 ];
 
@@ -160,6 +159,7 @@ async function getLuluAuthToken() {
             return await axios.post(
                 authUrl,
                 'grant_type=client_credentials',
+                'client_id=' + process.env.LULU_CLIENT_ID, // Explicitly send client_id in body as well
                 {
                     headers: {
                         'Content-Type': 'application/x-www-form-urlencoded',
@@ -205,27 +205,25 @@ export async function getCoverDimensionsFromApi(podPackageId, pageCount) {
         }, 3, 300);
 
         const dimensions = response.data;
-        // --- ADDED LOG TO SEE THE FULL RESPONSE ---
         console.log(`[Lulu Service DEBUG] Full Lulu cover dimensions API response for SKU ${podPackageId}:`, JSON.stringify(dimensions, null, 2));
 
         const ptToMm = (pt) => pt * (25.4 / 72);
 
         let widthMm, heightMm;
 
-        // NEW LOGIC: Check for 'width'/'height' and 'unit' fields first.
-        // The current response shows 'width', 'height', and 'unit' as 'pt'
+        // NEW LOGIC: Prioritize 'width'/'height' and 'unit' fields when unit is 'pt'
         if (typeof dimensions.width === 'string' && typeof dimensions.height === 'string' && dimensions.unit === 'pt') {
             widthMm = ptToMm(parseFloat(dimensions.width));
             heightMm = ptToMm(parseFloat(dimensions.height));
             console.log(`[Lulu Service] Using width and height (in pts) from response.`);
         }
-        // Fallback for width_pts/height_pts (older version or different products)
+        // Fallback for width_pts/height_pts (if Lulu API ever returns this format again)
         else if (typeof dimensions.width_pts === 'number' && typeof dimensions.height_pts === 'number') {
             widthMm = ptToMm(dimensions.width_pts);
             heightMm = ptToMm(dimensions.height_pts);
             console.log(`[Lulu Service] Using width_pts and height_pts from response.`);
         }
-        // Fallback for width/height with unit 'mm' (less common for cover dimensions API)
+        // Fallback for width/height with unit 'mm'
         else if (typeof dimensions.width === 'number' && typeof dimensions.height === 'number' && dimensions.unit === 'mm') {
             widthMm = dimensions.width;
             heightMm = dimensions.height;
@@ -252,7 +250,8 @@ export async function getCoverDimensionsFromApi(podPackageId, pageCount) {
     }
 }
 
-export const getPrintJobCosts = async (lineItems, shippingAddress) => {
+export const getPrintJobCosts = async (lineItems, shippingAddress, selectedShippingLevel = null) => { // ADDED selectedShippingLevel parameter
+    console.log(`[Lulu Service] Attempting to get print job costs from Lulu.`);
     const endpoint = `${process.env.LULU_API_BASE_URL.replace(/\/$/, '')}/print-job-cost-calculations`;
     try {
         await ensureHostnameResolvable(endpoint);
@@ -260,8 +259,11 @@ export const getPrintJobCosts = async (lineItems, shippingAddress) => {
         const payload = {
             line_items: lineItems,
             shipping_address: shippingAddress,
-            shipping_level: "MAIL"
+            // Include shipping_level ONLY if provided, otherwise Lulu will return all options
+            ...(selectedShippingLevel && { shipping_level: selectedShippingLevel }) 
         };
+        console.log('[Lulu Service] Requesting print job costs with body:', JSON.stringify(payload, null, 2)); // Use payload for logging
+
         const response = await retryWithBackoff(async () => {
             return await axios.post(endpoint, payload, {
                 headers: {
@@ -271,7 +273,17 @@ export const getPrintJobCosts = async (lineItems, shippingAddress) => {
                 timeout: 15000
             });
         });
-        return response.data;
+
+        // MODIFIED RETURN: Return more comprehensive data
+        console.log('[Lulu Service] Successfully retrieved print job costs and shipping options.');
+        return {
+            lineItemCosts: response.data.line_item_costs,
+            shippingOptions: response.data.shipping_options, // Lulu returns this array
+            fulfillmentCost: response.data.fulfillment_cost,
+            totalCostInclTax: response.data.total_cost_incl_tax,
+            currency: response.data.currency
+        };
+
     } catch (error) {
         console.error("Error getting print job costs from Lulu:", error.response ? error.response.data : error.message);
         throw new Error(`Failed to get print job costs from Lulu.`);
@@ -290,7 +302,7 @@ export const createLuluPrintJob = async (orderDetails, shippingInfo) => {
         const payload = {
             contact_email: shippingInfo.email,
             external_id: `inkwell-order-${orderDetails.id}`,
-            shipping_level: "MAIL",
+            shipping_level: orderDetails.shipping_level, // Use the selected shipping level from orderDetails
             shipping_address: {
                 name: shippingInfo.name, street1: shippingInfo.street1, city: shippingInfo.city,
                 postcode: shippingInfo.postcode, country_code: shippingInfo.country_code,
