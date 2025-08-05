@@ -117,6 +117,7 @@ const PromptForm = ({ isLoading, onSubmit, productName }) => {
 
 // --- CORRECTED CheckoutModal COMPONENT ---
 const CheckoutModal = ({ isOpen, onClose, bookId, bookType, onSubmit }) => {
+    // We now have a single, canonical address state for the entire modal
     const [checkoutStep, setCheckoutStep] = useState('shipping_input');
     const [shippingAddress, setShippingAddress] = useState({
         name: '', street1: '', street2: '', city: '', state_code: '', postcode: '', country_code: '', phone_number: '', email: ''
@@ -178,7 +179,8 @@ const CheckoutModal = ({ isOpen, onClose, bookId, bookType, onSubmit }) => {
         }
     }, [bookId, bookType, shippingAddress]);
 
-    const handleGetOptions = async () => {
+    const handleGetOptions = async (e) => {
+        e.preventDefault();
         setModalError(null);
         if (isShippingFormComplete()) {
             // Re-validate just in case there are other errors
@@ -235,7 +237,8 @@ const CheckoutModal = ({ isOpen, onClose, bookId, bookType, onSubmit }) => {
         if (!quoteDetails) return null;
         const selectedOption = shippingOptions.find(opt => opt.level === selectedShippingLevel);
         const totalShippingCostUsd = selectedOption ? selectedOption.costUsd : 0;
-        const totalPrice = quoteDetails.print_cost_usd + totalShippingCostUsd + (quoteDetails.base_product_price_usd - quoteDetails.print_cost_usd);
+        // MODIFIED: Total price calculation now directly uses base_product_price_usd
+        const totalPrice = quoteDetails.base_product_price_usd + totalShippingCostUsd;
         return totalPrice;
     };
     const currentTotalDisplayPrice = getDisplayPrice();
@@ -247,73 +250,80 @@ const CheckoutModal = ({ isOpen, onClose, bookId, bookType, onSubmit }) => {
                             className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center z-50 p-4" onClick={onClose}>
                     <motion.div initial={{ scale: 0.9, y: -20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }}
                                 className="bg-slate-800 rounded-3xl shadow-2xl border border-slate-700 w-full max-w-md p-8" onClick={(e) => e.stopPropagation()}>
+                        {/* MODIFIED: Consolidated header and message */}
+                        <h2 className="text-3xl font-bold text-white mb-4">
+                            {checkoutStep === 'shipping_input' ? 'Enter Full Shipping Details' : 'Select Shipping Option'}
+                        </h2>
+                        <p className="text-slate-300 mb-6 text-base">
+                            {checkoutStep === 'shipping_input' ? 'These details are used to get an accurate shipping quote.' : 'Choose a shipping method. Prices are estimates and finalized at checkout.'}
+                        </p>
+                        
+                        {modalError && <Alert type="error" message={modalError} onClose={() => setModalError(null)} className="mb-4" />}
+                        {isLoadingOptions && <LoadingSpinner text="Getting shipping options..." className="my-4" />}
+                        {isProcessingCheckout && <LoadingSpinner text="Processing checkout..." className="my-4" />}
+                        
+                        {/* Conditional rendering for shipping input form */}
                         {checkoutStep === 'shipping_input' && (
-                            <>
-                                <h2 className="text-3xl font-bold text-white mb-4">Enter Full Shipping Details</h2>
-                                <p className="text-sm text-slate-300 mb-4">These details are used to get an accurate shipping quote.</p>
-                                <div className="space-y-5">
-                                    <div>
-                                        <label htmlFor="fullName" className="block text-sm font-medium text-slate-300 mb-1">Full Name</label>
-                                        <input type="text" id="fullName" name="name" value={shippingAddress.name} onChange={handleFullAddressChange} placeholder="John Doe" required className={inputClasses} />
-                                        {formErrors.name && <p className="text-red-400 text-xs mt-1">{formErrors.name}</p>}
-                                    </div>
-                                    <div>
-                                        <label htmlFor="email" className="block text-sm font-medium text-slate-300 mb-1">Email</label>
-                                        <input type="email" id="email" name="email" value={shippingAddress.email} onChange={handleFullAddressChange} placeholder="john.doe@example.com" required className={inputClasses} />
-                                        {formErrors.email && <p className="text-red-400 text-xs mt-1">{formErrors.email}</p>}
-                                    </div>
-                                    <div>
-                                        <label htmlFor="phone_number" className="block text-sm font-medium text-slate-300 mb-1">Phone Number</label>
-                                        <input type="tel" id="phone_number" name="phone_number" value={shippingAddress.phone_number} onChange={handleFullAddressChange} placeholder="555-123-4567" required className={inputClasses} />
-                                        {formErrors.phone_number && <p className="text-red-400 text-xs mt-1">{formErrors.phone_number}</p>}
-                                    </div>
-                                    <div>
-                                        <label htmlFor="country_code" className="block text-sm font-medium text-slate-300 mb-1">Country</label>
-                                        <select id="country_code" name="country_code" value={shippingAddress.country_code} onChange={handleFullAddressChange} required className={inputClasses}>
-                                            <option value="">Select a country</option>
-                                            {COUNTRIES.map(c => (<option key={c.code} value={c.code}>{c.name}</option>))}
-                                        </select>
-                                        {formErrors.country_code && <p className="text-red-400 text-xs mt-1">{formErrors.country_code}</p>}
-                                    </div>
-                                    <div>
-                                        <label htmlFor="postcode" className="block text-sm font-medium text-slate-300 mb-1">Postal Code</label>
-                                        <input type="text" id="postcode" name="postcode" value={shippingAddress.postcode} onChange={handleFullAddressChange} placeholder="12345" required className={inputClasses} />
-                                        {formErrors.postcode && <p className="text-red-400 text-xs mt-1">{formErrors.postcode}</p>}
-                                    </div>
-                                    <div>
-                                        <label htmlFor="state_code" className="block text-sm font-medium text-slate-300 mb-1">State/Province</label>
-                                        <input type="text" id="state_code" name="state_code" value={shippingAddress.state_code} onChange={handleFullAddressChange} placeholder="NY" className={inputClasses} />
-                                        {formErrors.state_code && <p className="text-red-400 text-xs mt-1">{formErrors.state_code}</p>}
-                                    </div>
-                                    <div>
-                                        <label htmlFor="city" className="block text-sm font-medium text-slate-300 mb-1">City</label>
-                                        <input type="text" id="city" name="city" value={shippingAddress.city} onChange={handleFullAddressChange} placeholder="Springfield" required className={inputClasses} />
-                                        {formErrors.city && <p className="text-red-400 text-xs mt-1">{formErrors.city}</p>}
-                                    </div>
-                                    <div>
-                                        <label htmlFor="street1" className="block text-sm font-medium text-slate-300 mb-1">Street Address 1</label>
-                                        <input type="text" id="street1" name="street1" value={shippingAddress.street1} onChange={handleFullAddressChange} placeholder="123 Main St" required className={inputClasses} />
-                                        {formErrors.street1 && <p className="text-red-400 text-xs mt-1">{formErrors.street1}</p>}
-                                    </div>
-                                    <div>
-                                        <label htmlFor="street2" className="block text-sm font-medium text-slate-300 mb-1">Street Address 2 (Optional)</label>
-                                        <input type="text" id="street2" name="street2" value={shippingAddress.street2} onChange={handleFullAddressChange} placeholder="Apt 4B" className={inputClasses} />
-                                    </div>
-                                    <div className="mt-6 flex items-center justify-end space-x-4">
-                                        <button type="button" onClick={onClose} className="text-slate-400 hover:text-white transition text-lg">Cancel</button>
-                                        <button onClick={handleGetOptions} disabled={isLoadingOptions || !isShippingFormComplete()} className={`${buttonClasses} text-lg`}>
-                                            {isLoadingOptions ? 'Getting Shipping Options...' : 'Get Shipping Options'}
-                                        </button>
-                                    </div>
+                            <form onSubmit={handleGetOptions} className="space-y-5">
+                                <div>
+                                    <label htmlFor="fullName" className="block text-sm font-medium text-slate-300 mb-1">Full Name</label>
+                                    <input type="text" id="fullName" name="name" value={shippingAddress.name} onChange={handleFullAddressChange} placeholder="John Doe" required className={inputClasses} />
+                                    {formErrors.name && <p className="text-red-400 text-xs mt-1">{formErrors.name}</p>}
                                 </div>
-                            </>
+                                <div>
+                                    <label htmlFor="email" className="block text-sm font-medium text-slate-300 mb-1">Email</label>
+                                    <input type="email" id="email" name="email" value={shippingAddress.email} onChange={handleFullAddressChange} placeholder="john.doe@example.com" required className={inputClasses} />
+                                    {formErrors.email && <p className="text-red-400 text-xs mt-1">{formErrors.email}</p>}
+                                </div>
+                                <div>
+                                    <label htmlFor="phone_number" className="block text-sm font-medium text-slate-300 mb-1">Phone Number</label>
+                                    <input type="tel" id="phone_number" name="phone_number" value={shippingAddress.phone_number} onChange={handleFullAddressChange} placeholder="555-123-4567" required className={inputClasses} />
+                                    {formErrors.phone_number && <p className="text-red-400 text-xs mt-1">{formErrors.phone_number}</p>}
+                                </div>
+                                <div>
+                                    <label htmlFor="country_code" className="block text-sm font-medium text-slate-300 mb-1">Country</label>
+                                    <select id="country_code" name="country_code" value={shippingAddress.country_code} onChange={handleFullAddressChange} required className={inputClasses}>
+                                        <option value="">Select a country</option>
+                                        {COUNTRIES.map(c => (<option key={c.code} value={c.code}>{c.name}</option>))}
+                                    </select>
+                                    {formErrors.country_code && <p className="text-red-400 text-xs mt-1">{formErrors.country_code}</p>}
+                                </div>
+                                <div>
+                                    <label htmlFor="postcode" className="block text-sm font-medium text-slate-300 mb-1">Postal Code</label>
+                                    <input type="text" id="postcode" name="postcode" value={shippingAddress.postcode} onChange={handleFullAddressChange} placeholder="12345" required className={inputClasses} />
+                                    {formErrors.postcode && <p className="text-red-400 text-xs mt-1">{formErrors.postcode}</p>}
+                                </div>
+                                <div>
+                                    <label htmlFor="state_code" className="block text-sm font-medium text-slate-300 mb-1">State/Province</label>
+                                    <input type="text" id="state_code" name="state_code" value={shippingAddress.state_code} onChange={handleFullAddressChange} placeholder="NY" className={inputClasses} />
+                                    {formErrors.state_code && <p className="text-red-400 text-xs mt-1">{formErrors.state_code}</p>}
+                                </div>
+                                <div>
+                                    <label htmlFor="city" className="block text-sm font-medium text-slate-300 mb-1">City</label>
+                                    <input type="text" id="city" name="city" value={shippingAddress.city} onChange={handleFullAddressChange} placeholder="Springfield" required className={inputClasses} />
+                                    {formErrors.city && <p className="text-red-400 text-xs mt-1">{formErrors.city}</p>}
+                                </div>
+                                <div>
+                                    <label htmlFor="street1" className="block text-sm font-medium text-slate-300 mb-1">Street Address 1</label>
+                                    <input type="text" id="street1" name="street1" value={shippingAddress.street1} onChange={handleFullAddressChange} placeholder="123 Main St" required className={inputClasses} />
+                                    {formErrors.street1 && <p className="text-red-400 text-xs mt-1">{formErrors.street1}</p>}
+                                </div>
+                                <div>
+                                    <label htmlFor="street2" className="block text-sm font-medium text-slate-300 mb-1">Street Address 2 (Optional)</label>
+                                    <input type="text" id="street2" name="street2" value={shippingAddress.street2} onChange={handleFullAddressChange} placeholder="Apt 4B" className={inputClasses} />
+                                </div>
+                                <div className="mt-6 flex items-center justify-end space-x-4">
+                                    <button type="button" onClick={onClose} className="text-slate-400 hover:text-white transition text-lg">Cancel</button>
+                                    <button type="submit" disabled={isLoadingOptions || !isShippingFormComplete()} className={`${buttonClasses} text-lg`}>
+                                        {isLoadingOptions ? 'Getting Shipping Options...' : 'Get Shipping Options'}
+                                    </button>
+                                </div>
+                            </form>
                         )}
                         
+                        {/* Conditional rendering for shipping options selection */}
                         {checkoutStep === 'shipping_options' && (
                             <>
-                                <h2 className="text-3xl font-bold text-white mb-4">Select Shipping Option</h2>
-                                <p className="text-slate-300 mb-6 text-base">Choose a shipping method. Prices are estimates and finalized at checkout.</p>
-                                {modalError && <Alert type="error" message={modalError} onClose={() => setModalError(null)} className="mb-4" />}
                                 {shippingOptions.length === 0 && !isLoadingOptions ? (
                                     <p className="text-slate-300">No shipping options available for the selected destination. Please try a different country or postal code.</p>
                                 ) : (
@@ -334,17 +344,13 @@ const CheckoutModal = ({ isOpen, onClose, bookId, bookType, onSubmit }) => {
                                         {isProcessingCheckout ? 'Processing...' : 'Proceed to Payment'}
                                     </button>
                                 </div>
+                                {/* MODIFIED: Simplified price display for end-user */}
                                 {currentTotalDisplayPrice !== null && (
                                     <p className="text-lg font-bold text-white mt-4 text-center">
                                         Total Estimated Price: ${currentTotalDisplayPrice.toFixed(2)} USD
                                         {quoteDetails?.expires_at && (
                                             <span className="block text-sm text-slate-400 font-normal">
                                                 Quote valid until: {new Date(quoteDetails.expires_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true })}
-                                            </span>
-                                        )}
-                                        {selectedShippingLevel && (
-                                            <span className="block text-sm text-slate-400 font-normal mt-1">
-                                                (Print: ${quoteDetails.print_cost_usd.toFixed(2)}, Shipping: {shippingOptions.find(opt => opt.level === selectedShippingLevel)?.costUsd?.toFixed(2)})
                                             </span>
                                         )}
                                     </p>
