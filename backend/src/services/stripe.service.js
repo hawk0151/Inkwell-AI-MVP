@@ -6,24 +6,31 @@ import { randomUUID } from 'crypto';
 
 const stripeClient = stripe(process.env.STRIPE_SECRET_KEY);
 
+// MODIFIED: Added shippingAddress parameter to correctly pass full address for pre-filling
 export const createStripeCheckoutSession = async (productDetails, shippingAddress, userId, orderId, bookId, bookType) => {
     try {
         const session = await stripeClient.checkout.sessions.create({
             payment_method_types: ['card'],
+            // MODIFIED: Enable collection of shipping address on Stripe's side
             shipping_address_collection: {
-                allowed_countries: ['AU', 'US', 'CA', 'GB', 'NZ'],
+                allowed_countries: ['AU', 'US', 'CA', 'GB', 'NZ'], // Ensure this matches your supported countries
             },
-            // MODIFIED: Removed the incorrect top-level shipping_address parameter
-            // shipping_address: { /* ... removed ... */ }, 
+            // REMOVED: The redundant shipping_options array.
+            // The total price (product + shipping + fulfillment + profit) is already
+            // included in the `unit_amount` of the `line_items` below.
+            // Adding `shipping_options` here would lead to price duplication on Stripe's page.
+            // Stripe will still collect the shipping address due to `shipping_address_collection` above.
+            // shipping_options: [ /* ... removed ... */ ],
+
             line_items: [
                 {
                     price_data: {
-                        currency: 'usd',
+                        currency: 'usd', // CORRECTED: Ensure currency is USD here to match priceInCents
                         product_data: {
                             name: productDetails.name,
                             description: productDetails.description,
                         },
-                        unit_amount: productDetails.priceInCents,
+                        unit_amount: productDetails.priceInCents, // This is the total price in cents (USD)
                     },
                     quantity: 1,
                 },
@@ -37,19 +44,20 @@ export const createStripeCheckoutSession = async (productDetails, shippingAddres
                 bookId: bookId,
                 bookType: bookType
             },
-            // ADDED: Correct way to pre-fill customer and address details on Checkout Session
+            // ADDED/MODIFIED: Correct way to pre-fill customer and address details on Checkout Session
+            // Stripe expects these details under `customer_details` for pre-filling.
             customer_details: {
                 email: shippingAddress.email,
                 address: {
                     line1: shippingAddress.street1,
                     line2: shippingAddress.street2 || null, // Use null for empty optional fields
                     city: shippingAddress.city,
-                    state: shippingAddress.state_code || null,
-                    postal_code: shippingAddress.postcode,
-                    country: shippingAddress.country_code
+                    state: shippingAddress.state_code || null, // Stripe expects 'state' (ISO code) and null for empty
+                    postal_code: shippingAddress.postcode, // Stripe expects 'postal_code'
+                    country: shippingAddress.country_code // Stripe expects 'country' (ISO Alpha-2 code)
                 },
                 name: shippingAddress.name,
-                phone: shippingAddress.phone_number || null
+                phone: shippingAddress.phone_number || null // Stripe expects 'phone'
             },
         });
         return session;
@@ -101,8 +109,8 @@ const handleSuccessfulCheckout = async (session) => {
             postcode: fullSession.shipping_details.address.postal_code,
             country_code: fullSession.shipping_details.address.country,
             state_code: fullSession.shipping_details.address.state,
-            email: fullSession.customer_details.email,
-            phone_number: fullSession.customer_details.phone || '000-000-0000',
+            email: fullSession.customer_details.email, // Use customer_details for email
+            phone_number: fullSession.customer_details.phone || '000-000-0000', // Use customer_details for phone
         };
 
         const luluOrderDetails = {
