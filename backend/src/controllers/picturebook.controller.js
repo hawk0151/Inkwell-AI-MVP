@@ -12,6 +12,7 @@ import fs from 'fs/promises';
 const AUD_TO_USD_EXCHANGE_RATE = 0.66;
 const JWT_QUOTE_SECRET = process.env.JWT_QUOTE_SECRET || 'your_super_secret_jwt_quote_key';
 const PROFIT_MARGIN_USD = 10.00;
+const REQUIRED_CONTENT_PAGES = 20; // Added constant for validation
 
 async function getFullPictureBook(bookId, userId, client) {
     const bookResult = await client.query(`SELECT * FROM picture_books WHERE id = $1 AND user_id = $2`, [bookId, userId]);
@@ -76,7 +77,6 @@ export const getPictureBook = async (req, res) => {
     }
 };
 
-// THIS FUNCTION IS NOW PATCHED
 export const getPictureBooks = async (req, res) => {
     let client;
     try {
@@ -144,7 +144,6 @@ export const addTimelineEvent = async (req, res) => {
     }
 };
 
-// THIS IS OUR REWRITTEN AND UNIFIED CHECKOUT FUNCTION
 export const createBookCheckoutSession = async (req, res) => {
     const { bookId } = req.params;
     const { shippingAddress, selectedShippingLevel, quoteToken } = req.body;
@@ -161,7 +160,6 @@ export const createBookCheckoutSession = async (req, res) => {
         if (decodedQuote.bookId !== bookId || decodedQuote.bookType !== 'pictureBook') {
             return res.status(400).json({ message: 'Shipping quote details do not match the selected book.' });
         }
-        console.log(`[Checkout PB] Quote token verified for book ${bookId}.`);
         
         const pool = await getDb();
         client = await pool.connect();
@@ -169,13 +167,20 @@ export const createBookCheckoutSession = async (req, res) => {
         if (!book) {
             return res.status(404).json({ message: "Project not found." });
         }
+        
+        // THIS IS THE FINAL PATCH
+        if (book.timeline.length !== REQUIRED_CONTENT_PAGES) {
+            const errorMessage = `This book is incomplete. It must have exactly ${REQUIRED_CONTENT_PAGES} content pages to be printed, but it currently has ${book.timeline.length}.`;
+            console.error(`[Checkout PB ERROR] ${errorMessage}`);
+            return res.status(400).json({ message: "Book is incomplete.", detailedError: errorMessage });
+        }
+        
         const productConfig = findProductConfiguration(book.lulu_product_id);
         if (!productConfig) {
             return res.status(500).json({ message: `Internal Error: Product configuration not found for ID ${book.lulu_product_id}.` });
         }
-        console.log(`[Checkout PB] Found product config: ${productConfig.id}`);
         
-        console.log(`[Checkout PB] Generating final PDFs for order...`);
+        console.log(`[Checkout PB] Book is complete. Generating final PDFs for order...`);
         const { path: interiorPath, pageCount: finalPageCount } = await generateAndSavePictureBookPdf(book, book.timeline, productConfig);
         tempInteriorPdfPath = interiorPath;
         const interiorPdfUrl = await uploadPdfFileToCloudinary(tempInteriorPdfPath, `inkwell-ai/user_${req.userId}/books`, `book_${bookId}_interior`);
@@ -223,7 +228,6 @@ export const createBookCheckoutSession = async (req, res) => {
             luluPrintCostUSD, luluShippingCostUSD, PROFIT_MARGIN_USD,
             selectedShippingLevel, luluFulfillmentCostUSD, new Date(), new Date()
         ]);
-        console.log(`[Checkout PB] Created pending order record ${orderId}.`);
 
         const session = await createStripeCheckoutSession(
             {
@@ -236,7 +240,6 @@ export const createBookCheckoutSession = async (req, res) => {
         );
 
         await client.query('UPDATE orders SET stripe_session_id = $1 WHERE id = $2', [session.id, orderId]);
-        console.log(`[Checkout PB] Stripe session ${session.id} created.`);
         
         res.status(200).json({ url: session.url, sessionId: session.id });
 
