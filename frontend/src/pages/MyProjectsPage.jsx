@@ -287,7 +287,7 @@ function MyProjectsPage() {
                 {isError && <Alert type="error" message="Could not fetch your projects." />}
                 {error && <Alert type="error" message={error} onClose={() => setError(null)} />}
                 
-                <div className="bg-slate-800/50 backdrop-blur-md rounded-2xl p-6 border border-slate-700">
+                <div className="bg-slate-800/50 rounded-2xl p-6 border border-slate-700">
                     {isLoading ? <LoadingSpinner text="Fetching your projects..." /> : (
                         allProjects && allProjects.length > 0 ? (
                             <motion.div 
