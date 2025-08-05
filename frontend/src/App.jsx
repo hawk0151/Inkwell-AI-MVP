@@ -24,9 +24,10 @@ import EditProfilePage from './pages/EditProfilePage.jsx';
 import AboutHowItWorksPage from './pages/AboutHowItWorksPage.jsx';
 import PolicyPage from './pages/PolicyPage.jsx';
 import NotFoundPage from './pages/NotFoundPage.jsx'; // Import the new 404 page
-
 // EDITED: Import the CookieConsentBanner along with the other common components
 import { LoadingSpinner, Alert, CookieConsentBanner } from './components/common.jsx';
+// NEW: Import the ContactPage component
+import ContactPage from './pages/ContactPage.jsx';
 
 function App() {
     const { loading } = useAuth();
@@ -51,6 +52,7 @@ function App() {
                     <Route path="/checkout-success" element={<CheckoutSuccessPage />} />
                     <Route path="/cancel" element={<CancelPage />} />
                     <Route path="/policies" element={<PolicyPage />} />
+                    <Route path="/contact" element={<ContactPage />} /> {/* NEW ROUTE */}
                     
                     {/* Protected Routes */}
                     <Route path="/feed" element={<ProtectedRoute><FeedPage /></ProtectedRoute>} />
@@ -66,7 +68,7 @@ function App() {
                     <Route path="*" element={<NotFoundPage />} />
                 </Routes>
             </main>
-            <CookieConsentBanner /> {/* ADDED THIS LINE */}
+            <CookieConsentBanner />
             <AppFooter />
         </div>
     );
