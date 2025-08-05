@@ -8,6 +8,18 @@ import PageHeader from '../components/PageHeader';
 import { LoadingSpinner, Alert } from '../components/common.jsx';
 import { DocumentPlusIcon, PhotoIcon, EyeIcon, EyeSlashIcon, PencilIcon, ShareIcon, EllipsisVerticalIcon, TrashIcon } from '@heroicons/react/24/solid'; // Added new icons
 
+// --- CORRECT FIX: Moved these variables outside the component function ---
+const containerVariants = {
+    hidden: { opacity: 0 },
+    visible: { opacity: 1, transition: { staggerChildren: 0.1 } },
+};
+
+const cardVariants = {
+    hidden: { opacity: 0, y: 20 },
+    visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: 'easeOut' } }
+};
+
+
 // --- OPTIMIZED API Function ---
 const fetchProjects = async () => {
     const response = await apiClient.get('/projects');
