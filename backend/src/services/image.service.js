@@ -17,28 +17,31 @@ export const generateImageFromApi = async (prompt, style) => {
         throw new Error("Stability AI API key is not configured.");
     }
 
-    const engineId = 'stable-image-core';
     const apiUrl = `https://api.stability.ai/v2beta/stable-image/generate/core`;
 
     const fullPrompt = `A beautiful, whimsical, ${style}-style children's book illustration of: ${prompt}. Clean lines, vibrant pastel colors, storybook setting, safe for all audiences, high detail. Print-ready.`;
 
-    // --- WORKAROUND CHANGE: Reduced image dimensions for smaller file size ---
-    // Old dimensions were too large (2556x3582). New dimensions are smaller but still good quality for print.
-    // Also corrected to a landscape aspect ratio to match the book.
+    // --- IMPROVEMENT #1: Correct Square Dimensions for the New Book Format ---
+    // We now request a high-resolution square image to match the 8.75" x 8.75" book.
     const targetWidthPx = 1536;
-    const targetHeightPx = 1024;
-    const aspectRatio = '3:2';
+    const targetHeightPx = 1536;
+    const aspectRatio = '1:1';
 
-    console.log(`[Stability AI Generation] Generating image at lower resolution: ${targetWidthPx}x${targetHeightPx}...`);
+    // --- IMPROVEMENT #2: Adding a Negative Prompt for Better Quality ---
+    // This tells the AI what to AVOID, leading to cleaner images.
+    const negativePrompt = "text, words, letters, signature, watermark, blurry, ugly, disfigured, deformed, low quality, noisy, jpeg artifacts, monochrome, grayscale";
+
+    console.log(`[Stability AI Generation] Generating SQUARE image at ${targetWidthPx}x${targetHeightPx}...`);
     
     try {
         const formData = new FormData();
         formData.append('prompt', fullPrompt);
+        formData.append('negative_prompt', negativePrompt); // Add the negative prompt here
         formData.append('output_format', 'jpeg');
         formData.append('width', targetWidthPx.toString());
         formData.append('height', targetHeightPx.toString());
         formData.append('aspect_ratio', aspectRatio);
-        formData.append('style_preset', 'digital-art'); // A good general-purpose preset
+        formData.append('style_preset', 'digital-art');
 
         const response = await axios.post(
             apiUrl,
@@ -49,7 +52,7 @@ export const generateImageFromApi = async (prompt, style) => {
                     'Authorization': `Bearer ${apiKey}`,
                     'Accept': 'application/json'
                 },
-                timeout: 60000
+                timeout: 60000 // Increased timeout for potentially larger images
             }
         );
 
