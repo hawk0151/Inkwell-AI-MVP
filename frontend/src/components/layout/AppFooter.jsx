@@ -10,6 +10,7 @@ export const AppFooter = () => (
                 <Link to="/policies#privacy-policy-section" className="hover:text-white transition-colors">Privacy Policy</Link>
                 <Link to="/policies#shipping-policy-section" className="hover:text-white transition-colors">Shipping Policy</Link>
                 <Link to="/policies#refund-policy-section" className="hover:text-white transition-colors">Refund Policy</Link>
+                <Link to="/contact" className="hover:text-white transition-colors">Contact Us</Link> {/* NEW: Added Contact Us link */}
             </div>
             <p className="mt-6">&copy; {new Date().getFullYear()} Inkwell AI. All Rights Reserved.</p>
         </div>
