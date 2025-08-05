@@ -1,18 +1,17 @@
 // frontend/src/pages/MyProjectsPage.jsx
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react'; // Added useRef, useEffect
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import apiClient from '../services/apiClient';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion'; // Added AnimatePresence for dropdown animation
 import PageHeader from '../components/PageHeader';
 import { LoadingSpinner, Alert } from '../components/common.jsx';
-import { DocumentPlusIcon, PhotoIcon, EyeIcon, EyeSlashIcon } from '@heroicons/react/24/solid';
+import { DocumentPlusIcon, PhotoIcon, EyeIcon, EyeSlashIcon, PencilIcon, ShareIcon, EllipsisVerticalIcon, TrashIcon } from '@heroicons/react/24/solid'; // Added new icons
 
 // --- OPTIMIZED API Function ---
 const fetchProjects = async () => {
-    // Now just one single API call to our new efficient endpoint
     const response = await apiClient.get('/projects');
-    return response.data; // The data is already combined and sorted by the server
+    return response.data;
 };
 
 // --- Other API functions remain the same ---
@@ -25,7 +24,33 @@ const toggleBookPrivacy = ({ bookId, bookType, is_public }) => {
     return apiClient.patch(endpoint, { is_public });
 };
 
-// --- Sub-components (unchanged from our last update) ---
+// --- NEW: Project Status Indicator Component ---
+const ProjectStatusIndicator = ({ project }) => {
+    let statusText = "Draft";
+    let statusColor = "bg-slate-500"; // Default for draft
+
+    // Infer status based on available data. More sophisticated status would need backend logic.
+    // For simplicity, if it's public, it's 'Published'. Otherwise, if it has a last_modified date different
+    // from creation, it's 'In Progress'. Otherwise, 'Draft'.
+    const isModified = project.date_created && project.last_modified && 
+                       new Date(project.last_modified).getTime() > new Date(project.date_created).getTime();
+
+    if (project.is_public) {
+        statusText = "Published";
+        statusColor = "bg-teal-500";
+    } else if (isModified) {
+        statusText = "In Progress";
+        statusColor = "bg-indigo-500";
+    }
+
+    return (
+        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColor} text-white`}>
+            {statusText}
+        </span>
+    );
+};
+
+// --- MODIFIED: Publish Button (now designed to be inside dropdown) ---
 const PublishButton = ({ project, onPublishToggle }) => {
     const { mutate, isPending } = onPublishToggle;
     const handleClick = (e) => {
@@ -37,10 +62,129 @@ const PublishButton = ({ project, onPublishToggle }) => {
     const buttonClass = project.is_public ? "text-slate-400 hover:text-white" : "text-teal-400 hover:text-teal-300";
 
     return (
-        <button onClick={handleClick} disabled={isPending} className={`flex items-center gap-2 text-sm font-semibold transition-colors duration-200 ${buttonClass}`}>
+        <button onClick={handleClick} disabled={isPending} className={`flex items-center gap-2 px-4 py-2 text-sm font-semibold transition-colors duration-200 ${buttonClass} w-full text-left`}>
             <Icon className="h-5 w-5" />
             {isPending ? 'Updating...' : buttonText}
         </button>
+    );
+};
+
+// --- MODIFIED: Project Card with Action Buttons and Status ---
+const ProjectCard = ({ project, onClick, onDelete, onPublishToggle }) => {
+    const navigate = useNavigate();
+    const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+    const dropdownRef = useRef(null);
+
+    // Close dropdown when clicking outside
+    useEffect(() => {
+        const handleClickOutside = (event) => {
+            if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+                setIsDropdownOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+
+    const handleActionClick = (e, action) => {
+        e.stopPropagation(); // Prevent card click from triggering
+        setIsDropdownOpen(false); // Close dropdown
+
+        if (action === 'delete') {
+            onDelete(project);
+        } else if (action === 'edit') { // Explicit edit action
+            onClick(project);
+        } else if (action === 'preview') {
+            if (project.type === 'pictureBook') {
+                navigate(`/picture-book/${project.id}/preview`);
+            } else {
+                // No dedicated preview for text books yet, maybe navigate to editor or show alert
+                alert('Text book preview not available yet. Navigating to editor.');
+                navigate(`/novel/${project.id}`);
+            }
+        } else if (action === 'share') {
+            // Implement share functionality (e.g., copy link to clipboard)
+            const shareUrl = `${window.location.origin}/feed/${project.type}/${project.id}`; // Example share URL
+            navigator.clipboard.writeText(shareUrl).then(() => {
+                alert('Share link copied to clipboard!');
+            }).catch(err => {
+                console.error('Failed to copy share link:', err);
+                alert('Failed to copy share link.');
+            });
+        }
+    };
+
+    return (
+        <motion.div
+            variants={cardVariants}
+            whileHover={{ y: -5, scale: 1.02, boxShadow: "0px 10px 25px rgba(0, 0, 0, 0.3)" }}
+            onClick={() => handleActionClick(null, 'edit')} // Default card click is 'edit'
+            className="group relative cursor-pointer overflow-hidden bg-slate-800/50 backdrop-blur-md rounded-xl p-6 border border-slate-700 transition-all duration-300 hover:border-indigo-500/50"
+        >
+            <div className="flex justify-between items-start">
+                <div>
+                    <h3 className="font-bold text-xl text-white font-serif">{project.title}</h3>
+                    <p className="text-sm text-indigo-300 font-sans mt-1">
+                        {project.type === 'pictureBook' ? 'Picture Book' : 'Text Book'}
+                    </p>
+                    <p className="text-xs text-slate-500 font-sans mt-2">Last modified: {new Date(project.last_modified).toLocaleString()}</p>
+                    {/* Status Indicator */}
+                    <div className="mt-2">
+                        <ProjectStatusIndicator project={project} />
+                    </div>
+                </div>
+                {/* Action Buttons / Dropdown */}
+                <div className="relative" ref={dropdownRef}>
+                    <button
+                        onClick={(e) => { e.stopPropagation(); setIsDropdownOpen(!isDropdownOpen); }}
+                        className="p-2 rounded-full text-slate-400 hover:bg-white/10 hover:text-white transition-colors"
+                        title="More Actions"
+                    >
+                        <EllipsisVerticalIcon className="h-6 w-6" />
+                    </button>
+                    <AnimatePresence>
+                        {isDropdownOpen && (
+                            <motion.div
+                                initial={{ opacity: 0, y: -10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -10 }}
+                                transition={{ duration: 0.2 }}
+                                className="absolute right-0 mt-2 w-48 bg-slate-800 border border-slate-700 rounded-md shadow-lg z-10 py-1"
+                            >
+                                <button
+                                    onClick={(e) => handleActionClick(e, 'edit')}
+                                    className="flex items-center gap-2 px-4 py-2 text-sm text-slate-300 hover:bg-slate-700 w-full text-left"
+                                >
+                                    <PencilIcon className="h-5 w-5" /> Edit
+                                </button>
+                                <button
+                                    onClick={(e) => handleActionClick(e, 'preview')}
+                                    className="flex items-center gap-2 px-4 py-2 text-sm text-slate-300 hover:bg-slate-700 w-full text-left"
+                                >
+                                    <EyeIcon className="h-5 w-5" /> Preview
+                                </button>
+                                {project.is_public && (
+                                    <button
+                                        onClick={(e) => handleActionClick(e, 'share')}
+                                        className="flex items-center gap-2 px-4 py-2 text-sm text-slate-300 hover:bg-slate-700 w-full text-left"
+                                    >
+                                        <ShareIcon className="h-5 w-5" /> Share
+                                    </button>
+                                )}
+                                <PublishButton project={project} onPublishToggle={onPublishToggle} />
+                                <div className="border-t border-slate-700 my-1"></div>
+                                <button
+                                    onClick={(e) => handleActionClick(e, 'delete')}
+                                    className="flex items-center gap-2 px-4 py-2 text-sm text-red-400 hover:bg-slate-700 w-full text-left"
+                                >
+                                    <TrashIcon className="h-5 w-5" /> Delete
+                                </button>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
+                </div>
+            </div>
+        </motion.div>
     );
 };
 
@@ -48,40 +192,6 @@ const cardVariants = {
     hidden: { opacity: 0, y: 20 },
     visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: 'easeOut' } }
 };
-
-const ProjectCard = ({ project, onClick, onDelete, onPublishToggle }) => (
-    <motion.div
-        variants={cardVariants}
-        whileHover={{ y: -5, scale: 1.02, boxShadow: "0px 10px 25px rgba(0, 0, 0, 0.3)" }}
-        onClick={onClick}
-        className="group relative cursor-pointer overflow-hidden bg-slate-800/50 backdrop-blur-md rounded-xl p-6 border border-slate-700 transition-all duration-300 hover:border-indigo-500/50"
-    >
-        <div className="flex justify-between items-start">
-            <div>
-                <h3 className="font-bold text-xl text-white font-serif">{project.title}</h3>
-                <p className="text-sm text-indigo-300 font-sans mt-1">
-                    {project.type === 'pictureBook' ? 'Picture Book' : 'Text Book'}
-                </p>
-                <p className="text-xs text-slate-500 font-sans mt-2">Last modified: {new Date(project.last_modified).toLocaleString()}</p>
-            </div>
-            <div className="flex items-center gap-4 transition-opacity duration-300 md:opacity-0 md:group-hover:opacity-100">
-                <PublishButton project={project} onPublishToggle={onPublishToggle} />
-                <button
-                    onClick={(e) => { e.stopPropagation(); onDelete(project); }}
-                    className="text-red-500 hover:text-red-400 font-semibold"
-                >
-                    Delete
-                </button>
-            </div>
-        </div>
-    </motion.div>
-);
-
-const containerVariants = {
-    hidden: { opacity: 0 },
-    visible: { opacity: 1, transition: { staggerChildren: 0.1 } },
-};
-
 
 // --- Main Page Component ---
 function MyProjectsPage() {
@@ -126,7 +236,8 @@ function MyProjectsPage() {
     };
     
     const handleDelete = (project) => {
-        if (window.confirm(`Are you sure you want to delete "${project.title}"?`)) {
+        // Use custom modal instead of window.confirm
+        if (window.confirm(`Are you sure you want to delete "${project.title}"? This action cannot be undone.`)) {
             deleteMutation.mutate(project);
         }
     };
@@ -197,7 +308,7 @@ function MyProjectsPage() {
                                     <ProjectCard
                                         key={`${project.type}-${project.id}`}
                                         project={project}
-                                        onClick={() => handleProjectClick(project)}
+                                        onClick={handleProjectClick}
                                         onDelete={handleDelete}
                                         onPublishToggle={privacyMutation}
                                     />

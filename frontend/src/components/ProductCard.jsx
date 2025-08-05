@@ -1,3 +1,4 @@
+// frontend/src/components/ProductCard.jsx
 import React from 'react';
 import { motion } from 'framer-motion';
 import { BookOpenIcon, DocumentTextIcon, BookmarkSquareIcon } from '@heroicons/react/24/solid';
@@ -12,15 +13,15 @@ const getProductIcon = (productId) => {
 };
 
 const cardVariants = {
-  hidden: { opacity: 0, y: 30 },
-  visible: { 
-    opacity: 1, 
-    y: 0,
-    transition: {
-      duration: 0.5,
-      ease: 'easeOut'
+    hidden: { opacity: 0, y: 30 },
+    visible: { 
+        opacity: 1, 
+        y: 0,
+        transition: {
+            duration: 0.5,
+            ease: 'easeOut'
+        }
     }
-  }
 };
 
 const ProductCard = ({ product, onSelect }) => {
@@ -35,7 +36,8 @@ const ProductCard = ({ product, onSelect }) => {
             className="bg-slate-800 border border-slate-700 p-8 rounded-xl cursor-pointer 
                        flex flex-col items-center text-center overflow-hidden"
         >
-            <div className="text-indigo-400 mb-5">
+            {/* Icon color changed to text-blue-400 */}
+            <div className="text-blue-400 mb-5">
                 <IconComponent className="h-20 w-20" /> 
             </div>
             <h3 className="text-2xl font-bold text-white mb-2">
@@ -44,10 +46,12 @@ const ProductCard = ({ product, onSelect }) => {
             <p className="text-base text-slate-400 mb-4 font-normal flex-grow">
                 Approx. {product.defaultPageCount} pages
             </p>
-            <p className="text-5xl font-bold text-teal-400 my-4">
+            {/* Price color changed to text-blue-400 */}
+            <p className="text-5xl font-bold text-blue-400 my-4">
                 ${product.price}
             </p>
-            <div className="bg-indigo-600 text-white font-bold py-3 px-8 rounded-lg mt-4 transition-transform duration-200 group-hover:scale-105 shadow-lg">
+            {/* Button color changed to bg-blue-600 */}
+            <div className="bg-blue-600 text-white font-bold py-3 px-8 rounded-lg mt-4 transition-transform duration-200 group-hover:bg-blue-500 shadow-lg">
                 Select
             </div>
         </motion.div>

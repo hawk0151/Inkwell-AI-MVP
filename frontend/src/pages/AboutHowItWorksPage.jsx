@@ -3,7 +3,7 @@ import React from 'react';
 import { motion } from 'framer-motion';
 import PageHeader from '../components/PageHeader';
 import { useNavigate } from 'react-router-dom';
-import { HandRaisedIcon, PencilSquareIcon, SparklesIcon, BookOpenIcon, TruckIcon } from '@heroicons/react/24/outline';
+import { HandRaisedIcon, PencilSquareIcon, SparklesIcon, BookOpenIcon, TruckIcon } from '@heroicons/react/24/outline'; // These icons are good
 
 const fadeUp = {
     hidden: { opacity: 0, y: 40 },
@@ -23,8 +23,9 @@ const HowItWorksCard = ({ icon: Icon, title, description, delay }) => (
         animate="visible"
     >
         <div className="flex items-center space-x-4 mb-4">
-            <div className="bg-indigo-600/20 p-3 rounded-full">
-                <Icon className="h-6 w-6 text-indigo-400" />
+            {/* Icon color changed to accent teal */}
+            <div className="bg-teal-600/20 p-3 rounded-full">
+                <Icon className="h-6 w-6 text-teal-400" /> 
             </div>
             <h3 className="text-xl font-bold font-serif text-white">{title}</h3>
         </div>
@@ -50,7 +51,8 @@ function AboutHowItWorksPage() {
                     initial="hidden"
                     animate="visible"
                 >
-                    <h2 className="text-3xl font-bold font-serif text-white mb-4">
+                    {/* Heading color changed to accent teal */}
+                    <h2 className="text-3xl font-bold font-serif text-teal-400 mb-4">
                         Our Vision: The Inkwell AI Story
                     </h2>
                     <div className="space-y-4 text-slate-300 text-lg">
@@ -58,7 +60,7 @@ function AboutHowItWorksPage() {
                             Inkwell AI was born from a simple yet profound idea: everyone has a story to tell. In a world brimming with technology, we saw an opportunity to bridge the gap between imagination and the printed page.
                         </p>
                         <p>
-                            Using state-of-the-art AI, our platform transforms your simple prompts into rich, narrative-driven stories and stunning illustrations. But we don't stop there. We believe in the magic of a physical book—the feel of the paper, the weight in your hands, a tangible keepsake of your creativity.
+                            Using <strong className="text-teal-300">state-of-the-art AI</strong>, our platform transforms your simple prompts into rich, narrative-driven stories and stunning illustrations. But we don't stop there. We believe in the magic of a physical book—the feel of the paper, the weight in your hands, a <strong className="text-teal-300">tangible keepsake</strong> of your creativity.
                         </p>
                         <p>
                             Whether you're an aspiring author, a parent creating a bedtime story for your child, or simply a creative soul, Inkwell AI is your partner in creation. Join us, and let's write the next chapter, together.
@@ -106,12 +108,14 @@ function AboutHowItWorksPage() {
                     initial="hidden"
                     animate="visible"
                 >
-                    <h2 className="text-3xl font-bold font-serif text-white">Ready to create your story?</h2>
+                    {/* Heading color changed to accent teal */}
+                    <h2 className="text-3xl font-bold font-serif text-teal-400">Ready to create your story?</h2>
                     <motion.button
                         whileHover={{ scale: 1.05 }}
                         whileTap={{ scale: 0.95 }}
                         onClick={() => navigate('/')}
-                        className="mt-6 bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 px-8 rounded-lg transition-colors duration-300 shadow-lg"
+                        // CTA button color changed to vibrant teal
+                        className="mt-6 bg-teal-600 hover:bg-teal-500 text-white font-bold py-3 px-8 rounded-lg transition-colors duration-300 shadow-lg"
                     >
                         Start Creating Now
                     </motion.button>

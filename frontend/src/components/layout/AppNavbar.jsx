@@ -66,7 +66,12 @@ export const AppNavbar = () => {
     }
 
     const NavLink = ({ to, children }) => (
-        <a href={to} onClick={(e) => { e.preventDefault(); navigate(to); }} className={`px-3 py-2 rounded-md text-sm font-medium transition-colors ${isLinkActive(to) ? 'bg-white/10 text-white' : 'text-slate-300 hover:bg-white/10 hover:text-white'}`}>
+        <a href={to} onClick={(e) => { e.preventDefault(); navigate(to); }} className={`px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+            // MODIFIED: 'Create' link uses teal for active/hover
+            isLinkActive(to) 
+                ? 'bg-teal-600 text-white' 
+                : 'text-slate-300 hover:bg-white/10 hover:text-white'
+        }`}>
             {children}
         </a>
     );
@@ -89,7 +94,8 @@ export const AppNavbar = () => {
                         {currentUser ? (
                             <ProfileDropdown user={currentUser} onLogout={() => { logout(); navigate('/'); }} />
                         ) : (
-                            <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={() => navigate('/login')} className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2 px-4 rounded-lg text-sm transition-colors shadow-sm">
+                            // MODIFIED: Login button uses teal
+                            <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={() => navigate('/login')} className="bg-teal-600 hover:bg-teal-500 text-white font-bold py-2 px-4 rounded-lg text-sm transition-colors shadow-sm">
                                 Login
                             </motion.button>
                         )}

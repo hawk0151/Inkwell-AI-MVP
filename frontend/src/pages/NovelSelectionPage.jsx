@@ -15,11 +15,11 @@ const fetchBookOptions = async () => {
 };
 
 const containerVariants = {
-  hidden: { opacity: 0 },
-  visible: {
-    opacity: 1,
-    transition: { staggerChildren: 0.15 },
-  },
+    hidden: { opacity: 0 },
+    visible: {
+        opacity: 1,
+        transition: { staggerChildren: 0.15 },
+    },
 };
 
 function NovelSelectionPage() {
@@ -56,29 +56,29 @@ function NovelSelectionPage() {
             </motion.div>
 
             <div className="max-w-6xl mx-auto my-24 p-10 bg-slate-800/50 backdrop-blur-sm rounded-2xl shadow-2xl border border-slate-700 text-white">
-                <h2 className="text-4xl font-serif font-extrabold mb-6 text-center text-indigo-300">
+                <h2 className="text-4xl font-serif font-extrabold mb-6 text-center text-blue-300"> {/* Changed heading color */}
                     Which Format is Right for Your Story?
                 </h2>
                 <div className="text-lg space-y-6 text-slate-300 leading-relaxed font-sans">
                     <p>
-                        <span className="font-semibold text-white">
-                            <DocumentTextIcon className="h-6 w-6 inline-block mr-2 align-middle text-indigo-400" /> Novella (5.25 x 8.25" Paperback):
+                        <span className="font-semibold text-blue-300"> {/* Changed text color */}
+                            <DocumentTextIcon className="h-6 w-6 inline-block mr-2 align-middle text-blue-400" /> Novella (5.25 x 8.25" Paperback): {/* Changed icon color */}
                         </span>
                         &nbsp;Ideal for compact, impactful narratives. Perfect for short stories, novellas, or if you envision a quick, engaging read. A charming gift that fits in any bag.
                     </p>
                     <p>
-                        <span className="font-semibold text-white">
-                            <BookOpenIcon className="h-6 w-6 inline-block mr-2 align-middle text-indigo-400" /> A4 Novel (8.52 x 11.94" Paperback):
+                        <span className="font-semibold text-blue-300"> {/* Changed text color */}
+                            <BookOpenIcon className="h-6 w-6 inline-block mr-2 align-middle text-blue-400" /> A4 Novel (8.52 x 11.94" Paperback): {/* Changed icon color */}
                         </span>
                         &nbsp;Our most popular choice for comprehensive stories. This full-size paperback offers ample space for intricate plots, character development, and immersive worlds. The classic novel experience.
                     </p>
                     <p>
-                        <span className="font-semibold text-white">
-                            <BookmarkSquareIcon className="h-6 w-6 inline-block mr-2 align-middle text-indigo-400" /> 80-page Novel (6.39 x 9.46" Hardcover):
+                        <span className="font-semibold text-blue-300"> {/* Changed text color */}
+                            <BookmarkSquareIcon className="h-6 w-6 inline-block mr-2 align-middle text-blue-400" /> 80-page Novel (6.39 x 9.46" Hardcover): {/* Changed icon color */}
                         </span>
                         &nbsp;The ultimate heirloom. With a durable hardcover binding and premium finish, this format is designed to be cherished for generations. Best for legacy projects, significant personal stories, or as an exquisite centerpiece gift.
                     </p>
-                    <p className="text-center mt-8 text-xl font-bold text-teal-300">
+                    <p className="text-center mt-8 text-xl font-bold text-blue-300"> {/* Changed text color */}
                         Choose the canvas that best allows your vision to unfold!
                     </p>
                 </div>
