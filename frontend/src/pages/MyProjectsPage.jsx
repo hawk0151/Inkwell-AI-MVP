@@ -1,14 +1,13 @@
 // frontend/src/pages/MyProjectsPage.jsx
-import React, { useState, useRef, useEffect } from 'react'; // Added useRef, useEffect
+import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import apiClient from '../services/apiClient';
-import { motion, AnimatePresence } from 'framer-motion'; // Added AnimatePresence for dropdown animation
+import { motion, AnimatePresence } from 'framer-motion';
 import PageHeader from '../components/PageHeader';
 import { LoadingSpinner, Alert } from '../components/common.jsx';
-import { DocumentPlusIcon, PhotoIcon, EyeIcon, EyeSlashIcon, PencilIcon, ShareIcon, EllipsisVerticalIcon, TrashIcon } from '@heroicons/react/24/solid'; // Added new icons
+import { DocumentPlusIcon, PhotoIcon, EyeIcon, EyeSlashIcon, PencilIcon, ShareIcon, EllipsisVerticalIcon, TrashIcon } from '@heroicons/react/24/solid';
 
-// --- ANIMATION VARIANTS (Correctly declared outside the component) ---
 const containerVariants = {
     hidden: { opacity: 0 },
     visible: { opacity: 1, transition: { staggerChildren: 0.1 } },
@@ -19,14 +18,12 @@ const cardVariants = {
     visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: 'easeOut' } }
 };
 
-
-// --- OPTIMIZED API Function ---
+// --- API Functions (Same as before) ---
 const fetchProjects = async () => {
     const response = await apiClient.get('/projects');
     return response.data;
 };
 
-// --- Other API functions remain the same ---
 const deletePictureBook = (bookId) => apiClient.delete(`/picture-books/${bookId}`);
 const deleteTextBook = (bookId) => apiClient.delete(`/text-books/${bookId}`);
 const createPictureBook = (title) => apiClient.post('/picture-books', { title });
@@ -40,7 +37,6 @@ const toggleBookPrivacy = ({ bookId, bookType, is_public }) => {
 const ProjectStatusIndicator = ({ project }) => {
     let statusText = "Draft";
     let statusColor = "bg-slate-500";
-
     const isModified = project.date_created && project.last_modified && 
                        new Date(project.last_modified).getTime() > new Date(project.date_created).getTime();
 
@@ -84,7 +80,6 @@ const ProjectCard = ({ project, onClick, onDelete, onPublishToggle }) => {
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
     const dropdownRef = useRef(null);
 
-    // Close dropdown when clicking outside
     useEffect(() => {
         const handleClickOutside = (event) => {
             if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
@@ -101,8 +96,6 @@ const ProjectCard = ({ project, onClick, onDelete, onPublishToggle }) => {
 
         if (action === 'delete') {
             onDelete(project);
-        } else if (action === 'edit') {
-            onClick(project);
         } else if (action === 'preview') {
             if (project.type === 'pictureBook') {
                 navigate(`/picture-book/${project.id}/preview`);
@@ -125,7 +118,7 @@ const ProjectCard = ({ project, onClick, onDelete, onPublishToggle }) => {
         <motion.div
             variants={cardVariants}
             whileHover={{ y: -5, scale: 1.02, boxShadow: "0px 10px 25px rgba(0, 0, 0, 0.3)" }}
-            onClick={() => handleActionClick(null, 'edit')}
+            onClick={() => onClick(project)} // Corrected: Clicking card now goes to editor
             className="group relative cursor-pointer overflow-hidden bg-slate-800/50 backdrop-blur-md rounded-xl p-6 border border-slate-700 transition-all duration-300 hover:border-indigo-500/50"
         >
             <div className="flex justify-between items-start">
@@ -154,10 +147,10 @@ const ProjectCard = ({ project, onClick, onDelete, onPublishToggle }) => {
                                 animate={{ opacity: 1, y: 0 }}
                                 exit={{ opacity: 0, y: -10 }}
                                 transition={{ duration: 0.2 }}
-                                className="absolute right-0 mt-2 w-48 bg-slate-800 border border-slate-700 rounded-md shadow-lg z-10 py-1"
+                                className="absolute right-0 mt-2 w-48 bg-slate-800 border border-slate-700 rounded-md shadow-lg z-20 py-1"
                             >
                                 <button
-                                    onClick={(e) => handleActionClick(e, 'edit')}
+                                    onClick={(e) => onClick(project)}
                                     className="flex items-center gap-2 px-4 py-2 text-sm text-slate-300 hover:bg-slate-700 w-full text-left"
                                 >
                                     <PencilIcon className="h-5 w-5" /> Edit
