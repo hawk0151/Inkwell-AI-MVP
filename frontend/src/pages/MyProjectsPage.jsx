@@ -1,12 +1,12 @@
 // frontend/src/pages/MyProjectsPage.jsx
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect } from 'react'; // Added useRef, useEffect
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import apiClient from '../services/apiClient';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion'; // Added AnimatePresence for dropdown animation
 import PageHeader from '../components/PageHeader';
 import { LoadingSpinner, Alert } from '../components/common.jsx';
-import { DocumentPlusIcon, PhotoIcon, EyeIcon, EyeSlashIcon, PencilIcon, ShareIcon, EllipsisVerticalIcon, TrashIcon } from '@heroicons/react/24/solid';
+import { DocumentPlusIcon, PhotoIcon, EyeIcon, EyeSlashIcon, PencilIcon, ShareIcon, EllipsisVerticalIcon, TrashIcon } from '@heroicons/react/24/solid'; // Added new icons
 
 // --- ANIMATION VARIANTS (Correctly declared outside the component) ---
 const containerVariants = {
