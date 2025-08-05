@@ -158,7 +158,7 @@ async function getLuluAuthToken() {
         const response = await retryWithBackoff(async () => {
             return await axios.post(
                 authUrl,
-                'grant_type=client_credentials', // MODIFIED: This should be the only data argument
+                'grant_type=client_credentials',
                 {
                     headers: {
                         'Content-Type': 'application/x-www-form-urlencoded',
@@ -210,25 +210,21 @@ export async function getCoverDimensionsFromApi(podPackageId, pageCount) {
 
         let widthMm, heightMm;
 
-        // NEW LOGIC: Prioritize 'width'/'height' and 'unit' fields when unit is 'pt'
         if (typeof dimensions.width === 'string' && typeof dimensions.height === 'string' && dimensions.unit === 'pt') {
             widthMm = ptToMm(parseFloat(dimensions.width));
             heightMm = ptToMm(parseFloat(dimensions.height));
             console.log(`[Lulu Service] Using width and height (in pts) from response.`);
         }
-        // Fallback for width_pts/height_pts (if Lulu API ever returns this format again)
         else if (typeof dimensions.width_pts === 'number' && typeof dimensions.height_pts === 'number') {
             widthMm = ptToMm(dimensions.width_pts);
             heightMm = ptToMm(dimensions.height_pts);
             console.log(`[Lulu Service] Using width_pts and height_pts from response.`);
         }
-        // Fallback for width/height with unit 'mm'
         else if (typeof dimensions.width === 'number' && typeof dimensions.height === 'number' && dimensions.unit === 'mm') {
             widthMm = dimensions.width;
             heightMm = dimensions.height;
             console.log(`[Lulu Service] Using width and height (in mm) from response.`);
         }
-        // If none of the expected formats are found, throw an error
         else {
             throw new Error('Unexpected Lulu API response for cover dimensions: Missing expected "width"/"height" (in pts or mm) or "width_pts"/"height_pts".');
         }
@@ -249,8 +245,10 @@ export async function getCoverDimensionsFromApi(podPackageId, pageCount) {
     }
 }
 
-export const getPrintJobCosts = async (lineItems, shippingAddress, selectedShippingLevel = null) => { // ADDED selectedShippingLevel parameter
-    console.log(`[Lulu Service] Attempting to get print job costs from Lulu.`);
+// This function is now ONLY used for final cost calculation when a specific shipping_level is known.
+// It is NOT used for retrieving a list of options.
+export const getPrintJobCosts = async (lineItems, shippingAddress, selectedShippingLevel) => { // selectedShippingLevel is now REQUIRED
+    console.log(`[Lulu Service] Attempting to get print job costs from Lulu for level: ${selectedShippingLevel}.`);
     const endpoint = `${process.env.LULU_API_BASE_URL.replace(/\/$/, '')}/print-job-cost-calculations`;
     try {
         await ensureHostnameResolvable(endpoint);
@@ -258,10 +256,9 @@ export const getPrintJobCosts = async (lineItems, shippingAddress, selectedShipp
         const payload = {
             line_items: lineItems,
             shipping_address: shippingAddress,
-            // Include shipping_level ONLY if provided, otherwise Lulu will return all options
-            ...(selectedShippingLevel && { shipping_level: selectedShippingLevel }) 
+            shipping_level: selectedShippingLevel // Always include selectedShippingLevel here
         };
-        console.log('[Lulu Service] Requesting print job costs with body:', JSON.stringify(payload, null, 2)); // Use payload for logging
+        console.log('[Lulu Service] Requesting print job costs with body:', JSON.stringify(payload, null, 2));
 
         const response = await retryWithBackoff(async () => {
             return await axios.post(endpoint, payload, {
@@ -273,87 +270,99 @@ export const getPrintJobCosts = async (lineItems, shippingAddress, selectedShipp
             });
         });
 
-        // MODIFIED RETURN: Return more comprehensive data
         console.log('[Lulu Service] Successfully retrieved print job costs and shipping options.');
         return {
             lineItemCosts: response.data.line_item_costs,
-            shippingOptions: response.data.shipping_options, // Lulu returns this array
+            shippingOptions: response.data.shipping_options,
             fulfillmentCost: response.data.fulfillment_cost,
             totalCostInclTax: response.data.total_cost_incl_tax,
             currency: response.data.currency
         };
 
     } catch (error) {
-        console.error("Error getting print job costs from Lulu:", error.response ? error.response.data : error.message);
-        // MODIFIED: Log full Lulu response data for better debugging
+        console.error(`Error getting print job costs from Lulu for level '${selectedShippingLevel}':`, error.response ? error.response.data : error.message);
         if (error.response && error.response.data) {
             console.error("Lulu API Error Details:", JSON.stringify(error.response.data, null, 2));
         }
-        throw new Error(`Failed to get print job costs from Lulu.`);
+        throw new Error(`Failed to get print job costs from Lulu for level '${selectedShippingLevel}'.`);
     }
 };
 
-// MODIFIED: Simplified to use the provided full address directly, no dummy address generation
-export const getLuluShippingOptionsAndCosts = async (podPackageId, pageCount, shippingAddress) => {
-    console.log(`[Lulu Service] Attempting to get all shipping options for SKU: ${podPackageId}, Page Count: ${pageCount}, Address:`, shippingAddress);
+// MODIFIED: This function now uses the dedicated /shipping-options/ endpoint
+export const getLuluShippingOptionsAndCosts = async (podPackageId, pageCount, shippingAddress, currency = 'USD') => {
+    console.log(`[Lulu Service] Attempting to get all shipping options from /shipping-options/ for SKU: ${podPackageId}, Page Count: ${pageCount}, Address:`, shippingAddress);
 
-    // Common Lulu shipping levels to try. Adjust if Lulu has different/new levels.
-    // Based on Lulu's API spec and prior errors, these are more likely to be globally available.
-    const COMMON_LULU_SHIPPING_LEVELS = ['MAIL', 'PRIORITY_MAIL', 'EXPEDITED', 'EXPRESS']; 
-
+    const endpoint = `${process.env.LULU_API_BASE_URL.replace(/\/$/, '')}/shipping-options/`;
     const availableOptions = [];
-    let basePrintCost = 0;
-    let currency = 'AUD'; // Default currency (will be updated by Lulu response)
-
+    
     const lineItems = [{
-        pod_package_id: podPackageId,
         page_count: pageCount,
+        pod_package_id: podPackageId,
         quantity: 1
     }];
 
-    for (const level of COMMON_LULU_SHIPPING_LEVELS) {
-        try {
-            console.log(`[Lulu Service] Probing shipping level: ${level}`);
-            const response = await getPrintJobCosts(lineItems, shippingAddress, level); // MODIFIED: Use the real address directly
-            
-            // Extract the base print cost from the first successful response
-            if (basePrintCost === 0 && response.lineItemCosts && response.lineItemCosts.length > 0) {
-                basePrintCost = parseFloat(response.lineItemCosts[0].total_cost_incl_tax);
-            }
-
-            // MODIFIED: Corrected the typo response.response.data to response.shippingOptions
-            if (response.shippingOptions && response.shippingOptions.length > 0) {
-                response.shippingOptions.forEach(luluOption => {
-                    if (!availableOptions.some(ao => ao.level === luluOption.level)) {
-                        availableOptions.push({
-                            level: luluOption.level,
-                            name: luluOption.name,
-                            costUsd: parseFloat(luluOption.total_cost_incl_tax), // This is still AUD from Lulu, will be converted in controller
-                            estimatedDeliveryDate: luluOption.estimated_delivery_date,
-                        });
-                    }
-                });
-                currency = response.currency;
-            }
-            console.log(`[Lulu Service] Successfully processed options for probe level: ${level}`);
-        } catch (error) {
-            console.warn(`[Lulu Service] Failed to get shipping cost for level '${level}': ${error.message || error}`);
-            if (error.response && error.response.data) {
-                console.warn(`[Lulu Service] Lulu Probe Error Details for ${level}:`, JSON.stringify(error.response.data, null, 2));
-            }
+    const payload = {
+        currency: currency,
+        line_items: lineItems,
+        shipping_address: {
+            city: shippingAddress.city,
+            country: shippingAddress.country_code, // Note: Lulu uses 'country' here, not 'country_code'
+            postcode: shippingAddress.postcode,
+            state_code: shippingAddress.state_code || '', // State code is required for some countries
+            street1: shippingAddress.street1,
+            street2: shippingAddress.street2 || '',
+            name: shippingAddress.name,
+            phone_number: shippingAddress.phone_number,
+            email: shippingAddress.email
         }
+    };
+
+    try {
+        await ensureHostnameResolvable(endpoint);
+        const token = await getLuluAuthToken();
+        const response = await retryWithBackoff(async () => {
+            return await axios.post(endpoint, payload, {
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                timeout: 15000
+            });
+        });
+
+        console.log('[Lulu Service] Successfully retrieved shipping options from /shipping-options/.');
+        
+        if (response.data && Array.isArray(response.data) && response.data.length > 0) {
+            response.data.forEach(luluOption => {
+                const cost = parseFloat(luluOption.cost_excl_tax);
+                if (!isNaN(cost) && cost >= 0) {
+                    availableOptions.push({
+                        level: luluOption.level,
+                        name: luluOption.name || luluOption.level,
+                        costUsd: cost, // This endpoint returns cost in the requested currency (USD)
+                        estimatedDeliveryDate: `${luluOption.min_delivery_date || 'N/A'} - ${luluOption.max_delivery_date || 'N/A'}`,
+                        traceable: luluOption.traceable || false
+                    });
+                }
+            });
+            availableOptions.sort((a, b) => a.costUsd - b.costUsd);
+        } else {
+            console.warn('[Lulu Service] /shipping-options/ returned no options or unexpected structure:', response.data);
+        }
+
+    } catch (error) {
+        console.error(`[Lulu Service] Error getting shipping options from /shipping-options/: ${error.message || error}`);
+        if (error.response && error.response.data) {
+            console.error("Lulu API Error Details (shipping-options):", JSON.stringify(error.response.data, null, 2));
+        }
+        throw new Error(`Failed to get dynamic shipping options from Lulu.`);
     }
 
-    const validOptions = availableOptions.filter(option => !isNaN(option.costUsd) && option.costUsd > 0);
-    validOptions.sort((a, b) => a.costUsd - b.costUsd);
-
-    if (validOptions.length === 0 && COMMON_LULU_SHIPPING_LEVELS.length > 0) {
-        console.warn(`[Lulu Service] No valid shipping options retrieved for SKU ${podPackageId} to address`, shippingAddress);
-    }
-
+    // This endpoint does not return print cost directly.
+    // The printCost will be handled by the calling controller.
     return {
-        shippingOptions: validOptions,
-        printCost: basePrintCost,
+        shippingOptions: availableOptions,
+        printCost: 0, // Explicitly 0 from this endpoint, as it doesn't provide it
         currency: currency
     };
 };

@@ -11,7 +11,6 @@ const AUD_TO_USD_EXCHANGE_RATE = 0.66;
 const JWT_QUOTE_SECRET = process.env.JWT_QUOTE_SECRET || 'your_super_secret_jwt_quote_key_please_change_this_in_production';
 const QUOTE_TOKEN_EXPIRY_MINUTES = 10;
 
-// MODIFIED: Added FALLBACK_SHIPPING_OPTION constant
 const FALLBACK_SHIPPING_OPTION = {
     level: 'FALLBACK_STANDARD',
     name: 'Standard Shipping (Fallback)',
@@ -20,7 +19,6 @@ const FALLBACK_SHIPPING_OPTION = {
     isFallback: true // Flag to indicate this is a fallback option
 };
 
-// MODIFIED: Added VALID_ISO_COUNTRY_CODES to this file
 const VALID_ISO_COUNTRY_CODES = new Set([
     'AF', 'AX', 'AL', 'DZ', 'AS', 'AD', 'AO', 'AI', 'AQ', 'AG', 'AR', 'AM', 'AW', 'AU', 'AT', 'AZ', 'BS', 'BH', 'BD', 'BB', 'BY', 'BE', 'BZ', 'BJ', 'BM', 'BT', 'BO', 'BQ', 'BA', 'BW', 'BV', 'BR', 'IO', 'BN', 'BG', 'BF', 'BI', 'CV', 'KH', 'CM', 'CA', 'KY', 'CF', 'TD', 'CL', 'CN', 'CX', 'CC', 'CO', 'KM', 'CD', 'CG', 'CK', 'CR', 'CI', 'HR', 'CU', 'CW', 'CY', 'CZ', 'DK', 'DJ', 'DM', 'DO', 'EC', 'EG', 'SV', 'GQ', 'ER', 'EE', 'SZ', 'ET', 'FK', 'FO', 'FJ', 'FI', 'FR', 'GF', 'PF', 'TF', 'GA', 'GM', 'GE', 'DE', 'GH', 'GI', 'GR', 'GL', 'GD', 'GP', 'GU', 'GT', 'GG', 'GN', 'GW', 'GY', 'HT', 'HM', 'VA', 'HN', 'HK', 'HU', 'IS', 'IN', 'ID', 'IR', 'IQ', 'IE', 'IM', 'IL', 'IT', 'JM', 'JP', 'JE', 'JO', 'KZ', 'KE', 'KI', 'KP', 'KR', 'KW', 'KG', 'LA', 'LV', 'LB', 'LS', 'LR', 'LY', 'LI', 'LT', 'LU', 'MO', 'MG', 'MW', 'MY', 'MV', 'ML', 'MT', 'MH', 'MQ', 'MR', 'MU', 'YT', 'MX', 'FM', 'MD', 'MC', 'MN', 'ME', 'MS', 'MA', 'MZ', 'MM', 'NA', 'NR', 'NP', 'NL', 'NC', 'NZ', 'NI', 'NE', 'NG', 'NU', 'NF', 'MP', 'NO', 'OM', 'PK', 'PW', 'PS', 'PA', 'PG', 'PY', 'PE', 'PH', 'PN', 'PL', 'PT', 'PR', 'QA', 'MK', 'RO', 'RU', 'RW', 'RE', 'SA', 'SN', 'RS', 'SC', 'SL', 'SG', 'SX', 'SK', 'SI', 'SB', 'SO', 'ZA', 'GS', 'SS', 'ES', 'LK', 'SD', 'SR', 'SJ', 'SE', 'CH', 'SY', 'TW', 'TJ', 'TZ', 'TH', 'TL', 'TG', 'TK', 'TO', 'TT', 'TN', 'TR', 'TM', 'TC', 'TV', 'UG', 'UA', 'AE', 'GB', 'US', 'UM', 'UY', 'UZ', 'VU', 'VE', 'VN', 'VG', 'VI', 'WF', 'EH', 'YE', 'ZM', 'ZW'
 ]);
@@ -127,7 +125,7 @@ export const getShippingQuotes = async (req, res) => {
 
         let dynamicShippingResult;
         try {
-            // MODIFIED: Pass the full, real address directly
+            // MODIFIED: Pass the full, real address directly to the refactored getLuluShippingOptionsAndCosts
             dynamicShippingResult = await getLuluShippingOptionsAndCosts(
                 selectedProductConfig.luluSku,
                 actualFinalPageCount,
@@ -144,12 +142,19 @@ export const getShippingQuotes = async (req, res) => {
 
         if (dynamicShippingResult.shippingOptions.length > 0) {
             finalShippingOptions = dynamicShippingResult.shippingOptions;
-            luluPrintCostAUD = dynamicShippingResult.printCost;
+            luluPrintCostAUD = dynamicShippingResult.printCost; // This will be 0 from /shipping-options/, handled below
         } else {
             console.warn(`[Shipping Quotes] No dynamic shipping options found for ${selectedProductConfig.luluSku} to ${trimmedAddress.country_code}. Applying fallback shipping rate.`);
             finalShippingOptions.push(FALLBACK_SHIPPING_OPTION);
-            luluPrintCostAUD = selectedProductConfig.basePrice / AUD_TO_USD_EXCHANGE_RATE;
+            // MODIFIED: Calculate fallback print cost more robustly if Lulu didn't provide it
+            luluPrintCostAUD = decodedQuote?.printCostAud || (selectedProductConfig.basePrice / AUD_TO_USD_EXCHANGE_RATE) * 0.7; // Estimate 70% of base price
             isFallbackApplied = true;
+        }
+
+        // MODIFIED: If printCost is 0 (from /shipping-options/ endpoint), use the base product price to estimate
+        if (luluPrintCostAUD === 0) {
+             luluPrintCostAUD = (selectedProductConfig.basePrice / AUD_TO_USD_EXCHANGE_RATE) * 0.7; // Estimate 70% of base price
+             console.warn(`[Shipping Quotes] Lulu /shipping-options/ did not return print cost. Estimating print cost from base product price: $${luluPrintCostAUD.toFixed(2)} AUD`);
         }
 
         const luluPrintCostUSD = parseFloat((luluPrintCostAUD * AUD_TO_USD_EXCHANGE_RATE).toFixed(2));
