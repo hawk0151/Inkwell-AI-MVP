@@ -1,5 +1,6 @@
 // backend/server.js
 import 'dotenv/config';
+import projectRoutes from './src/api/project.routes.js';
 import express from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
@@ -101,7 +102,7 @@ const startServer = async () => {
     app.use(cors(corsOptions));
     app.options('*', cors(corsOptions)); // Enable pre-flight for all routes
     console.log("DEBUG: CORS middleware applied with preflight handling.");
-
+    app.use('/api/projects', projectRoutes);
     app.use(morgan('dev'));
 
     // Stripe webhook needs to be registered before express.json()
