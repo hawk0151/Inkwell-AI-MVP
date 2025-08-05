@@ -14,6 +14,9 @@ import { setupDatabase } from './src/db/setupDatabase.js';
 import { stripeWebhook } from './src/controllers/stripe.controller.js';
 import { createTestCheckout } from './src/controllers/test.controller.js';
 
+// NEW: Import the new middleware
+import { setCoopHeader } from './src/middleware/coop.middleware.js';
+
 import shippingRoutes from './src/api/shipping.routes.js';
 import orderRoutes from './src/api/order.routes.js';
 import pictureBookRoutes from './src/api/picturebook.routes.js';
@@ -102,6 +105,10 @@ const startServer = async () => {
     app.use(cors(corsOptions));
     app.options('*', cors(corsOptions)); // Enable pre-flight for all routes
     console.log("DEBUG: CORS middleware applied with preflight handling.");
+
+    // NEW: Apply the COOP middleware to fix the Firebase issue
+    app.use(setCoopHeader); // <-- ADDED THIS LINE
+
     app.use('/api/projects', projectRoutes);
     app.use(morgan('dev'));
 
