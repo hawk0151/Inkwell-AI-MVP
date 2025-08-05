@@ -2,8 +2,7 @@
 
 import { getDb } from '../db/database.js';
 import { randomUUID } from 'crypto';
-import { generateAndSavePictureBookPdf, generateCoverPdf, finalizePdfPageCount } from '../services/pdf.service.js';
-// Correctly import the new helper function
+import { generateAndSavePictureBookPdf, generateCoverPdf } from '../services/pdf.service.js';
 import { findProductConfiguration, getCoverDimensionsFromApi, getPrintJobCosts } from '../services/lulu.service.js';
 import { createStripeCheckoutSession } from '../services/stripe.service.js';
 import { uploadPdfFileToCloudinary } from '../services/image.service.js';
@@ -14,33 +13,138 @@ const AUD_TO_USD_EXCHANGE_RATE = 0.66;
 const JWT_QUOTE_SECRET = process.env.JWT_QUOTE_SECRET || 'your_super_secret_jwt_quote_key';
 const PROFIT_MARGIN_USD = 10.00;
 
-// Helper function to get full book data
 async function getFullPictureBook(bookId, userId, client) {
     const bookResult = await client.query(`SELECT * FROM picture_books WHERE id = $1 AND user_id = $2`, [bookId, userId]);
     const book = bookResult.rows[0];
     if (!book) return null;
-
     const eventsSql = `SELECT *, uploaded_image_url, overlay_text, story_text, is_bold_story_text FROM timeline_events WHERE book_id = $1 ORDER BY page_number ASC`;
     const timelineResult = await client.query(eventsSql, [bookId]);
     book.timeline = timelineResult.rows;
     return book;
 }
 
-// All other exports (create, get, addEvent, etc.) remain the same as your provided file...
-// ...
-export const createPictureBook = async (req, res) => { /* ... NO CHANGES ... */ };
-export const getPictureBook = async (req, res) => { /* ... NO CHANGES ... */ };
-export const getPictureBooks = async (req, res) => { /* ... NO CHANGES ... */ };
-export const addTimelineEvent = async (req, res) => { /* ... NO CHANGES ... */ };
-export const deletePictureBook = async (req, res) => { /* ... NO CHANGES ... */ };
-export const deleteTimelineEvent = async (req, res) => { /* ... NO CHANGES ... */ };
-export const togglePictureBookPrivacy = async (req, res) => { /* ... NO CHANGES ... */ };
-// ... (I have omitted the unchanged functions for brevity, but they should remain in your file)
+export const createPictureBook = async (req, res) => {
+    let client;
+    try {
+        const pool = await getDb();
+        client = await pool.connect();
+        let { title, luluProductId } = req.body;
+        const userId = req.userId;
+        if (!luluProductId) {
+            const defaultPictureBookConfig = findProductConfiguration('A4PREMIUM_FC_8.27x11.69');
+            if (defaultPictureBookConfig) {
+                luluProductId = defaultPictureBookConfig.id;
+            } else {
+                return res.status(400).json({ message: "Lulu product ID is required, and no default could be found." });
+            }
+        }
+        const countResult = await client.query(`SELECT COUNT(*) as count FROM picture_books WHERE user_id = $1`, [userId]);
+        const { count } = countResult.rows[0];
+        if (count >= 5) {
+            return res.status(403).json({ message: "You have reached the maximum of 5 projects." });
+        }
+        const bookId = randomUUID();
+        const currentDate = new Date().toISOString();
+        const sql = `INSERT INTO picture_books (id, user_id, title, date_created, last_modified, lulu_product_id) VALUES ($1, $2, $3, $4, $5, $6)`;
+        await client.query(sql, [bookId, userId, title, currentDate, currentDate, luluProductId]);
+        res.status(201).json({ bookId: bookId });
+    } catch (err) {
+        console.error("Error creating picture book:", err.message);
+        res.status(500).json({ message: 'Failed to create picture book.' });
+    } finally {
+        if (client) client.release();
+    }
+};
 
+export const getPictureBook = async (req, res) => {
+    let client;
+    try {
+        const pool = await getDb();
+        client = await pool.connect();
+        const { bookId } = req.params;
+        const userId = req.userId;
+        const book = await getFullPictureBook(bookId, userId, client);
+        if (!book) {
+            return res.status(404).json({ message: 'Project not found.' });
+        }
+        res.status(200).json({ book, timeline: book.timeline });
+    } catch (err) {
+        console.error("Error fetching project:", err.message);
+        res.status(500).json({ message: 'Failed to fetch project details.' });
+    } finally {
+        if (client) client.release();
+    }
+};
 
-/**
- * REWRITTEN AND UNIFIED CHECKOUT SESSION CREATION
- */
+// THIS FUNCTION IS NOW PATCHED
+export const getPictureBooks = async (req, res) => {
+    let client;
+    try {
+        const pool = await getDb();
+        client = await pool.connect();
+        const userId = req.userId;
+        const sql = `
+            SELECT pb.id, pb.title, pb.last_modified, pb.is_public, pb.cover_image_url, pb.lulu_product_id
+            FROM picture_books pb
+            WHERE pb.user_id = $1
+            ORDER BY pb.last_modified DESC`;
+        const booksResult = await client.query(sql, [userId]);
+        const books = booksResult.rows;
+
+        const booksWithType = books.map(book => {
+            const productConfig = findProductConfiguration(book.lulu_product_id);
+            return { 
+                ...book, 
+                productName: productConfig ? productConfig.name : 'Unknown Book', 
+                type: 'pictureBook' 
+            };
+        });
+        
+        res.status(200).json(booksWithType);
+    } catch (err) {
+        console.error("Error fetching picture book projects:", err.message);
+        res.status(500).json({ message: 'Failed to fetch projects.' });
+    } finally {
+        if (client) client.release();
+    }
+};
+
+export const addTimelineEvent = async (req, res) => {
+    let client;
+    try {
+        const pool = await getDb();
+        client = await pool.connect();
+        const { bookId } = req.params;
+        const { page_number, event_date = null, story_text = null, image_url = null, image_style = null, uploaded_image_url = null, overlay_text = null, is_bold_story_text = false } = req.body;
+        if (page_number === undefined || page_number === null) {
+            return res.status(400).json({ message: "Page number is a required field." });
+        }
+        const finalImageUrl = uploaded_image_url || image_url;
+        const sql = `
+            INSERT INTO timeline_events (book_id, page_number, event_date, story_text, image_url, image_style, uploaded_image_url, overlay_text, is_bold_story_text)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            ON CONFLICT(book_id, page_number) DO UPDATE SET
+            event_date = EXCLUDED.event_date,
+            story_text = EXCLUDED.story_text,
+            image_url = EXCLUDED.image_url,
+            image_style = EXCLUDED.image_style,
+            uploaded_image_url = EXCLUDED.uploaded_image_url,
+            overlay_text = EXCLUDED.overlay_text,
+            is_bold_story_text = EXCLUDED.is_bold_story_text,
+            last_modified = CURRENT_TIMESTAMP;
+        `;
+        await client.query(sql, [bookId, page_number, event_date, story_text, finalImageUrl, image_style, uploaded_image_url, overlay_text, is_bold_story_text]);
+        await client.query(`UPDATE picture_books SET last_modified = $1 WHERE id = $2`, [new Date().toISOString(), bookId]);
+        res.status(201).json({ message: 'Event saved.' });
+    } catch (err) {
+        console.error("Error in addTimelineEvent:", err.message);
+        res.status(500).json({ message: 'Failed to save timeline event.' });
+    } finally {
+        if (client) client.release();
+    }
+};
+
+// THIS IS OUR REWRITTEN AND UNIFIED CHECKOUT FUNCTION
 export const createBookCheckoutSession = async (req, res) => {
     const { bookId } = req.params;
     const { shippingAddress, selectedShippingLevel, quoteToken } = req.body;
@@ -53,14 +157,12 @@ export const createBookCheckoutSession = async (req, res) => {
     }
     
     try {
-        // 1. Verify Quote Token
         const decodedQuote = jsonwebtoken.verify(quoteToken, JWT_QUOTE_SECRET);
         if (decodedQuote.bookId !== bookId || decodedQuote.bookType !== 'pictureBook') {
             return res.status(400).json({ message: 'Shipping quote details do not match the selected book.' });
         }
         console.log(`[Checkout PB] Quote token verified for book ${bookId}.`);
         
-        // 2. Get Book Data and Configuration
         const pool = await getDb();
         client = await pool.connect();
         const book = await getFullPictureBook(bookId, req.userId, client);
@@ -73,7 +175,6 @@ export const createBookCheckoutSession = async (req, res) => {
         }
         console.log(`[Checkout PB] Found product config: ${productConfig.id}`);
         
-        // 3. Generate Final PDFs for Print
         console.log(`[Checkout PB] Generating final PDFs for order...`);
         const { path: interiorPath, pageCount: finalPageCount } = await generateAndSavePictureBookPdf(book, book.timeline, productConfig);
         tempInteriorPdfPath = interiorPath;
@@ -84,11 +185,9 @@ export const createBookCheckoutSession = async (req, res) => {
         const coverPdfUrl = await uploadPdfFileToCloudinary(tempCoverPdfPath, `inkwell-ai/user_${req.userId}/covers`, `book_${bookId}_cover`);
         console.log(`[Checkout PB] PDFs generated and uploaded successfully.`);
 
-        // 4. Get Final Print Job Costs from Lulu
         const lineItems = [{ pod_package_id: productConfig.luluSku, page_count: finalPageCount, quantity: 1 }];
         const luluCosts = await getPrintJobCosts(lineItems, shippingAddress, selectedShippingLevel);
         
-        // 5. Calculate Final Price
         if (!luluCosts?.lineItemCosts?.[0]?.total_cost_incl_tax) {
             throw new Error("Lulu cost response was missing expected print cost data.");
         }
@@ -100,7 +199,6 @@ export const createBookCheckoutSession = async (req, res) => {
             throw new Error(`The selected shipping level '${selectedShippingLevel}' was not available in the final cost calculation from Lulu.`);
         }
         const luluShippingCostAUD = parseFloat(selectedShippingOption.total_cost_incl_tax);
-
         const luluPrintCostUSD = parseFloat((luluPrintCostAUD * AUD_TO_USD_EXCHANGE_RATE).toFixed(2));
         const luluFulfillmentCostUSD = parseFloat((luluFulfillmentCostAUD * AUD_TO_USD_EXCHANGE_RATE).toFixed(2));
         const luluShippingCostUSD = parseFloat((luluShippingCostAUD * AUD_TO_USD_EXCHANGE_RATE).toFixed(2));
@@ -110,7 +208,6 @@ export const createBookCheckoutSession = async (req, res) => {
 
         console.log(`[Checkout PB] Final Pricing (USD): Print=$${luluPrintCostUSD}, Ship=$${luluShippingCostUSD}, Fulfill=$${luluFulfillmentCostUSD}, Profit=$${PROFIT_MARGIN_USD} -> TOTAL=$${finalPriceDollars.toFixed(2)}`);
 
-        // 6. Create Pending Order in Database
         const orderId = randomUUID();
         const insertOrderSql = `
             INSERT INTO orders (
@@ -128,7 +225,6 @@ export const createBookCheckoutSession = async (req, res) => {
         ]);
         console.log(`[Checkout PB] Created pending order record ${orderId}.`);
 
-        // 7. Create Stripe Session
         const session = await createStripeCheckoutSession(
             {
                 name: book.title,
@@ -150,8 +246,87 @@ export const createBookCheckoutSession = async (req, res) => {
         res.status(500).json({ message: 'Failed to create checkout session.', detailedError });
     } finally {
         if (client) client.release();
-        // Clean up temp files
         if (tempInteriorPdfPath) { try { await fs.unlink(tempInteriorPdfPath); } catch (e) { console.error(`[Cleanup] Error deleting temp file: ${e.message}`); } }
         if (tempCoverPdfPath) { try { await fs.unlink(tempCoverPdfPath); } catch (e) { console.error(`[Cleanup] Error deleting temp file: ${e.message}`); } }
+    }
+};
+
+export const deletePictureBook = async (req, res) => {
+    let client;
+    try {
+        const pool = await getDb();
+        client = await pool.connect();
+        await client.query('BEGIN');
+        const { bookId } = req.params;
+        const userId = req.userId;
+        const bookResult = await client.query(`SELECT id FROM picture_books WHERE id = $1 AND user_id = $2`, [bookId, userId]);
+        const book = bookResult.rows[0];
+        if (!book) return res.status(404).json({ message: 'Project not found.' });
+        await client.query(`DELETE FROM timeline_events WHERE book_id = $1`, [bookId]);
+        await client.query(`DELETE FROM picture_books WHERE id = $1`, [bookId]);
+        await client.query('COMMIT');
+        res.status(200).json({ message: 'Project deleted successfully.' });
+    } catch (err) {
+        if (client) await client.query('ROLLBACK');
+        console.error("Error deleting project:", err.message);
+        res.status(500).json({ message: 'Failed to delete project.' });
+    } finally {
+        if (client) client.release();
+    }
+};
+
+export const deleteTimelineEvent = async (req, res) => {
+    let client;
+    const { bookId, pageNumber } = req.params;
+    const userId = req.userId;
+    try {
+        const pool = await getDb();
+        client = await pool.connect();
+        const bookResult = await client.query(`SELECT id FROM picture_books WHERE id = $1 AND user_id = $2`, [bookId, userId]);
+        const book = bookResult.rows[0];
+        if (!book) {
+            return res.status(404).json({ message: 'Project not found or you do not have permission to edit it.' });
+        }
+        await client.query(`DELETE FROM timeline_events WHERE book_id = $1 AND page_number = $2`, [bookId, pageNumber]);
+        await client.query(`UPDATE timeline_events SET page_number = page_number - 1 WHERE book_id = $1 AND page_number > $2`, [bookId, pageNumber]);
+        await client.query(`UPDATE picture_books SET last_modified = $1 WHERE id = $2`, [new Date().toISOString(), bookId]);
+        res.status(200).json({ message: `Page ${pageNumber} deleted successfully and subsequent pages re-ordered.` });
+    } catch (err) {
+        console.error(`Error in deleteTimelineEvent controller:`, err.message);
+        res.status(500).json({ message: 'Failed to delete the page.' });
+    } finally {
+        if (client) client.release();
+    }
+};
+
+export const togglePictureBookPrivacy = async (req, res) => {
+    let client;
+    const { bookId } = req.params;
+    const userId = req.userId;
+    const { is_public } = req.body;
+    if (typeof is_public !== 'boolean') {
+        return res.status(400).json({ message: 'is_public must be a boolean value.' });
+    }
+    try {
+        const pool = await getDb();
+        client = await pool.connect();
+        const bookResult = await client.query(`SELECT id, user_id FROM picture_books WHERE id = $1`, [bookId]);
+        const book = bookResult.rows[0];
+        if (!book) {
+            return res.status(404).json({ message: 'Project not found.' });
+        }
+        if (book.user_id !== userId) {
+            return res.status(403).json({ message: 'You are not authorized to edit this project.' });
+        }
+        await client.query(`UPDATE picture_books SET is_public = $1 WHERE id = $2`, [is_public, bookId]);
+        res.status(200).json({
+            message: `Book status successfully set to ${is_public ? 'public' : 'private'}.`,
+            is_public: is_public
+        });
+    } catch (err) {
+        console.error("Error toggling book privacy:", err.message);
+        res.status(500).json({ message: 'Failed to update project status.' });
+    } finally {
+        if (client) client.release();
     }
 };
