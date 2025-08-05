@@ -1,35 +1,12 @@
 // frontend/src/pages/NovelPage.jsx
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import apiClient from '../services/apiClient';
 import { useQueryClient, useQuery } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'framer-motion';
 
 import { LoadingSpinner, Alert, MagicWandIcon } from '../components/common.jsx';
-
-// Re-introducing useDebouncedEffect from PictureBookPage.jsx for consistency
-const useDebouncedEffect = (callback, delay, deps) => {
-    const callbackRef = useRef(callback);
-    useEffect(() => { callbackRef.current = callback; }, [callback]);
-    useEffect(() => {
-        const handler = setTimeout(() => {
-            if (deps.every(dep => dep !== undefined)) {
-                callbackRef.current();
-            }
-        }, delay);
-        return () => { clearTimeout(handler); };
-    }, [delay, ...deps]);
-};
-
-// Simplified list of valid countries for the dropdown
-const COUNTRIES = [
-    { code: 'US', name: 'United States', stateRequired: true },
-    { code: 'AU', name: 'Australia', stateRequired: true },
-    { code: 'GB', name: 'United Kingdom', stateRequired: false },
-    { code: 'CA', name: 'Canada', stateRequired: true },
-    { code: 'MX', name: 'Mexico', stateRequired: false },
-    { code: 'NZ', name: 'New Zealand', stateRequired: false },
-];
+import CheckoutModal from '../components/CheckoutModal.jsx'; // IMPORT THE NEWLY EXTRACTED COMPONENT
 
 // --- Sub-component: Chapter (Accordion for displaying story chapters) ---
 const Chapter = ({ chapter, isOpen, onToggle }) => {
@@ -114,258 +91,6 @@ const PromptForm = ({ isLoading, onSubmit, productName }) => {
         </div>
     );
 };
-
-// --- CORRECTED CheckoutModal COMPONENT ---
-const CheckoutModal = ({ isOpen, onClose, bookId, bookType, onSubmit }) => {
-    const [checkoutStep, setCheckoutStep] = useState('shipping_input');
-    const [shippingAddress, setShippingAddress] = useState({
-        name: '', street1: '', street2: '', city: '', state_code: '', postcode: '', country_code: '', phone_number: '', email: ''
-    });
-    const [formErrors, setFormErrors] = useState({});
-    const [shippingOptions, setShippingOptions] = useState([]);
-    const [selectedShippingLevel, setSelectedShippingLevel] = useState(null);
-    const [quoteDetails, setQuoteDetails] = useState(null);
-    const [isLoadingOptions, setIsLoadingOptions] = useState(false);
-    const [isProcessingCheckout, setIsProcessingCheckout] = useState(false);
-    const [modalError, setModalError] = useState(null);
-
-    const inputClasses = "w-full p-3 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:ring-2 focus:ring-green-500 focus:border-green-500";
-    const buttonClasses = "bg-green-600 text-white font-bold py-2 px-6 rounded-lg hover:bg-green-700 disabled:bg-green-300 transition";
-
-    const handleFullAddressChange = (e) => {
-        setShippingAddress(prev => ({ ...prev, [e.target.name]: e.target.value }));
-        setFormErrors({});
-    };
-
-    const isShippingFormComplete = () => {
-        const requiredFields = ['name', 'street1', 'city', 'postcode', 'country_code', 'phone_number', 'email'];
-        const selectedCountry = COUNTRIES.find(c => c.code === shippingAddress.country_code);
-
-        let allFieldsFilled = requiredFields.every(field => shippingAddress[field] && shippingAddress[field].trim() !== '');
-        if (selectedCountry?.stateRequired && !shippingAddress.state_code.trim()) {
-            allFieldsFilled = false;
-        }
-        return allFieldsFilled;
-    };
-    
-    const fetchShippingQuotes = useCallback(async () => {
-        setModalError(null);
-        setIsLoadingOptions(true);
-        setShippingOptions([]);
-        setSelectedShippingLevel(null);
-        setQuoteDetails(null);
-        
-        try {
-            const response = await apiClient.post('/shipping/quotes', {
-                bookId,
-                bookType,
-                shippingAddress,
-            });
-            setShippingOptions(response.data.shipping_options);
-            setQuoteDetails({
-                quote_token: response.data.quote_token,
-                expires_at: response.data.expires_at,
-                print_cost_usd: response.data.print_cost_usd,
-                base_product_price_usd: response.data.base_product_price_usd,
-                currency: response.data.currency,
-            });
-            if (response.data.shipping_options.length > 0) {
-                const cheapest = response.data.shipping_options.reduce((min, current) => current.costUsd < min.costUsd ? current : min);
-                setSelectedShippingLevel(cheapest.level);
-            }
-            setCheckoutStep('shipping_options');
-        } catch (err) {
-            console.error("Error fetching shipping quotes:", err.response?.data || err);
-            setModalError(err.response?.data?.message || "Failed to fetch shipping options. Please try again with a valid address.");
-            setShippingOptions([]);
-        } finally {
-            setIsLoadingOptions(false);
-        }
-    }, [bookId, bookType, shippingAddress]);
-
-    const handleGetOptions = async (e) => {
-        e.preventDefault();
-        setModalError(null);
-        const isValid = validateFullAddressForm(); // Run full validation first
-        if (isValid) {
-            await fetchShippingQuotes();
-        } else {
-            setModalError("Please correct the errors in the shipping address form.");
-        }
-    };
-    
-    const validateFullAddressForm = () => {
-        const errors = {};
-        const selectedCountry = COUNTRIES.find(c => c.code === shippingAddress.country_code);
-
-        if (!shippingAddress.name.trim()) errors.name = 'Full Name is required.';
-        if (!shippingAddress.street1.trim()) errors.street1 = 'Street Address is required.';
-        if (!shippingAddress.city.trim()) errors.city = 'City is required.';
-        if (!shippingAddress.postcode.trim()) errors.postcode = 'Postal code is required.';
-        if (!shippingAddress.country_code.trim()) errors.country_code = 'Country is required.';
-        if (selectedCountry?.stateRequired && !shippingAddress.state_code.trim()) errors.state_code = 'State/Province is required for this country.';
-        if (!shippingAddress.email.trim() || !shippingAddress.email.includes('@')) errors.email = 'Valid email is required.';
-        if (!shippingAddress.phone_number.trim()) errors.phone_number = 'Phone number is required.';
-
-        setFormErrors(errors);
-        return Object.keys(errors).length === 0;
-    };
-
-    const handleProceedToPayment = async () => {
-        setModalError(null);
-        if (!selectedShippingLevel) {
-            setModalError('Please select a shipping option to proceed.');
-            return;
-        }
-        setIsProcessingCheckout(true);
-        try {
-            const finalShippingOption = shippingOptions.find(opt => opt.level === selectedShippingLevel);
-            if (!finalShippingOption || !quoteDetails || !quoteDetails.quote_token) {
-                throw new Error("Missing shipping option details or quote token for checkout.");
-            }
-            await onSubmit(shippingAddress, selectedShippingLevel, quoteDetails.quote_token);
-        } catch (err) {
-            console.error('handleProceedToPayment (Final Checkout): Could not proceed to checkout:', err);
-            setModalError(err.response?.data?.detailedError || err.response?.data?.message || 'Could not proceed to checkout. Please try again.');
-        } finally {
-            setIsProcessingCheckout(false);
-        }
-    };
-
-    const getDisplayPrice = () => {
-        if (!quoteDetails) return null;
-        const selectedOption = shippingOptions.find(opt => opt.level === selectedShippingLevel);
-        const totalShippingCostUsd = selectedOption ? selectedOption.costUsd : 0;
-        // MODIFIED: Total price calculation now directly uses base_product_price_usd (retail price)
-        const totalPrice = quoteDetails.base_product_price_usd + totalShippingCostUsd;
-        return totalPrice;
-    };
-    const currentTotalDisplayPrice = getDisplayPrice();
-    
-    return (
-        <AnimatePresence>
-            {isOpen && (
-                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                            className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center z-50 p-4" onClick={onClose}>
-                    <motion.div initial={{ scale: 0.9, y: -20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }}
-                                className="bg-slate-800 rounded-3xl shadow-2xl border border-slate-700 w-full max-w-md p-8 overflow-y-auto max-h-[90vh]" onClick={(e) => e.stopPropagation()}> {/* MODIFIED: Added overflow-y-auto and max-h */}
-                        {/* MODIFIED: Consolidated header and message */}
-                        <h2 className="text-3xl font-bold text-white mb-4">
-                            {checkoutStep === 'shipping_input' ? 'Enter Full Shipping Details' : 'Select Shipping Option'}
-                        </h2>
-                        <p className="text-slate-300 mb-6 text-base">
-                            {checkoutStep === 'shipping_input' ? 'These details are used to get an accurate shipping quote.' : 'Choose a shipping method. Prices are estimates and finalized at checkout.'}
-                        </p>
-                        
-                        {modalError && <Alert type="error" message={modalError} onClose={() => setModalError(null)} className="mb-4" />}
-                        {isLoadingOptions && <LoadingSpinner text="Getting shipping options..." className="my-4" />}
-                        {isProcessingCheckout && <LoadingSpinner text="Processing checkout..." className="my-4" />}
-                        
-                        {/* Conditional rendering for shipping input form */}
-                        {checkoutStep === 'shipping_input' && (
-                            <form onSubmit={handleGetOptions} className="space-y-5">
-                                {/* MODIFIED: Added md:grid for horizontal split on medium screens and up */}
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <div>
-                                        <label htmlFor="fullName" className="block text-sm font-medium text-slate-300 mb-1">Full Name</label>
-                                        <input type="text" id="fullName" name="name" value={shippingAddress.name} onChange={handleFullAddressChange} placeholder="John Doe" required className={inputClasses} />
-                                        {formErrors.name && <p className="text-red-400 text-xs mt-1">{formErrors.name}</p>}
-                                    </div>
-                                    <div>
-                                        <label htmlFor="email" className="block text-sm font-medium text-slate-300 mb-1">Email</label>
-                                        <input type="email" id="email" name="email" value={shippingAddress.email} onChange={handleFullAddressChange} placeholder="john.doe@example.com" required className={inputClasses} />
-                                        {formErrors.email && <p className="text-red-400 text-xs mt-1">{formErrors.email}</p>}
-                                    </div>
-                                    <div>
-                                        <label htmlFor="phone_number" className="block text-sm font-medium text-slate-300 mb-1">Phone Number</label>
-                                        <input type="tel" id="phone_number" name="phone_number" value={shippingAddress.phone_number} onChange={handleFullAddressChange} placeholder="555-123-4567" required className={inputClasses} />
-                                        {formErrors.phone_number && <p className="text-red-400 text-xs mt-1">{formErrors.phone_number}</p>}
-                                    </div>
-                                    <div>
-                                        <label htmlFor="country_code" className="block text-sm font-medium text-slate-300 mb-1">Country</label>
-                                        <select id="country_code" name="country_code" value={shippingAddress.country_code} onChange={handleFullAddressChange} required className={inputClasses}>
-                                            <option value="">Select a country</option>
-                                            {COUNTRIES.map(c => (<option key={c.code} value={c.code}>{c.name}</option>))}
-                                        </select>
-                                        {formErrors.country_code && <p className="text-red-400 text-xs mt-1">{formErrors.country_code}</p>}
-                                    </div>
-                                    <div>
-                                        <label htmlFor="postcode" className="block text-sm font-medium text-slate-300 mb-1">Postal Code</label>
-                                        <input type="text" id="postcode" name="postcode" value={shippingAddress.postcode} onChange={handleFullAddressChange} placeholder="12345" required className={inputClasses} />
-                                        {formErrors.postcode && <p className="text-red-400 text-xs mt-1">{formErrors.postcode}</p>}
-                                    </div>
-                                    <div>
-                                        <label htmlFor="state_code" className="block text-sm font-medium text-slate-300 mb-1">State/Province</label>
-                                        <input type="text" id="state_code" name="state_code" value={shippingAddress.state_code} onChange={handleFullAddressChange} placeholder="NY" className={inputClasses} />
-                                        {formErrors.state_code && <p className="text-red-400 text-xs mt-1">{formErrors.state_code}</p>}
-                                    </div>
-                                    <div>
-                                        <label htmlFor="city" className="block text-sm font-medium text-slate-300 mb-1">City</label>
-                                        <input type="text" id="city" name="city" value={shippingAddress.city} onChange={handleFullAddressChange} placeholder="Springfield" required className={inputClasses} />
-                                        {formErrors.city && <p className="text-red-400 text-xs mt-1">{formErrors.city}</p>}
-                                    </div>
-                                    <div>
-                                        <label htmlFor="street1" className="block text-sm font-medium text-slate-300 mb-1">Street Address 1</label>
-                                        <input type="text" id="street1" name="street1" value={shippingAddress.street1} onChange={handleFullAddressChange} placeholder="123 Main St" required className={inputClasses} />
-                                        {formErrors.street1 && <p className="text-red-400 text-xs mt-1">{formErrors.street1}</p>}
-                                    </div>
-                                    <div>
-                                        <label htmlFor="street2" className="block text-sm font-medium text-slate-300 mb-1">Street Address 2 (Optional)</label>
-                                        <input type="text" id="street2" name="street2" value={shippingAddress.street2} onChange={handleFullAddressChange} placeholder="Apt 4B" className={inputClasses} />
-                                    </div>
-                                </div> {/* End grid */}
-                                <div className="mt-6 flex items-center justify-end space-x-4">
-                                    <button type="button" onClick={onClose} className="text-slate-400 hover:text-white transition text-lg">Cancel</button>
-                                    <button type="submit" disabled={isLoadingOptions || !isShippingFormComplete()} className={`${buttonClasses} text-lg`}>
-                                        {isLoadingOptions ? 'Getting Shipping Options...' : 'Get Shipping Options'}
-                                    </button>
-                                </div>
-                            </form>
-                        )}
-                        
-                        {/* Conditional rendering for shipping options selection */}
-                        {checkoutStep === 'shipping_options' && (
-                            <>
-                                {shippingOptions.length === 0 && !isLoadingOptions ? (
-                                    <p className="text-slate-300">No shipping options available for the selected destination. Please try a different country or postal code.</p>
-                                ) : (
-                                    <div className="space-y-2">
-                                        {shippingOptions.map(option => (
-                                            <label key={option.level} className="flex items-center text-slate-300 cursor-pointer">
-                                                <input type="radio" name="shipping_level" value={option.level} checked={selectedShippingLevel === option.level} onChange={() => setSelectedShippingLevel(option.level)} className="form-radio h-4 w-4 text-green-600" />
-                                                <span className="ml-2">
-                                                    {option.name} - ${option.costUsd.toFixed(2)} USD (Est. {option.estimatedDeliveryDate || 'N/A'})
-                                                </span>
-                                            </label>
-                                        ))}
-                                    </div>
-                                )}
-                                <div className="mt-8 flex items-center justify-end space-x-4">
-                                    <button type="button" onClick={() => setCheckoutStep('shipping_input')} className="text-slate-400 hover:text-white transition text-lg">Go Back</button>
-                                    <button onClick={handleProceedToPayment} disabled={isProcessingCheckout || !selectedShippingLevel} className={`${buttonClasses} text-lg`}>
-                                        {isProcessingCheckout ? 'Processing...' : 'Proceed to Payment'}
-                                    </button>
-                                </div>
-                                {/* MODIFIED: Simplified price display for end-user */}
-                                {currentTotalDisplayPrice !== null && (
-                                    <p className="text-lg font-bold text-white mt-4 text-center">
-                                        Total Estimated Price: ${currentTotalDisplayPrice.toFixed(2)} USD
-                                        {quoteDetails?.expires_at && (
-                                            <span className="block text-sm text-slate-400 font-normal">
-                                                Quote valid until: {new Date(quoteDetails.expires_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true })}
-                                            </span>
-                                        )}
-                                    </p>
-                                )}
-                            </>
-                        )}
-                    </motion.div>
-                </motion.div>
-            )}
-        </AnimatePresence>
-    );
-};
-
 
 // --- Sub-component: FauxReview ---
 const FauxReview = ({ quote, author, avatar }) => (
@@ -553,13 +278,22 @@ function NovelPage() {
                 selectedShippingLevel,
                 quoteToken,
             });
-            window.location.href = response.data.url;
+            // Using redirectToCheckout from Stripe.js is safer than direct navigation
+            const stripe = await stripePromise; // Make sure stripePromise is defined, maybe move to a service
+            const { error } = await stripe.redirectToCheckout({ sessionId: response.data.sessionId });
+            if(error) {
+                console.error("Stripe redirection error:", error);
+                setError(error.message);
+                setCheckoutModalOpen(false); // Close modal on stripe error
+            }
         } catch (err) {
             console.error('submitFinalCheckout: Could not proceed to checkout:', err);
             const detailedError = err.response?.data?.detailedError;
             console.error('DETAILED ERROR FROM BACKEND:', detailedError);
-            setError(detailedError || err.response?.data?.message || 'Could not proceed to checkout. Please try again.');
-            setCheckoutModalOpen(false);
+            // This error will now be shown inside the modal itself, so no need to setPageError
+            // setError(detailedError || err.response?.data?.message || 'Could not proceed to checkout. Please try again.');
+            // setCheckoutModalOpen(false);
+            throw err; // Re-throw the error so the modal can catch it and display it
         }
     };
 
@@ -581,6 +315,7 @@ function NovelPage() {
                     onSubmit={submitFinalCheckout}
                     bookId={bookId}
                     bookType="textBook"
+                    book={bookDetails} // Pass the full bookDetails object for the price fallback
                 />
                 <div className="fade-in min-h-screen bg-gradient-to-br from-slate-900 to-gray-950 py-12 px-4 sm:px-6 lg:px-8">
                     <div className="max-w-4xl mx-auto">
@@ -622,6 +357,7 @@ function NovelPage() {
             </>
         );
     }
+    
     return (
         <div className="min-h-screen bg-gradient-to-br from-slate-900 to-gray-950 flex flex-col items-center justify-center py-12 px-4 sm:px-6 lg:px-8 text-center">
             <Alert type="info" message="To create a new novel, please select a book format first." />

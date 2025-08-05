@@ -4,9 +4,10 @@ import { useParams } from 'react-router-dom';
 import apiClient from '../services/apiClient';
 import ImageEditor from '../components/ImageEditor.jsx';
 import { LoadingSpinner, Alert } from '../components/common.jsx';
-// MODIFIED: Import CheckoutModal from NovelPage.jsx (assuming it's in the same directory or common location)
-import CheckoutModal from './NovelPage.jsx'; // Assuming CheckoutModal is exported from NovelPage.jsx
+// CORRECTED: Import the new, shared CheckoutModal component
+import CheckoutModal from '../components/CheckoutModal.jsx';
 
+// This custom hook can be moved to a shared utility file later if needed elsewhere
 const useDebouncedEffect = (callback, delay, deps) => {
     const callbackRef = useRef(callback);
     useEffect(() => { callbackRef.current = callback; }, [callback]);
@@ -17,18 +18,9 @@ const useDebouncedEffect = (callback, delay, deps) => {
             }
         }, delay);
         return () => { clearTimeout(handler); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [delay, ...deps]);
 };
-
-// Simplified list of valid countries for the dropdown (from NovelPage.jsx for consistency)
-const COUNTRIES = [
-    { code: 'US', name: 'United States', stateRequired: true },
-    { code: 'AU', name: 'Australia', stateRequired: true },
-    { code: 'GB', name: 'United Kingdom', stateRequired: false },
-    { code: 'CA', name: 'Canada', stateRequired: true },
-    { code: 'MX', name: 'Mexico', stateRequired: false },
-    { code: 'NZ', name: 'New Zealand', stateRequired: false },
-];
 
 const REQUIRED_CONTENT_PAGES = 20;
 
@@ -41,16 +33,16 @@ function PictureBookPage() {
     const [error, setError] = useState(null);
     const [isSaving, setIsSaving] = useState(false);
     
-    // MODIFIED: Use isCheckoutModalOpen state to control the shared modal
     const [isCheckoutModalOpen, setCheckoutModalOpen] = useState(false);
 
-    const fetchBook = async () => {
+    const fetchBook = useCallback(async () => {
         if (!bookId) {
             setIsLoading(false);
             return;
         }
         setIsLoading(true);
         try {
+            // This fetch is correct, it was the faulty import causing issues
             const { data } = await apiClient.get(`/picture-books/${bookId}`);
             setBook(data.book);
             const fetchedTimeline = data.timeline.length > 0 ? data.timeline.map(event => ({
@@ -71,15 +63,15 @@ function PictureBookPage() {
             }];
             setTimeline(fetchedTimeline);
         } catch (err) {
-            setError('Failed to load project.');
+            setError('Failed to load your picture book project.');
         } finally {
             setIsLoading(false);
         }
-    };
+    }, [bookId]);
 
     useEffect(() => {
         fetchBook();
-    }, [bookId]);
+    }, [bookId, fetchBook]);
 
     const handleFieldChange = (pageIndex, field, value) => {
         setTimeline(prevTimeline => {
@@ -180,22 +172,18 @@ function PictureBookPage() {
                 
                 if (currentPage === timeline.length && currentPage > 1) {
                     setCurrentPage(prev => prev - 1);
-                } else if (currentPage < timeline.length) {
-                    // Stay on same page number, content will shift up
-                } else {
-                    setCurrentPage(1);
                 }
-
+                
+                // Refetch the entire book state to ensure page numbers are correct
                 await fetchBook();
             }
             catch (err) {
-                setError("Failed to delete page. Please try again. Check console for details.");
-                console.error("DEBUG: Error during delete API call:", err.response?.data?.message || err.message, err);
+                setError("Failed to delete page. Please try again.");
+                console.error("Error during delete page:", err);
             }
         }
     };
 
-    // MODIFIED: handleFinalizeAndPurchase now opens the shared CheckoutModal
     const handleFinalizeAndPurchase = () => {
         if (timeline.length !== REQUIRED_CONTENT_PAGES) {
             setError(`Your picture book must have exactly ${REQUIRED_CONTENT_PAGES} pages to be printed. You currently have ${timeline.length}.`);
@@ -204,22 +192,20 @@ function PictureBookPage() {
         setCheckoutModalOpen(true);
     };
 
-    // MODIFIED: submitFinalCheckout function for the CheckoutModal
+    // This function now correctly handles the final submission for picture books
     const submitFinalCheckout = async (shippingAddress, selectedShippingLevel, quoteToken) => {
         try {
-            // Note: The backend endpoint for picture books is /picture-books/:bookId/checkout
             const response = await apiClient.post(`/picture-books/${bookId}/checkout`, {
                 shippingAddress,
                 selectedShippingLevel,
                 quoteToken,
             });
+            // Let Stripe handle the redirect
             window.location.href = response.data.url;
         } catch (err) {
             console.error('submitFinalCheckout (PictureBookPage): Could not proceed to checkout:', err);
-            const detailedError = err.response?.data?.detailedError;
-            console.error('DETAILED ERROR FROM BACKEND:', detailedError);
-            setError(detailedError || err.response?.data?.message || 'Could not proceed to checkout. Please try again.');
-            setCheckoutModalOpen(false);
+            // Re-throw the error so the modal can catch it and display the message
+            throw err;
         }
     };
 
@@ -231,13 +217,14 @@ function PictureBookPage() {
 
     return (
         <>
-            {/* MODIFIED: Render the shared CheckoutModal */}
+            {/* Render the shared CheckoutModal with the correct props */}
             <CheckoutModal
                 isOpen={isCheckoutModalOpen}
                 onClose={() => setCheckoutModalOpen(false)}
                 onSubmit={submitFinalCheckout}
                 bookId={bookId}
                 bookType="pictureBook" // Pass bookType as 'pictureBook'
+                book={book} // Pass the full book object for price fallbacks
             />
 
             <div className="container mx-auto p-4 text-white min-h-screen flex flex-col">
@@ -266,7 +253,6 @@ function PictureBookPage() {
                                     />
                                 </div>
 
-                                {/* Story Text input */}
                                 <div>
                                     <label htmlFor="story_text" className="block text-sm font-medium text-slate-300 mt-4 mb-1">Story Text</label>
                                     <textarea
@@ -277,7 +263,6 @@ function PictureBookPage() {
                                         placeholder="Write the story for this page..."
                                     />
                                 </div>
-                                {/* Bold Story Text checkbox */}
                                 <div className="flex items-center mt-2">
                                     <input
                                         id="is_bold_story_text"
@@ -292,7 +277,6 @@ function PictureBookPage() {
                                 </div>
                             </div>
 
-                            {/* Page Navigation and Actions */}
                             <div className="mt-auto pt-6 border-t border-slate-700 flex flex-col space-y-4">
                                 <div className="flex justify-between items-center">
                                     <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="px-4 py-2 bg-gray-700 text-white rounded-md disabled:opacity-50 hover:bg-gray-600 transition">Previous</button>
@@ -307,13 +291,11 @@ function PictureBookPage() {
                         </>
                     </div>
 
-                    {/* Right Panel: Image Editor */}
                     <div className="md:w-2/3">
                         <ImageEditor currentEvent={currentEvent} onImageUpdate={handleFieldChange} />
                     </div>
                 </div>
 
-                {/* Finalize & Purchase Button (outside the main content block) */}
                 <div className="mt-8 text-center">
                     <button
                         onClick={handleFinalizeAndPurchase}
