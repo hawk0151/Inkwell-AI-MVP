@@ -17,9 +17,9 @@ const JWT_QUOTE_SECRET = process.env.JWT_QUOTE_SECRET || 'your_super_secret_jwt_
 const FALLBACK_SHIPPING_OPTION = {
     level: 'FALLBACK_STANDARD',
     name: 'Standard Shipping (Fallback)',
-    costUsd: 15.00, // Example fixed cost in USD
+    costUsd: 15.00,
     estimatedDeliveryDate: '7-21 business days',
-    isFallback: true // Flag to indicate this is a fallback option
+    isFallback: true
 };
 
 let AbortController;
@@ -353,8 +353,7 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
         let luluCostsResponse;
         let luluShippingCostUSD;
         const isFallback = selectedShippingLevel === FALLBACK_SHIPPING_OPTION.level;
-        // MODIFIED: Profit Margin calculation - now based on fixed amount or percentage of basePrice
-        const PROFIT_MARGIN_USD = selectedProductConfig.basePrice * 0.5; // Example: 50% profit margin on base price
+        const PROFIT_MARGIN_USD = selectedProductConfig.basePrice * 0.5;
 
         if (isFallback) {
             console.log(`[Checkout] Using fallback shipping rate. Probing Lulu for print and fulfillment costs with a valid shipping level.`);
@@ -381,10 +380,23 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
                 if (!selectedShippingOption) {
                     // If the selected level is not found in Lulu's response (even if response was 200 OK)
                     // This means Lulu didn't offer that specific level for this final calculation.
-                    throw new Error(`Selected shipping level '${selectedShippingLevel}' not confirmed by Lulu for final calculation.`);
+                    // MODIFIED: Fallback to a universal level for print/fulfillment cost if selected level is not confirmed
+                    console.warn(`Selected shipping level '${selectedShippingLevel}' not confirmed by Lulu for final calculation. Attempting to get print/fulfillment cost with 'MAIL' level.`);
+                    try {
+                        const fallbackLuluCostsResponse = await getPrintJobCosts(printCostLineItems, luluShippingAddressForCost, 'MAIL'); // Use 'MAIL' to get base costs
+                        luluCostsResponse.lineItemCosts = fallbackLuluCostsResponse.lineItemCosts;
+                        luluCostsResponse.fulfillmentCost = fallbackLuluCostsResponse.fulfillmentCost;
+                        // Keep luluShippingCostUSD as 0 for now, as the selected level was not confirmed.
+                        // The total price calculation will then effectively exclude this unconfirmed shipping cost.
+                        luluShippingCostUSD = 0; // Explicitly set to 0 if the selected level isn't confirmed
+                    } catch (fallbackError) {
+                        console.error(`Failed to get print/fulfillment costs even with 'MAIL' fallback: ${fallbackError.message}`);
+                        throw new Error(`Failed to confirm selected shipping level and could not get fallback print/fulfillment costs.`);
+                    }
+                } else {
+                    const luluShippingCostAUD = parseFloat(selectedShippingOption.total_cost_incl_tax);
+                    luluShippingCostUSD = parseFloat((luluShippingCostAUD * AUD_TO_USD_EXCHANGE_RATE).toFixed(4));
                 }
-                const luluShippingCostAUD = parseFloat(selectedShippingOption.total_cost_incl_tax);
-                luluShippingCostUSD = parseFloat((luluShippingCostAUD * AUD_TO_USD_EXCHANGE_RATE).toFixed(4));
             } catch (luluError) {
                 console.error(`[Checkout] Error fetching print costs from Lulu: ${luluError.message}. Error details:`, luluError.response?.data);
                 throw luluError; // Re-throw to be caught by the main try-catch
@@ -408,8 +420,6 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
         const luluPrintCostUSD = parseFloat((luluPrintCostAUD * AUD_TO_USD_EXCHANGE_RATE).toFixed(4));
         const luluFulfillmentCostUSD = parseFloat((luluFulfillmentCostAUD * AUD_TO_USD_EXCHANGE_RATE).toFixed(4));
         
-        // MODIFIED: Corrected final price calculation to avoid duplication
-        // Final Price = Retail Price (selectedProductConfig.basePrice) + Lulu Shipping + Lulu Fulfillment
         const finalPriceDollars = parseFloat((selectedProductConfig.basePrice + luluShippingCostUSD + luluFulfillmentCostUSD).toFixed(4));
         const finalPriceInCents = Math.round(finalPriceDollars * 100);
 
@@ -448,7 +458,7 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
             isFallback,
             luluPrintCostUSD,
             luluShippingCostUSD,
-            PROFIT_MARGIN_USD, // This profit is now explicitly just the margin, not part of basePrice
+            PROFIT_MARGIN_USD,
             selectedShippingLevel,
             luluFulfillmentCostUSD,
             null,
