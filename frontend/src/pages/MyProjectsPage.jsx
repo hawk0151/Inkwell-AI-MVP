@@ -1,14 +1,14 @@
 // frontend/src/pages/MyProjectsPage.jsx
-import React, { useState, useRef, useEffect } from 'react'; // Added useRef, useEffect
+import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import apiClient from '../services/apiClient';
-import { motion, AnimatePresence } from 'framer-motion'; // Added AnimatePresence for dropdown animation
+import { motion, AnimatePresence } from 'framer-motion';
 import PageHeader from '../components/PageHeader';
 import { LoadingSpinner, Alert } from '../components/common.jsx';
-import { DocumentPlusIcon, PhotoIcon, EyeIcon, EyeSlashIcon, PencilIcon, ShareIcon, EllipsisVerticalIcon, TrashIcon } from '@heroicons/react/24/solid'; // Added new icons
+import { DocumentPlusIcon, PhotoIcon, EyeIcon, EyeSlashIcon, PencilIcon, ShareIcon, EllipsisVerticalIcon, TrashIcon } from '@heroicons/react/24/solid';
 
-// --- CORRECT FIX: Moved these variables outside the component function ---
+// --- ANIMATION VARIANTS (Correctly declared outside the component) ---
 const containerVariants = {
     hidden: { opacity: 0 },
     visible: { opacity: 1, transition: { staggerChildren: 0.1 } },
@@ -39,11 +39,8 @@ const toggleBookPrivacy = ({ bookId, bookType, is_public }) => {
 // --- NEW: Project Status Indicator Component ---
 const ProjectStatusIndicator = ({ project }) => {
     let statusText = "Draft";
-    let statusColor = "bg-slate-500"; // Default for draft
+    let statusColor = "bg-slate-500";
 
-    // Infer status based on available data. More sophisticated status would need backend logic.
-    // For simplicity, if it's public, it's 'Published'. Otherwise, if it has a last_modified date different
-    // from creation, it's 'In Progress'. Otherwise, 'Draft'.
     const isModified = project.date_created && project.last_modified && 
                        new Date(project.last_modified).getTime() > new Date(project.date_created).getTime();
 
@@ -99,24 +96,22 @@ const ProjectCard = ({ project, onClick, onDelete, onPublishToggle }) => {
     }, []);
 
     const handleActionClick = (e, action) => {
-        e.stopPropagation(); // Prevent card click from triggering
-        setIsDropdownOpen(false); // Close dropdown
+        e.stopPropagation();
+        setIsDropdownOpen(false);
 
         if (action === 'delete') {
             onDelete(project);
-        } else if (action === 'edit') { // Explicit edit action
+        } else if (action === 'edit') {
             onClick(project);
         } else if (action === 'preview') {
             if (project.type === 'pictureBook') {
                 navigate(`/picture-book/${project.id}/preview`);
             } else {
-                // No dedicated preview for text books yet, maybe navigate to editor or show alert
                 alert('Text book preview not available yet. Navigating to editor.');
                 navigate(`/novel/${project.id}`);
             }
         } else if (action === 'share') {
-            // Implement share functionality (e.g., copy link to clipboard)
-            const shareUrl = `${window.location.origin}/feed/${project.type}/${project.id}`; // Example share URL
+            const shareUrl = `${window.location.origin}/feed/${project.type}/${project.id}`;
             navigator.clipboard.writeText(shareUrl).then(() => {
                 alert('Share link copied to clipboard!');
             }).catch(err => {
@@ -130,7 +125,7 @@ const ProjectCard = ({ project, onClick, onDelete, onPublishToggle }) => {
         <motion.div
             variants={cardVariants}
             whileHover={{ y: -5, scale: 1.02, boxShadow: "0px 10px 25px rgba(0, 0, 0, 0.3)" }}
-            onClick={() => handleActionClick(null, 'edit')} // Default card click is 'edit'
+            onClick={() => handleActionClick(null, 'edit')}
             className="group relative cursor-pointer overflow-hidden bg-slate-800/50 backdrop-blur-md rounded-xl p-6 border border-slate-700 transition-all duration-300 hover:border-indigo-500/50"
         >
             <div className="flex justify-between items-start">
@@ -140,12 +135,10 @@ const ProjectCard = ({ project, onClick, onDelete, onPublishToggle }) => {
                         {project.type === 'pictureBook' ? 'Picture Book' : 'Text Book'}
                     </p>
                     <p className="text-xs text-slate-500 font-sans mt-2">Last modified: {new Date(project.last_modified).toLocaleString()}</p>
-                    {/* Status Indicator */}
                     <div className="mt-2">
                         <ProjectStatusIndicator project={project} />
                     </div>
                 </div>
-                {/* Action Buttons / Dropdown */}
                 <div className="relative" ref={dropdownRef}>
                     <button
                         onClick={(e) => { e.stopPropagation(); setIsDropdownOpen(!isDropdownOpen); }}
@@ -200,11 +193,6 @@ const ProjectCard = ({ project, onClick, onDelete, onPublishToggle }) => {
     );
 };
 
-const cardVariants = {
-    hidden: { opacity: 0, y: 20 },
-    visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: 'easeOut' } }
-};
-
 // --- Main Page Component ---
 function MyProjectsPage() {
     const navigate = useNavigate();
@@ -248,7 +236,6 @@ function MyProjectsPage() {
     };
     
     const handleDelete = (project) => {
-        // Use custom modal instead of window.confirm
         if (window.confirm(`Are you sure you want to delete "${project.title}"? This action cannot be undone.`)) {
             deleteMutation.mutate(project);
         }
