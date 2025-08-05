@@ -7,7 +7,6 @@ import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
-// Use the new robust helper function for consistency
 import { findProductConfiguration } from './lulu.service.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -19,7 +18,6 @@ const ROBOTO_REGULAR_PATH = path.join(__dirname, '../fonts/Roboto-Regular.ttf');
 const ROBOTO_BOLD_PATH = path.join(__dirname, '../fonts/Roboto-Bold.ttf');
 
 const getProductDimensions = (luluConfigId) => {
-    // Use the robust findProductConfiguration to get the config
     const productConfig = findProductConfiguration(luluConfigId);
     if (!productConfig) {
         throw new Error(`Product configuration with ID ${luluConfigId} not found.`);
@@ -27,7 +25,6 @@ const getProductDimensions = (luluConfigId) => {
 
     let pageWidthMm, pageHeightMm, layout;
 
-    // This switch statement now correctly interprets the 'trimSize' string
     switch (productConfig.trimSize) {
         case '5.25x8.25':
             pageWidthMm = 133.35; pageHeightMm = 209.55; layout = 'portrait'; break;
@@ -35,17 +32,11 @@ const getProductDimensions = (luluConfigId) => {
             pageWidthMm = 216.41; pageHeightMm = 303.28; layout = 'portrait'; break;
         case '6.39x9.46':
             pageWidthMm = 162.31; pageHeightMm = 240.28; layout = 'portrait'; break;
-        
-        // BUG FIX: Added the correct case for our landscape picture book's trimSize.
-        // The dimensions are derived from the inches (11.94" x 8.52").
         case '11.94x8.52':
              pageWidthMm = 303.28; pageHeightMm = 216.41; layout = 'landscape'; break;
-            
         default:
             console.error(`[PDF Service] Unknown trim size ${productConfig.trimSize}. Falling back to A4 portrait.`);
-            pageWidthMm = 210;
-            pageHeightMm = 297;
-            layout = 'portrait';
+            pageWidthMm = 210; pageHeightMm = 297; layout = 'portrait';
     }
 
     const pageWidthWithBleedPoints = mmToPoints(pageWidthMm);
@@ -67,13 +58,11 @@ const getProductDimensions = (luluConfigId) => {
         contentX: contentX,
         contentY: contentY,
         contentWidth: contentWidth,
-        contentHeight: contentHeight,
+        contentHeight: contentHeight, // This was already correct
         layout: layout
     };
 };
 
-// ... (The rest of the file remains unchanged. I am including it in full below)
-// ...
 async function getImageBuffer(url) {
     const response = await axios.get(url, { responseType: 'arraybuffer' });
     return Buffer.from(response.data, 'binary');
@@ -198,7 +187,8 @@ function truncateText(doc, text, maxWidth, maxHeight, fontPath, fontSize) {
 }
 
 export const generateAndSavePictureBookPdf = async (book, events, productConfig) => {
-    const { pageWidthWithBleed, pageHeightWithBleed, contentX, contentY, contentWidth, layout } = getProductDimensions(productConfig.id);
+    // THIS IS THE LINE WITH THE FIX. `contentHeight` is now included.
+    const { pageWidthWithBleed, pageHeightWithBleed, contentX, contentY, contentWidth, contentHeight, layout } = getProductDimensions(productConfig.id);
 
     const doc = new PDFDocument({
         size: [pageWidthWithBleed, pageHeightWithBleed],
