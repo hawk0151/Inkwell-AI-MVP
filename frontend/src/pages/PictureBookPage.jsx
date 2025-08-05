@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import apiClient from '../services/apiClient';
-import ImageEditor from '../components/ImageEditor.jsx';
+import ImageEditor from '../components/ImageEditor.jsx'; // This is the component that handles individual image/text edits
 import { LoadingSpinner, Alert } from '../components/common.jsx';
 import CheckoutModal from '../components/CheckoutModal.jsx';
 import { motion } from 'framer-motion';
@@ -13,6 +13,7 @@ const useDebouncedEffect = (callback, delay, deps) => {
     useEffect(() => { callbackRef.current = callback; }, [callback]);
     useEffect(() => {
         const handler = setTimeout(() => {
+            // Only run callback if all dependencies are defined (prevents running on initial render if deps are async)
             if (deps.every(dep => dep !== undefined)) {
                 callbackRef.current();
             }
@@ -32,9 +33,11 @@ function PictureBookPage() {
     const [currentPage, setCurrentPage] = useState(1);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState(null);
-    const [isSaving, setIsSaving] = useState(false);
+    const [isSaving, setIsSaving] = useState(false); // Tracks if a save operation is in progress
+    const [saveError, setSaveError] = useState(null); // Specific error for save operations
     const [isCheckoutModalOpen, setCheckoutModalOpen] = useState(false);
 
+    // Function to fetch the book and its timeline from the backend
     const fetchBook = useCallback(async () => {
         if (!bookId) {
             setIsLoading(false);
@@ -44,10 +47,15 @@ function PictureBookPage() {
         try {
             const { data } = await apiClient.get(`/picture-books/${bookId}`);
             setBook(data.book);
-            const fetchedTimeline = data.timeline.length > 0 ? data.timeline.map(event => ({ ...event })) : [{ page_number: 1, story_text: '', event_date: '', image_url: null, uploaded_image_url: null, overlay_text: '', is_bold_story_text: false }];
+            // Ensure each fetched event has a unique client-side ID for React's key prop
+            const fetchedTimeline = data.timeline.length > 0 
+                ? data.timeline.map(event => ({ ...event, id: event.id || Date.now() + Math.random() })) 
+                : [{ id: Date.now(), story_text: '', event_date: '', image_url: null, uploaded_image_url: null, overlay_text: '', is_bold_story_text: false }];
             setTimeline(fetchedTimeline);
+            setError(null); // Clear any previous errors on successful fetch
         } catch (err) {
-            setError('Failed to load your picture book project.');
+            console.error("Error fetching picture book:", err);
+            setError('Failed to load your picture book project. Please try refreshing.');
         } finally {
             setIsLoading(false);
         }
@@ -57,67 +65,65 @@ function PictureBookPage() {
         fetchBook();
     }, [bookId, fetchBook]);
 
+    // This function is passed to ImageEditor to update a specific event's field
     const handleFieldChange = (pageIndex, field, value) => {
         setTimeline(prevTimeline => {
             const newTimeline = [...prevTimeline];
             const updatedEvent = { ...(newTimeline[pageIndex] || {}) };
+            
+            // Ensure page_number exists and is correct (1-indexed)
             if (!updatedEvent.page_number) updatedEvent.page_number = pageIndex + 1;
+
+            // Logic to clear image_url if uploaded_image_url is set, and vice-versa
             if (field === 'image_url' && value !== null) updatedEvent['uploaded_image_url'] = null;
             else if (field === 'uploaded_image_url' && value !== null) updatedEvent['image_url'] = null;
+            
             updatedEvent[field] = value;
             newTimeline[pageIndex] = updatedEvent;
             return newTimeline;
         });
     };
 
-    const autoSave = async () => {
-        if (isSaving) return;
+    // NEW: Unified save function that sends the entire timeline to the backend
+    const saveAllTimelineEvents = useCallback(async (currentTimeline) => {
+        if (isSaving) return; // Prevent multiple saves at once
         setIsSaving(true);
-        const currentEvent = timeline[currentPage - 1];
-        if (currentEvent) {
-            try {
-                await apiClient.post(`/picture-books/${bookId}/events`, {
-                    page_number: currentEvent.page_number,
-                    event_date: currentEvent.event_date,
-                    story_text: currentEvent.story_text,
-                    is_bold_story_text: currentEvent.is_bold_story_text,
-                    image_url: currentEvent.image_url,
-                    image_style: currentEvent.image_style,
-                    uploaded_image_url: currentEvent.uploaded_image_url,
-                    overlay_text: currentEvent.overlay_text
-                });
-            } catch (err) {
-                setError("Failed to save progress.");
-            } finally {
-                setTimeout(() => setIsSaving(false), 1000);
-            }
-        } else {
-            setIsSaving(false);
+        setSaveError(null); // Clear previous save errors
+
+        try {
+            // The backend expects an object with an 'events' array
+            await apiClient.post(`/picture-books/${bookId}/events`, { events: currentTimeline });
+            console.log("Timeline saved successfully!");
+            // After successful save, re-fetch to ensure local state is perfectly synced with backend,
+            // especially important for page_number re-indexing on backend.
+            await fetchBook(); 
+        } catch (err) {
+            console.error("Failed to save timeline events:", err);
+            setSaveError("Failed to save progress. Please try again.");
+        } finally {
+            setTimeout(() => setIsSaving(false), 1000); // Debounce saving state
         }
-    };
-    
-    const currentEventForDebounce = timeline[currentPage - 1];
+    }, [bookId, isSaving, fetchBook]);
+
+    // Auto-save effect: Triggers saveAllTimelineEvents when timeline changes
+    // Debounce to prevent saving on every single keystroke/change
     useDebouncedEffect(() => {
-        autoSave();
-    }, 2000, [
-        currentEventForDebounce?.story_text,
-        currentEventForDebounce?.is_bold_story_text,
-        currentEventForDebounce?.event_date,
-        currentEventForDebounce?.image_url,
-        currentEventForDebounce?.uploaded_image_url,
-        currentEventForDebounce?.overlay_text
-    ]);
+        if (timeline.length > 0) { // Only attempt to save if there are events
+            saveAllTimelineEvents(timeline);
+        }
+    }, 2000, [timeline, saveAllTimelineEvents]); // Depend on the entire timeline state
 
     const addPage = () => {
         if (timeline.length >= REQUIRED_CONTENT_PAGES) {
-            alert(`You have reached the maximum of ${REQUIRED_CONTENT_PAGES} pages for a picture book.`);
+            setError(`You have reached the maximum of ${REQUIRED_CONTENT_PAGES} pages for a picture book.`);
             return;
         }
-        const newPageNumber = timeline.length + 1;
+        const newPageNumber = timeline.length + 1; // This will be updated by backend on save
         setTimeline(prevTimeline => [
             ...prevTimeline,
             {
-                page_number: newPageNumber,
+                id: Date.now(), // Unique client-side ID for new event
+                page_number: newPageNumber, // Temporary client-side page number
                 story_text: '',
                 event_date: '',
                 image_url: null,
@@ -126,24 +132,25 @@ function PictureBookPage() {
                 is_bold_story_text: false
             }
         ]);
-        setCurrentPage(newPageNumber);
+        setCurrentPage(newPageNumber); // Navigate to the new page
     };
 
-    const handleDeletePage = async () => {
+    // FIX: This now only modifies local state. The saveAllTimelineEvents will handle backend sync.
+    const handleDeletePage = () => {
         if (timeline.length <= 1) {
-            alert("You cannot delete the last page.");
+            setError("You cannot delete the last page.");
             return;
         }
         if (window.confirm(`Are you sure you want to delete Page ${currentPage}? This action cannot be undone.`)) {
-            try {
-                await apiClient.delete(`/picture-books/${bookId}/events/${currentPage}`);
-                if (currentPage === timeline.length && currentPage > 1) {
+            setTimeline(prevTimeline => {
+                const newTimeline = prevTimeline.filter((_, index) => (index + 1) !== currentPage);
+                // Adjust current page if the deleted page was the last one
+                if (currentPage === prevTimeline.length && currentPage > 1) {
                     setCurrentPage(prev => prev - 1);
                 }
-                await fetchBook();
-            } catch (err) {
-                setError("Failed to delete page. Please try again.");
-            }
+                return newTimeline;
+            });
+            // Auto-save will pick up this change and sync with backend
         }
     };
 
@@ -152,7 +159,12 @@ function PictureBookPage() {
             setError(`Your picture book must have exactly ${REQUIRED_CONTENT_PAGES} pages to be printed. You currently have ${timeline.length}.`);
             return;
         }
-        setCheckoutModalOpen(true);
+        // Ensure all changes are saved before opening checkout
+        saveAllTimelineEvents(timeline).then(() => {
+            setCheckoutModalOpen(true);
+        }).catch(() => {
+            setSaveError("Please save your changes before finalizing.");
+        });
     };
 
     const submitFinalCheckout = async (shippingAddress, selectedShippingLevel, quoteToken) => {
@@ -165,7 +177,7 @@ function PictureBookPage() {
             window.location.href = response.data.url;
         } catch (err) {
             console.error('submitFinalCheckout (PictureBookPage): Could not proceed to checkout:', err);
-            throw err;
+            throw err; // Re-throw to be caught by CheckoutModal
         }
     };
 
@@ -196,6 +208,7 @@ function PictureBookPage() {
                         <div className="text-center">
                             <h1 className="text-2xl font-serif font-bold text-white tracking-tight">{book?.title || 'Picture Book Editor'}</h1>
                             {isSaving && <div className="text-xs text-blue-400 animate-pulse">Saving...</div>}
+                            {saveError && <Alert type="error" message={saveError} onClose={() => setSaveError(null)} />}
                         </div>
                         <button onClick={() => navigate(`/picture-book/${bookId}/preview`)} className="flex items-center gap-2 bg-slate-700 hover:bg-slate-600 text-white font-semibold py-2 px-4 rounded-lg transition-colors">
                             <EyeIcon className="h-5 w-5" />
@@ -240,7 +253,14 @@ function PictureBookPage() {
                             </div>
                         </div>
                         <div className="md:w-2/3 lg:w-3/4">
-                            <ImageEditor currentEvent={currentEvent} onImageUpdate={handleFieldChange} />
+                            {/* Pass the saveAllTimelineEvents function as onSave to ImageEditor */}
+                            <ImageEditor 
+                                currentEvent={currentEvent} 
+                                onImageUpdate={handleFieldChange} 
+                                onSave={saveAllTimelineEvents} // Pass the new save function
+                                // Pass the entire timeline to ImageEditor so it can manage its own internal state and pass it back
+                                timeline={timeline} 
+                            />
                         </div>
                     </motion.div>
                     <div className="mt-8 text-center">
@@ -248,10 +268,10 @@ function PictureBookPage() {
                             whileHover={{ scale: 1.05 }}
                             whileTap={{ scale: 0.95 }}
                             onClick={handleFinalizeAndPurchase} 
-                            disabled={!meetsPageRequirement} 
+                            disabled={!meetsPageRequirement || isSaving} // Disable if saving is in progress
                             className="bg-teal-600 text-white font-bold py-4 px-10 rounded-lg hover:bg-teal-500 disabled:bg-slate-700 disabled:text-slate-400 disabled:cursor-not-allowed transition-all duration-300 transform shadow-lg text-lg"
                         >
-                            Finalize & Purchase
+                            {isSaving ? 'Saving & Finalizing...' : 'Finalize & Purchase'}
                         </motion.button>
                         {!meetsPageRequirement && (
                             <p className="text-sm text-red-400 mt-2">
