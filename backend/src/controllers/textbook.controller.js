@@ -357,14 +357,14 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
 
         if (isFallback) {
             console.log(`[Checkout] Using fallback shipping rate. Probing Lulu for print and fulfillment costs with a valid shipping level.`);
-            const validLuluLevelForProbe = 'MAIL'; // Use a known valid level for the probe
+            const validLuluLevelForProbe = 'MAIL';
             try {
                 luluCostsResponse = await getPrintJobCosts(printCostLineItems, luluShippingAddressForCost, validLuluLevelForProbe);
-                luluShippingCostUSD = FALLBACK_SHIPPING_OPTION.costUsd; // Use our hardcoded cost
+                luluShippingCostUSD = FALLBACK_SHIPPING_OPTION.costUsd;
             } catch (luluError) {
                 console.error(`[Checkout] Error getting Lulu print/fulfillment cost during fallback: ${luluError.message}. Using dummy print/fulfillment costs.`);
                 luluCostsResponse = {
-                    lineItemCosts: [{ total_cost_incl_tax: (selectedProductConfig.basePrice / AUD_TO_USD_EXCHANGE_RATE) * 0.7 }], // Estimate 70% of base price
+                    lineItemCosts: [{ total_cost_incl_tax: (selectedProductConfig.basePrice / AUD_TO_USD_EXCHANGE_RATE) * 0.7 }],
                     fulfillmentCost: { total_cost_incl_tax: 0 }
                 };
                 luluShippingCostUSD = FALLBACK_SHIPPING_OPTION.costUsd;
@@ -372,23 +372,17 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
         } else {
             try {
                 luluCostsResponse = await getPrintJobCosts(printCostLineItems, luluShippingAddressForCost, selectedShippingLevel);
-                // MODIFIED: Defensive check for shippingOptions before .find()
                 const selectedShippingOption = luluCostsResponse.shippingOptions && Array.isArray(luluCostsResponse.shippingOptions)
                     ? luluCostsResponse.shippingOptions.find(opt => opt.level === selectedShippingLevel)
                     : null;
 
                 if (!selectedShippingOption) {
-                    // If the selected level is not found in Lulu's response (even if response was 200 OK)
-                    // This means Lulu didn't offer that specific level for this final calculation.
-                    // MODIFIED: Fallback to a universal level for print/fulfillment cost if selected level is not confirmed
                     console.warn(`Selected shipping level '${selectedShippingLevel}' not confirmed by Lulu for final calculation. Attempting to get print/fulfillment cost with 'MAIL' level.`);
                     try {
-                        const fallbackLuluCostsResponse = await getPrintJobCosts(printCostLineItems, luluShippingAddressForCost, 'MAIL'); // Use 'MAIL' to get base costs
+                        const fallbackLuluCostsResponse = await getPrintJobCosts(printCostLineItems, luluShippingAddressForCost, 'MAIL');
                         luluCostsResponse.lineItemCosts = fallbackLuluCostsResponse.lineItemCosts;
                         luluCostsResponse.fulfillmentCost = fallbackLuluCostsResponse.fulfillmentCost;
-                        // Keep luluShippingCostUSD as 0 for now, as the selected level was not confirmed.
-                        // The total price calculation will then effectively exclude this unconfirmed shipping cost.
-                        luluShippingCostUSD = 0; // Explicitly set to 0 if the selected level isn't confirmed
+                        luluShippingCostUSD = 0;
                     } catch (fallbackError) {
                         console.error(`Failed to get print/fulfillment costs even with 'MAIL' fallback: ${fallbackError.message}`);
                         throw new Error(`Failed to confirm selected shipping level and could not get fallback print/fulfillment costs.`);
@@ -399,7 +393,7 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
                 }
             } catch (luluError) {
                 console.error(`[Checkout] Error fetching print costs from Lulu: ${luluError.message}. Error details:`, luluError.response?.data);
-                throw luluError; // Re-throw to be caught by the main try-catch
+                throw luluError;
             }
         }
 
