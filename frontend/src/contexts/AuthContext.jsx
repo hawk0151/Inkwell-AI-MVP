@@ -1,7 +1,6 @@
 // frontend/src/contexts/AuthContext.jsx
 import React, { useContext, useState, useEffect, createContext } from 'react';
 import {
-    getAuth, // Import getAuth function
     onAuthStateChanged,
     createUserWithEmailAndPassword,
     signInWithEmailAndPassword,
@@ -10,14 +9,15 @@ import {
     signInWithPopup,
 } from 'firebase/auth';
 import {
-    getFirestore, // Import getFirestore function
     doc,
     setDoc,
     getDoc
 } from 'firebase/firestore';
 
-import firebaseApp from '../firebase'; // Import the initialized Firebase app instance
+// NEW: Import the shared auth and db instances from our central firebase.js file
+import { auth, db } from '../firebase'; 
 
+const googleProvider = new GoogleAuthProvider();
 const AuthContext = createContext();
 
 export function useAuth() {
@@ -25,11 +25,6 @@ export function useAuth() {
 }
 
 export function AuthProvider({ children }) {
-    // Initialize auth and db instances here, after firebaseApp is imported
-    const auth = getAuth(firebaseApp);
-    const db = getFirestore(firebaseApp);
-    const googleProvider = new GoogleAuthProvider();
-
     const [currentUser, setCurrentUser] = useState(null);
     const [token, setToken] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -92,7 +87,7 @@ export function AuthProvider({ children }) {
             setLoading(false);
         });
         return unsubscribe;
-    }, [auth, db]); // Added auth and db to dependency array
+    }, [auth, db]);
 
     const value = {
         currentUser,

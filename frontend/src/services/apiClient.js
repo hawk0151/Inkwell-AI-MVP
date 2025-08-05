@@ -1,20 +1,18 @@
 // frontend/src/services/apiClient.js
 import axios from 'axios';
-import { getAuth } from 'firebase/auth';
+import { auth } from '../firebase'; // Import the auth instance directly
 
 const apiClient = axios.create({
-    // This uses the VITE_API_BASE_URL directly, which should be 'https://.../api'
     baseURL: import.meta.env.VITE_API_BASE_URL,
     withCredentials: true,
     headers: {
-        'Content-Type': 'application/json', // <-- ADDED THIS LINE: Explicitly set default content type
+        'Content-Type': 'application/json',
     },
 });
 
 // Request Interceptor: Attach Firebase ID token to outgoing requests
 apiClient.interceptors.request.use(
     async (config) => {
-        const auth = getAuth();
         const user = auth.currentUser;
 
         if (!user) {
