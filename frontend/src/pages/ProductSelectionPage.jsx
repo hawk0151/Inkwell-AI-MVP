@@ -1,3 +1,4 @@
+// frontend/src/pages/ProductSelectionPage.jsx
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
@@ -46,7 +47,7 @@ function ProductSelectionPage() {
     };
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-slate-900 to-gray-950 px-4 sm:px-6 lg:px-8">
+        <div className="min-h-screen bg-slate-900 bg-[radial-gradient(ellipse_80%_80%_at_50%_-20%,rgba(120,119,198,0.3),rgba(255,255,255,0))] px-4 sm:px-6 lg:px-8">
             <PageHeader 
                 title="Choose Your Creation"
                 subtitle="Select a format to begin your personalized story."
@@ -60,13 +61,11 @@ function ProductSelectionPage() {
                 <CreationCard
                     title="Text-Based Book"
                     description="Create a novel or storybook with our AI author, chapter by chapter."
-                    icon="✍️"
                     onClick={() => navigate('/select-novel')}
                 />
                 <CreationCard
                     title="Picture Book"
                     description="Design a beautiful, illustrated story page by page with AI art."
-                    icon="🎨"
                     onClick={handlePictureBookCreation}
                 />
             </motion.div>

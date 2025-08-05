@@ -1,3 +1,4 @@
+// frontend/src/components/PageHeader.jsx
 import React from 'react';
 import { motion } from 'framer-motion';
 
@@ -9,11 +10,11 @@ const PageHeader = ({ title, subtitle }) => {
       transition={{ duration: 0.6, ease: 'easeInOut' }}
       className="text-center py-16 md:py-20"
     >
-      <h1 className="text-5xl md:text-7xl font-extrabold text-white leading-tight tracking-tighter">
+      <h1 className="font-serif text-5xl md:text-7xl font-bold text-white leading-tight tracking-tight">
         {title}
       </h1>
       {subtitle && (
-        <p className="text-xl md:text-2xl text-slate-400 mt-6 max-w-3xl mx-auto font-light">
+        <p className="font-sans text-xl md:text-2xl text-slate-400 mt-6 max-w-3xl mx-auto">
           {subtitle}
         </p>
       )}

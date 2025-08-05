@@ -67,72 +67,76 @@ function EditProfilePage() {
     }
 
     return (
-        <div className="max-w-4xl mx-auto py-12 px-4 sm:px-6 lg:px-8">
-            <PageHeader 
-                title="Edit Profile"
-                subtitle="Update your public username, bio, and avatar."
-            />
+        <div className="min-h-screen bg-slate-900 bg-[radial-gradient(ellipse_80%_80%_at_50%_-20%,rgba(120,119,198,0.3),rgba(255,255,255,0))]">
+            <div className="max-w-4xl mx-auto py-12 px-4 sm:px-6 lg:px-8">
+                <PageHeader 
+                    title="Edit Profile"
+                    subtitle="Update your public username, bio, and avatar."
+                />
 
-            <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.5 }}
-                className="bg-slate-800/50 backdrop-blur-md p-8 md:p-10 rounded-2xl shadow-2xl border border-slate-700"
-            >
-                {mutation.isError && (
-                    <Alert type="error" message={mutation.error.response?.data?.message || mutation.error.message} />
-                )}
-                {successMessage && (
-                    <div className="mb-4 p-3 bg-green-900/50 border border-green-700 text-green-300 rounded text-center">{successMessage}</div>
-                )}
+                <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.5, delay: 0.2 }}
+                    className="bg-slate-800/50 backdrop-blur-md p-8 md:p-10 rounded-2xl shadow-2xl border border-slate-700"
+                >
+                    {mutation.isError && (
+                        <Alert type="error" message={mutation.error.response?.data?.message || mutation.error.message} />
+                    )}
+                    {successMessage && (
+                        <div className="mb-4 p-3 bg-green-900/50 border border-green-700 text-green-300 rounded text-center">{successMessage}</div>
+                    )}
 
-                <form onSubmit={handleSubmit} className="space-y-6">
-                    <div>
-                        <label htmlFor="username" className="block mb-2 font-medium text-slate-300">Username</label>
-                        <input
-                            type="text"
-                            name="username"
-                            id="username"
-                            value={formData.username}
-                            onChange={handleChange}
-                            className="w-full px-4 py-3 rounded bg-slate-700 border border-slate-600 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                            required
-                        />
-                    </div>
-                    <div>
-                        <label htmlFor="bio" className="block mb-2 font-medium text-slate-300">Bio</label>
-                        <textarea
-                            name="bio"
-                            id="bio"
-                            rows={4}
-                            value={formData.bio}
-                            onChange={handleChange}
-                            className="w-full px-4 py-3 rounded bg-slate-700 border border-slate-600 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                        />
-                    </div>
-                    <div>
-                        <label htmlFor="avatar_url" className="block mb-2 font-medium text-slate-300">Avatar URL</label>
-                        <input
-                            type="url"
-                            name="avatar_url"
-                            id="avatar_url"
-                            value={formData.avatar_url}
-                            onChange={handleChange}
-                            placeholder="https://example.com/image.png"
-                            className="w-full px-4 py-3 rounded bg-slate-700 border border-slate-600 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                        />
-                    </div>
-                    <div className="pt-4">
-                        <button
-                            type="submit"
-                            disabled={mutation.isPending}
-                            className="w-full bg-indigo-600 hover:bg-indigo-700 px-6 py-3 rounded text-white font-semibold disabled:bg-slate-500 disabled:cursor-not-allowed transition-all duration-300 transform hover:scale-105 shadow-lg"
-                        >
-                            {mutation.isPending ? 'Saving...' : 'Save Changes'}
-                        </button>
-                    </div>
-                </form>
-            </motion.div>
+                    <form onSubmit={handleSubmit} className="space-y-6">
+                        <div>
+                            <label htmlFor="username" className="block mb-2 font-medium text-slate-300">Username</label>
+                            <input
+                                type="text"
+                                name="username"
+                                id="username"
+                                value={formData.username}
+                                onChange={handleChange}
+                                className="w-full px-4 py-3 rounded-lg bg-slate-700 border border-slate-600 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                required
+                            />
+                        </div>
+                        <div>
+                            <label htmlFor="bio" className="block mb-2 font-medium text-slate-300">Bio</label>
+                            <textarea
+                                name="bio"
+                                id="bio"
+                                rows={4}
+                                value={formData.bio}
+                                onChange={handleChange}
+                                className="w-full px-4 py-3 rounded-lg bg-slate-700 border border-slate-600 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                            />
+                        </div>
+                        <div>
+                            <label htmlFor="avatar_url" className="block mb-2 font-medium text-slate-300">Avatar URL</label>
+                            <input
+                                type="url"
+                                name="avatar_url"
+                                id="avatar_url"
+                                value={formData.avatar_url}
+                                onChange={handleChange}
+                                placeholder="https://example.com/image.png"
+                                className="w-full px-4 py-3 rounded-lg bg-slate-700 border border-slate-600 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                            />
+                        </div>
+                        <div className="pt-4">
+                            <motion.button
+                                whileHover={{ scale: 1.05 }}
+                                whileTap={{ scale: 0.95 }}
+                                type="submit"
+                                disabled={mutation.isPending}
+                                className="w-full bg-indigo-600 hover:bg-indigo-500 px-6 py-3 rounded-lg text-white font-semibold disabled:bg-slate-500 disabled:cursor-not-allowed transition-colors duration-300 shadow-lg"
+                            >
+                                {mutation.isPending ? 'Saving...' : 'Save Changes'}
+                            </motion.button>
+                        </div>
+                    </form>
+                </motion.div>
+            </div>
         </div>
     );
 }

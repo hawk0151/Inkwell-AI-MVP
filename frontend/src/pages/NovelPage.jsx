@@ -1,3 +1,4 @@
+// frontend/src/pages/NovelPage.jsx
 import React, { useState, useEffect } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import apiClient from '../services/apiClient';
@@ -7,7 +8,7 @@ import { LoadingSpinner, Alert, MagicWandIcon } from '../components/common.jsx';
 import CheckoutModal from '../components/CheckoutModal.jsx';
 import PageHeader from '../components/PageHeader.jsx';
 
-// --- Sub-component: Chapter (Accordion for displaying story chapters) ---
+// --- Sub-component: Chapter ---
 const Chapter = ({ chapter, isOpen, onToggle }) => {
     const ChevronDownIcon = (props) => (
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" {...props}>
@@ -28,7 +29,7 @@ const Chapter = ({ chapter, isOpen, onToggle }) => {
                                 animate={{ height: 'auto', opacity: 1, transition: { height: { duration: 0.4, ease: 'easeInOut' }, opacity: { duration: 0.25, delay: 0.15 } } }}
                                 exit={{ height: 0, opacity: 0, transition: { height: { duration: 0.4, ease: 'easeInOut' }, opacity: { duration: 0.25 } } }}
                                 className="overflow-hidden">
-                        <div className="prose prose-lg lg:prose-xl max-w-none text-slate-200 prose-p:text-slate-200 prose-p:mb-5 pt-4 pb-8 px-4 font-light leading-relaxed">
+                        <div className="prose prose-lg lg:prose-xl max-w-none text-slate-300 prose-p:text-slate-300 prose-p:mb-5 pt-4 pb-8 px-4 font-light leading-relaxed">
                             {chapter.content.split('\n').map((paragraph, index) => (
                                 <p key={index} className="mb-4">{paragraph}</p>
                             ))}
@@ -40,8 +41,8 @@ const Chapter = ({ chapter, isOpen, onToggle }) => {
     );
 };
 
-// --- Sub-component: PromptForm (User input form for new book details) ---
-const PromptForm = ({ isLoading, onSubmit, productName }) => {
+// --- Sub-component: PromptForm ---
+const PromptForm = ({ isLoading, onSubmit }) => {
     const [details, setDetails] = useState({
         title: '',
         recipientName: '',
@@ -52,49 +53,60 @@ const PromptForm = ({ isLoading, onSubmit, productName }) => {
     const genres = ['Adventure', 'Fantasy', 'Sci-Fi', 'Mystery', 'Fairy Tale', 'Comedy'];
     const handleChange = (e) => setDetails((prev) => ({ ...prev, [e.target.name]: e.target.value }));
     const handleSubmit = (e) => { e.preventDefault(); if (isLoading) return; onSubmit(details); };
-    const inputClasses = "w-full p-3 text-base bg-slate-700 border border-slate-600 rounded-lg shadow-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition text-white placeholder-slate-400";
-    const labelClasses = "block text-sm font-medium text-slate-300 mb-1";
+    const inputClasses = "w-full px-4 py-3 rounded-lg bg-slate-700 border border-slate-600 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500";
+    const labelClasses = "block text-sm font-medium text-slate-300 mb-2";
+    
     return (
-        <div className="fade-in max-w-2xl mx-auto py-10 px-4 sm:px-6 lg:px-8">
-            <div className="text-center mb-12">
-                <h1 className="text-5xl md:text-6xl font-extrabold font-serif text-white leading-tight">
-                    Create Your <span className="text-amber-400">{productName}</span>
-                </h1>
-                <p className="text-xl text-slate-400 mt-4 font-light">Fill in the details below to begin the magic.</p>
-            </div>
-            <div className="bg-slate-800/50 backdrop-blur-sm p-8 rounded-2xl shadow-xl border border-slate-700">
-                <form onSubmit={handleSubmit} className="w-full space-y-7">
-                    <div><label htmlFor="title" className={labelClasses}>Book Title</label>
-                        <input type="text" id="title" name="title" value={details.title} onChange={handleChange} placeholder="e.g., The Adventures of Captain Alistair" className={inputClasses} required />
-                    </div>
-                    <div><label htmlFor="recipientName" className={labelClasses}>Who is this book for?</label>
-                        <input type="text" id="recipientName" name="recipientName" value={details.recipientName} onChange={handleChange} placeholder="e.g., My Dad" className={inputClasses} required />
-                    </div>
-                    <div><label htmlFor="characterName" className={labelClasses}>Main character's name?</label>
-                        <input type="text" id="characterName" name="characterName" value={details.characterName} onChange={handleChange} placeholder="e.g., Captain Alistair" className={inputClasses} required />
-                    </div>
-                    <div><label htmlFor="interests" className={labelClasses}>What do they love? (e.g., sailing, classic cars, the color yellow)</label>
-                        <textarea id="interests" name="interests" value={details.interests} onChange={handleChange} placeholder="Separate interests with commas" className={`${inputClasses} h-28`} required />
-                    </div>
-                    <div><label htmlFor="genre" className={labelClasses}>Choose a genre</label>
-                        <select id="genre" name="genre" value={details.genre} onChange={handleChange} className={inputClasses} required>
-                            {genres.map((g) => (<option key={g} value={g}>{g}</option>))}
-                        </select>
-                    </div>
-                    <button type="submit" disabled={isLoading} className="w-full flex items-center justify-center bg-indigo-600 text-white font-bold py-3 px-6 rounded-lg hover:bg-indigo-700 disabled:bg-slate-500 disabled:cursor-not-allowed transition-transform transform hover:scale-105 shadow-lg text-lg mt-8">
+        <motion.div 
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, delay: 0.2 }}
+            className="bg-slate-800/50 backdrop-blur-md p-8 rounded-2xl shadow-2xl border border-slate-700"
+        >
+            <form onSubmit={handleSubmit} className="w-full space-y-6">
+                <div>
+                    <label htmlFor="title" className={labelClasses}>Book Title</label>
+                    <input type="text" id="title" name="title" value={details.title} onChange={handleChange} placeholder="e.g., The Adventures of Captain Alistair" className={inputClasses} required />
+                </div>
+                <div>
+                    <label htmlFor="recipientName" className={labelClasses}>Who is this book for?</label>
+                    <input type="text" id="recipientName" name="recipientName" value={details.recipientName} onChange={handleChange} placeholder="e.g., My Dad" className={inputClasses} required />
+                </div>
+                <div>
+                    <label htmlFor="characterName" className={labelClasses}>Main character's name?</label>
+                    <input type="text" id="characterName" name="characterName" value={details.characterName} onChange={handleChange} placeholder="e.g., Captain Alistair" className={inputClasses} required />
+                </div>
+                <div>
+                    <label htmlFor="interests" className={labelClasses}>What do they love? (e.g., sailing, classic cars)</label>
+                    <textarea id="interests" name="interests" value={details.interests} onChange={handleChange} placeholder="Separate interests with commas" className={`${inputClasses} h-28`} required />
+                </div>
+                <div>
+                    <label htmlFor="genre" className={labelClasses}>Choose a genre</label>
+                    <select id="genre" name="genre" value={details.genre} onChange={handleChange} className={inputClasses} required>
+                        {genres.map((g) => (<option key={g} value={g}>{g}</option>))}
+                    </select>
+                </div>
+                <div className="pt-4">
+                    <motion.button 
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        type="submit" 
+                        disabled={isLoading} 
+                        className="w-full flex items-center justify-center bg-indigo-600 text-white font-bold py-3 px-6 rounded-lg hover:bg-indigo-500 disabled:bg-slate-500 disabled:cursor-not-allowed transition-all duration-300 shadow-lg text-lg"
+                    >
                         <MagicWandIcon className="h-6 w-6 mr-3" />
                         {isLoading ? 'Crafting your first chapter...' : 'Create My Book'}
-                    </button>
-                </form>
-            </div>
-        </div>
+                    </motion.button>
+                </div>
+            </form>
+        </motion.div>
     );
 };
 
 // --- Sub-component: FauxReview ---
 const FauxReview = ({ quote, author, avatar }) => (
-    <div className="bg-slate-800/60 backdrop-blur-md p-7 rounded-2xl shadow-xl border border-slate-700 hover:border-indigo-600 transition-colors duration-200">
-        <p className="text-slate-200 italic text-xl leading-relaxed mb-4">"{quote}"</p>
+    <div className="bg-slate-800/60 backdrop-blur-md p-7 rounded-2xl shadow-xl border border-slate-700 hover:border-indigo-600/50 transition-colors duration-200">
+        <p className="text-slate-300 italic text-xl leading-relaxed mb-4">"{quote}"</p>
         <div className="flex items-center">
             <img src={avatar} alt={author} className="w-12 h-12 rounded-full mr-4 object-cover border-2 border-amber-400" />
             <span className="font-semibold text-amber-300 text-lg">{author}</span>
@@ -148,10 +160,7 @@ function NovelPage() {
                         setSelectedProductForNew(product);
                     } else {
                         setSelectedProductForNew({
-                            id: bookData.lulu_product_id,
-                            name: bookData.title || 'Unknown Product',
-                            type: 'textBook',
-                            price: 0,
+                            id: bookData.lulu_product_id, name: bookData.title || 'Unknown Product', type: 'textBook', price: 0,
                             defaultPageCount: bookData.prompt_details?.pageCount || 66,
                             defaultWordsPerPage: bookData.prompt_details?.wordsPerPage || 250,
                             totalChapters: bookData.total_chapters || 6
@@ -194,7 +203,7 @@ function NovelPage() {
         setIsActionLoading(true);
         setError(null);
         if (!selectedProductForNew || !selectedProductForNew.id) {
-            setError('Internal error: Book format not selected during creation. Please try again from selection page.');
+            setError('Internal error: Book format not selected. Please try again from selection page.');
             setIsActionLoading(false);
             return;
         }
@@ -204,35 +213,13 @@ function NovelPage() {
             wordsPerPage: selectedProductForNew.defaultWordsPerPage,
             totalChapters: selectedProductForNew.totalChapters,
         };
-        if (typeof aiGenerationParams.pageCount === 'undefined' || typeof aiGenerationParams.wordsPerPage === 'undefined' || typeof aiGenerationParams.totalChapters === 'undefined') {
-            const missing = [];
-            if (typeof aiGenerationParams.pageCount === 'undefined') missing.push('pageCount');
-            if (typeof aiGenerationParams.wordsPerPage === 'undefined') missing.push('wordsPerPage');
-            if (typeof aiGenerationParams.totalChapters === 'undefined') missing.push('totalChapters');
-            const errorMessage = `Missing AI generation parameters for selected product: ${missing.join(', ')}. Please check backend LULU_PRODUCT_CONFIGURATIONS.`;
-            console.error("ERROR:", errorMessage, selectedProductForNew);
-            setError(errorMessage);
-            setIsActionLoading(false);
-            return;
-        }
         const promptDetails = { ...restOfPromptDetails, ...aiGenerationParams };
         const bookData = { title, promptDetails, luluProductId: selectedProductForNew.id };
         try {
             const response = await apiClient.post('/text-books', bookData);
             queryClient.invalidateQueries({ queryKey: ['projects'] });
-            setBookId(response.data.bookId);
-            setBookDetails(response.data.bookDetails || {
-                title: bookData.title,
-                lulu_product_id: bookData.luluProductId,
-                prompt_details: promptDetails,
-                total_chapters: aiGenerationParams.totalChapters,
-            });
-            setChapters([{ chapter_number: 1, content: response.data.firstChapter }]);
-            setOpenChapter(1);
-            setIsStoryComplete(1 >= aiGenerationParams.totalChapters);
             navigate(`/novel/${response.data.bookId}`, { replace: true });
         } catch (err) {
-            console.error('handleCreateBook: Failed to create the book:', err);
             setError(err.response?.data?.message || 'Failed to create the book.');
         } finally {
             setIsActionLoading(false);
@@ -255,7 +242,6 @@ function NovelPage() {
             });
             setOpenChapter(newChapterData.chapter_number);
         } catch (err) {
-            console.error('handleGenerateNextChapter: Failed to generate the next chapter:', err);
             setError(err.response?.data?.message || 'Failed to generate the next chapter.');
         } finally {
             setIsActionLoading(false);
@@ -277,12 +263,7 @@ function NovelPage() {
                 selectedShippingLevel,
                 quoteToken,
             });
-            const { error } = await stripe.redirectToCheckout({ sessionId: response.data.sessionId });
-            if(error) {
-                console.error("Stripe redirection error:", error);
-                setError(error.message);
-                setCheckoutModalOpen(false);
-            }
+            window.location.href = response.data.url;
         } catch (err) {
             console.error('submitFinalCheckout: Could not proceed to checkout:', err);
             throw err;
@@ -290,32 +271,32 @@ function NovelPage() {
     };
 
     if (error) { return <Alert type="error" message={error} onClose={() => setError(null)} />; }
-    if (isErrorBookOptions) { return <Alert type="error" message="Could not load book options." />; }
     if (isLoadingPage || isLoadingBookOptions) { return <LoadingSpinner text="Getting your book ready..." />; }
 
-    if ((paramBookId === 'new' || !paramBookId) && selectedProductForNew && !bookDetails) {
-        return <PromptForm isLoading={isActionLoading} onSubmit={handleCreateBook} productName={selectedProductForNew?.name || 'Novel'} />;
-    }
-
-    if (bookId && bookDetails) {
-        const totalChaptersToDisplay = bookDetails.total_chapters || selectedProductForNew?.totalChapters || 1;
-        return (
-            <>
-                <CheckoutModal
-                    isOpen={isCheckoutModalOpen}
-                    onClose={() => setCheckoutModalOpen(false)}
-                    onSubmit={submitFinalCheckout}
-                    bookId={bookId}
-                    bookType="textBook"
-                    book={bookDetails}
-                />
-                <div className="min-h-screen bg-gradient-to-br from-slate-900 to-gray-950 px-4 sm:px-6 lg:px-8">
+    return (
+        <div className="min-h-screen bg-slate-900 bg-[radial-gradient(ellipse_80%_80%_at_50%_-20%,rgba(120,119,198,0.3),rgba(255,255,255,0))]">
+            {(paramBookId === 'new' || !paramBookId) && selectedProductForNew && !bookDetails ? (
+                <div className="max-w-2xl mx-auto py-12 px-4 sm:px-6 lg:px-8">
                     <PageHeader 
-                        title={bookDetails?.title}
-                        subtitle="Your personalized story"
+                        title={`Create Your ${selectedProductForNew?.name || 'Novel'}`}
+                        subtitle="Fill in the details below to begin the magic."
                     />
-                    <div className="max-w-4xl mx-auto">
-                        <div className="bg-slate-800/50 backdrop-blur-md p-8 md:p-14 rounded-3xl shadow-2xl border border-slate-700">
+                    <PromptForm isLoading={isActionLoading} onSubmit={handleCreateBook} />
+                </div>
+            ) : bookId && bookDetails ? (
+                <>
+                    <CheckoutModal isOpen={isCheckoutModalOpen} onClose={() => setCheckoutModalOpen(false)} onSubmit={submitFinalCheckout} bookId={bookId} bookType="textBook" book={bookDetails} />
+                    <div className="max-w-4xl mx-auto py-12 px-4 sm:px-6 lg:px-8">
+                        <PageHeader 
+                            title={bookDetails?.title}
+                            subtitle="Your personalized story"
+                        />
+                        <motion.div 
+                            initial={{ opacity: 0, y: 20 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ duration: 0.5, delay: 0.2 }}
+                            className="bg-slate-800/50 backdrop-blur-md p-8 md:p-14 rounded-2xl shadow-2xl border border-slate-700"
+                        >
                             <div className="space-y-3">
                                 {chapters.map((chapter) => (
                                     <Chapter key={chapter.chapter_number} chapter={chapter} isOpen={openChapter === chapter.chapter_number} onToggle={() => handleToggleChapter(chapter.chapter_number)} />
@@ -326,36 +307,34 @@ function NovelPage() {
                             )}
                             <div className="mt-14 border-t border-dashed border-slate-600 pt-10 text-center">
                                 {!isStoryComplete ? (
-                                    <button onClick={handleGenerateNextChapter} disabled={isActionLoading} className="bg-indigo-600 text-white font-bold py-3 px-8 rounded-lg hover:bg-indigo-700 disabled:bg-slate-500 disabled:cursor-not-allowed transition-transform transform hover:scale-105 shadow-lg text-lg">
-                                        {isActionLoading ? 'Writing...' : `Continue Story (${chapters.length}/${totalChaptersToDisplay})`}
-                                    </button>
+                                    <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={handleGenerateNextChapter} disabled={isActionLoading} className="bg-indigo-600 text-white font-bold py-3 px-8 rounded-lg hover:bg-indigo-500 disabled:bg-slate-500 disabled:cursor-not-allowed transition-all duration-300 shadow-lg text-lg">
+                                        {isActionLoading ? 'Writing...' : `Continue Story (${chapters.length}/${bookDetails.total_chapters || 1})`}
+                                    </motion.button>
                                 ) : (
                                     <div>
-                                        <p className="text-2xl text-green-400 font-bold mb-5 leading-relaxed">Your story is complete! Ready to bring it to life?</p>
-                                        <button onClick={handleFinalizeAndPurchase} disabled={isActionLoading} className="bg-green-600 text-white font-bold py-3 px-8 rounded-lg hover:bg-green-700 disabled:bg-green-400 disabled:cursor-not-allowed transition-transform transform hover:scale-105 shadow-lg text-lg">
-                                            {isActionLoading ? 'Preparing Checkout...' : 'Finalize & Purchase'}
-                                        </button>
+                                        <p className="text-2xl text-green-400 font-bold mb-5">Your story is complete! Ready to bring it to life?</p>
+                                        <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={handleFinalizeAndPurchase} disabled={isActionLoading} className="bg-teal-600 text-white font-bold py-3 px-8 rounded-lg hover:bg-teal-500 disabled:bg-slate-500 disabled:cursor-not-allowed transition-all duration-300 shadow-lg text-lg">
+                                            {isActionLoading ? 'Preparing...' : 'Finalize & Purchase'}
+                                        </motion.button>
                                     </div>
                                 )}
                             </div>
-                        </div>
+                        </motion.div>
                         <div className="mt-20 max-w-3xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-8">
                             <FauxReview quote="A heartwarming tale my whole family enjoyed. The personalized details made it truly special!" author="Jane D." avatar="/avatars/jane.jpg" />
                             <FauxReview quote="This book truly captured my son's imagination. He loves being the main character!" author="Mike S." avatar="/avatars/mike.jpg" />
                             <FauxReview quote="Incredible story, perfect for kids who love adventure! A unique gift idea." author="Sarah P." avatar="/avatars/sarah.jpg" />
                         </div>
                     </div>
+                </>
+            ) : (
+                <div className="min-h-screen flex flex-col items-center justify-center text-center">
+                    <Alert type="info" message="To create a new novel, please select a book format first." />
+                    <button onClick={() => navigate('/select-novel')} className="mt-6 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-8 rounded-lg shadow-md transition-transform transform hover:scale-105">
+                        Back to Selection
+                    </button>
                 </div>
-            </>
-        );
-    }
-    
-    return (
-        <div className="min-h-screen bg-gradient-to-br from-slate-900 to-gray-950 flex flex-col items-center justify-center py-12 px-4 sm:px-6 lg:px-8 text-center">
-            <Alert type="info" message="To create a new novel, please select a book format first." />
-            <button onClick={() => navigate('/select-novel')} className="mt-6 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-8 rounded-lg shadow-md transition-transform transform hover:scale-105">
-                Back to Selection
-            </button>
+            )}
         </div>
     );
 }

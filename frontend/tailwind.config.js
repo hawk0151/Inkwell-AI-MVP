@@ -25,7 +25,8 @@ export default {
       },
       fontFamily: {
         sans: ['Inter', ...defaultTheme.fontFamily.sans],
-        serif: ['"Playfair Display"', ...defaultTheme.fontFamily.serif],
+        // THIS IS THE FIX: Changed to 'Lora' to match the font we imported
+        serif: ['Lora', ...defaultTheme.fontFamily.serif],
       },
       boxShadow: {
         'glow-indigo': '0 0 15px rgba(99, 102, 241, 0.5)',
