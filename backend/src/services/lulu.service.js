@@ -4,18 +4,17 @@ import axios from 'axios';
 import { Buffer } from 'buffer';
 import dns from 'dns/promises';
 
-// Ensure AbortController is defined for environments where it might be missing (e.g., older Node.js versions)
+// Ensure AbortController is defined
 let AbortController;
 if (typeof globalThis.AbortController === 'function') {
     AbortController = globalThis.AbortController;
 } else {
     try {
-        // Fallback for Node.js < 15
         const NodeAbortController = require('node-abort-controller');
         AbortController = NodeAbortController.AbortController;
     } catch (e) {
         console.error("Critical: AbortController not available. Please ensure Node.js v15+ is used or 'node-abort-controller' is installed. Error:", e.message);
-        throw new Error("AbortController is not available. Please install 'node-abort-controller' or use Node.js v15+.");
+        throw new Error("AbortController is not available.");
     }
 }
 
@@ -36,7 +35,7 @@ export const LULU_PRODUCT_CONFIGURATIONS = [
         category: 'novel',
         bleedMm: 3.175,
         safeMarginMm: 6.35,
-        isDefault: false // Not default for picture books
+        isDefault: false
     },
     {
         id: 'A4NOVEL_PB_8.52x11.94',
@@ -54,7 +53,7 @@ export const LULU_PRODUCT_CONFIGURATIONS = [
         category: 'novel',
         bleedMm: 3.175,
         safeMarginMm: 6.35,
-        isDefault: false // Not default for picture books
+        isDefault: false
     },
     {
         id: 'ROYAL_HARDCOVER_6.39x9.46',
@@ -72,30 +71,49 @@ export const LULU_PRODUCT_CONFIGURATIONS = [
         category: 'novel',
         bleedMm: 3.175,
         safeMarginMm: 6.35,
-        isDefault: false // Not default for picture books
+        isDefault: false
     },
     {
         id: 'A4PREMIUM_FC_8.27x11.69',
         name: 'A4 Landscape Hardcover Picture Book (11.94 x 8.52")',
-        trimSize: '11.94x8.52',
-        luluSku: '1169X0827FCPRECW080CW444MXX',
+        trimSize: '11.94x8.52', // Note: This is landscape, so width x height
+        luluSku: '1169X0827FCPRECW080CW444MXX', // The canonical SKU
         basePrice: 69.99,
-        defaultPageCount: 40,
+        // CRITICAL FIX: The PDF service generates a fixed 24-page PDF for this product.
+        // This must be the source of truth for page count.
+        defaultPageCount: 24, 
         minPageCount: 24,
-        maxPageCount: 800,
-        wordsPerPage: 120,
-        defaultWordsPerPage: 120,
-        totalChapters: 1,
+        maxPageCount: 24,
+        wordsPerPage: 0, // Not applicable
+        defaultWordsPerPage: 0, // Not applicable
+        totalChapters: 0, // Not applicable
         category: 'pictureBook',
         bleedMm: 3.175,
         safeMarginMm: 6.35,
         type: 'pictureBook',
-        isDefault: true
+        isDefault: true,
+        // CRITICAL FIX: Add an alias to handle old data in the database.
+        aliases: ['A4LANDSCAPE_HARDCOVER_11.94x8.52']
     }
 ];
 
+/**
+ * NEW HELPER FUNCTION
+ * Robustly finds a product configuration by its primary ID or an alias.
+ * @param {string} productId The ID to look up.
+ * @returns {object|undefined} The configuration object or undefined if not found.
+ */
+export const findProductConfiguration = (productId) => {
+    if (!productId) return undefined;
+    return LULU_PRODUCT_CONFIGURATIONS.find(p => 
+        p.id === productId || 
+        (p.aliases && p.aliases.includes(productId))
+    );
+};
+
+
 export const getPrintOptions = () => {
-    const options = LULU_PRODUCT_CONFIGURATIONS.map(p => ({
+    return LULU_PRODUCT_CONFIGURATIONS.map(p => ({
         id: p.id,
         name: p.name,
         type: p.type,
@@ -105,7 +123,6 @@ export const getPrintOptions = () => {
         totalChapters: p.totalChapters,
         category: p.category
     }));
-    return options;
 };
 
 let accessToken = null;
@@ -132,7 +149,6 @@ async function ensureHostnameResolvable(url) {
     try {
         const { hostname } = new URL(url);
         await dns.lookup(hostname);
-        return;
     } catch (err) {
         throw new Error(`DNS resolution failed for Lulu host in URL "${url}": ${err.message}`);
     }
@@ -204,29 +220,23 @@ export async function getCoverDimensionsFromApi(podPackageId, pageCount) {
         }, 3, 300);
 
         const dimensions = response.data;
-        console.log(`[Lulu Service DEBUG] Full Lulu cover dimensions API response for SKU ${podPackageId}:`, JSON.stringify(dimensions, null, 2));
-
         const ptToMm = (pt) => pt * (25.4 / 72);
-
         let widthMm, heightMm;
 
         if (typeof dimensions.width === 'string' && typeof dimensions.height === 'string' && dimensions.unit === 'pt') {
             widthMm = ptToMm(parseFloat(dimensions.width));
             heightMm = ptToMm(parseFloat(dimensions.height));
-            console.log(`[Lulu Service] Using width and height (in pts) from response.`);
         }
         else if (typeof dimensions.width_pts === 'number' && typeof dimensions.height_pts === 'number') {
             widthMm = ptToMm(dimensions.width_pts);
             heightMm = ptToMm(dimensions.height_pts);
-            console.log(`[Lulu Service] Using width_pts and height_pts from response.`);
         }
         else if (typeof dimensions.width === 'number' && typeof dimensions.height === 'number' && dimensions.unit === 'mm') {
             widthMm = dimensions.width;
             heightMm = dimensions.height;
-            console.log(`[Lulu Service] Using width and height (in mm) from response.`);
         }
         else {
-            throw new Error('Unexpected Lulu API response for cover dimensions: Missing expected "width"/"height" (in pts or mm) or "width_pts"/"height_pts".');
+            throw new Error('Unexpected Lulu API response for cover dimensions.');
         }
 
         const result = {
@@ -235,7 +245,7 @@ export async function getCoverDimensionsFromApi(podPackageId, pageCount) {
             layout: widthMm > heightMm ? 'landscape' : 'portrait'
         };
         coverDimensionsCache.set(cacheKey, result);
-        console.log(`[Lulu Service] ✅ Successfully retrieved and parsed cover dimensions: W=${widthMm.toFixed(2)}mm, H=${heightMm.toFixed(2)}mm`);
+        console.log(`[Lulu Service] ✅ Successfully retrieved cover dimensions: W=${widthMm.toFixed(2)}mm, H=${heightMm.toFixed(2)}mm`);
         return result;
 
     } catch (error) {
@@ -245,10 +255,8 @@ export async function getCoverDimensionsFromApi(podPackageId, pageCount) {
     }
 }
 
-// This function is now ONLY used for final cost calculation when a specific shipping_level is known.
-// It is NOT used for retrieving a list of options.
-export const getPrintJobCosts = async (lineItems, shippingAddress, selectedShippingLevel) => { // selectedShippingLevel is now REQUIRED
-    console.log(`[Lulu Service] Attempting to get print job costs from Lulu for level: ${selectedShippingLevel}.`);
+export const getPrintJobCosts = async (lineItems, shippingAddress, selectedShippingLevel) => {
+    console.log(`[Lulu Service] Getting FINAL print job costs from Lulu for level: ${selectedShippingLevel}.`);
     const endpoint = `${process.env.LULU_API_BASE_URL.replace(/\/$/, '')}/print-job-cost-calculations`;
     try {
         await ensureHostnameResolvable(endpoint);
@@ -256,9 +264,9 @@ export const getPrintJobCosts = async (lineItems, shippingAddress, selectedShipp
         const payload = {
             line_items: lineItems,
             shipping_address: shippingAddress,
-            shipping_level: selectedShippingLevel // Always include selectedShippingLevel here
+            shipping_level: selectedShippingLevel
         };
-        console.log('[Lulu Service] Requesting print job costs with body:', JSON.stringify(payload, null, 2));
+        console.log('[Lulu Service] Requesting final print job costs with body:', JSON.stringify(payload, null, 2));
 
         const response = await retryWithBackoff(async () => {
             return await axios.post(endpoint, payload, {
@@ -270,7 +278,7 @@ export const getPrintJobCosts = async (lineItems, shippingAddress, selectedShipp
             });
         });
 
-        console.log('[Lulu Service] Successfully retrieved print job costs and shipping options.');
+        console.log('[Lulu Service] Successfully retrieved final print job costs.');
         return {
             lineItemCosts: response.data.line_item_costs,
             shippingOptions: response.data.shipping_options,
@@ -288,27 +296,19 @@ export const getPrintJobCosts = async (lineItems, shippingAddress, selectedShipp
     }
 };
 
-// MODIFIED: This function now uses the dedicated /shipping-options/ endpoint
 export const getLuluShippingOptionsAndCosts = async (podPackageId, pageCount, shippingAddress, currency = 'USD') => {
-    console.log(`[Lulu Service] Attempting to get all shipping options from /shipping-options/ for SKU: ${podPackageId}, Page Count: ${pageCount}, Address:`, shippingAddress);
-
+    console.log(`[Lulu Service] Getting all shipping options from /shipping-options/ for SKU: ${podPackageId}, Page: ${pageCount}`);
     const endpoint = `${process.env.LULU_API_BASE_URL.replace(/\/$/, '')}/shipping-options/`;
     const availableOptions = [];
     
-    const lineItems = [{
-        page_count: pageCount,
-        pod_package_id: podPackageId,
-        quantity: 1
-    }];
-
     const payload = {
         currency: currency,
-        line_items: lineItems,
+        line_items: [{ page_count: pageCount, pod_package_id: podPackageId, quantity: 1 }],
         shipping_address: {
             city: shippingAddress.city,
-            country: shippingAddress.country_code, // Note: Lulu uses 'country' here, not 'country_code'
+            country: shippingAddress.country_code,
             postcode: shippingAddress.postcode,
-            state_code: shippingAddress.state_code || '', // State code is required for some countries
+            state_code: shippingAddress.state_code || '',
             street1: shippingAddress.street1,
             street2: shippingAddress.street2 || '',
             name: shippingAddress.name,
@@ -330,8 +330,6 @@ export const getLuluShippingOptionsAndCosts = async (podPackageId, pageCount, sh
             });
         });
 
-        console.log('[Lulu Service] Successfully retrieved shipping options from /shipping-options/.');
-        
         if (response.data && Array.isArray(response.data) && response.data.length > 0) {
             response.data.forEach(luluOption => {
                 const cost = parseFloat(luluOption.cost_excl_tax);
@@ -339,7 +337,7 @@ export const getLuluShippingOptionsAndCosts = async (podPackageId, pageCount, sh
                     availableOptions.push({
                         level: luluOption.level,
                         name: luluOption.name || luluOption.level,
-                        costUsd: cost, // This endpoint returns cost in the requested currency (USD)
+                        costUsd: cost,
                         estimatedDeliveryDate: `${luluOption.min_delivery_date || 'N/A'} - ${luluOption.max_delivery_date || 'N/A'}`,
                         traceable: luluOption.traceable || false
                     });
@@ -347,7 +345,7 @@ export const getLuluShippingOptionsAndCosts = async (podPackageId, pageCount, sh
             });
             availableOptions.sort((a, b) => a.costUsd - b.costUsd);
         } else {
-            console.warn('[Lulu Service] /shipping-options/ returned no options or unexpected structure:', response.data);
+            console.warn('[Lulu Service] /shipping-options/ returned no options:', response.data);
         }
 
     } catch (error) {
@@ -357,16 +355,9 @@ export const getLuluShippingOptionsAndCosts = async (podPackageId, pageCount, sh
         }
         throw new Error(`Failed to get dynamic shipping options from Lulu.`);
     }
-
-    // This endpoint does not return print cost directly.
-    // The printCost will be handled by the calling controller.
-    return {
-        shippingOptions: availableOptions,
-        printCost: 0, // Explicitly 0 from this endpoint, as it doesn't provide it
-        currency: currency
-    };
+    
+    return { shippingOptions: availableOptions };
 };
-
 
 export const createLuluPrintJob = async (orderDetails, shippingInfo) => {
     try {
@@ -380,9 +371,9 @@ export const createLuluPrintJob = async (orderDetails, shippingInfo) => {
         const payload = {
             contact_email: shippingInfo.email,
             external_id: `inkwell-order-${orderDetails.id}`,
-            shipping_level: orderDetails.shipping_level, // Use the selected shipping level from orderDetails
+            shipping_level: orderDetails.shipping_level_selected,
             shipping_address: {
-                name: shippingInfo.name, street1: shippingInfo.street1, city: shippingInfo.city,
+                name: shippingInfo.name, street1: shippingInfo.street1, street2: shippingInfo.street2, city: shippingInfo.city,
                 postcode: shippingInfo.postcode, country_code: shippingInfo.country_code,
                 state_code: shippingInfo.state_code, phone_number: shippingInfo.phone_number,
                 email: shippingInfo.email
