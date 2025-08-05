@@ -1,12 +1,11 @@
-// frontend/src/pages/NovelPage.jsx
 import React, { useState, useEffect } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import apiClient from '../services/apiClient';
 import { useQueryClient, useQuery } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'framer-motion';
-
 import { LoadingSpinner, Alert, MagicWandIcon } from '../components/common.jsx';
-import CheckoutModal from '../components/CheckoutModal.jsx'; // IMPORT THE NEWLY EXTRACTED COMPONENT
+import CheckoutModal from '../components/CheckoutModal.jsx';
+import PageHeader from '../components/PageHeader.jsx';
 
 // --- Sub-component: Chapter (Accordion for displaying story chapters) ---
 const Chapter = ({ chapter, isOpen, onToggle }) => {
@@ -278,22 +277,15 @@ function NovelPage() {
                 selectedShippingLevel,
                 quoteToken,
             });
-            // Using redirectToCheckout from Stripe.js is safer than direct navigation
-            const stripe = await stripePromise; // Make sure stripePromise is defined, maybe move to a service
             const { error } = await stripe.redirectToCheckout({ sessionId: response.data.sessionId });
             if(error) {
                 console.error("Stripe redirection error:", error);
                 setError(error.message);
-                setCheckoutModalOpen(false); // Close modal on stripe error
+                setCheckoutModalOpen(false);
             }
         } catch (err) {
             console.error('submitFinalCheckout: Could not proceed to checkout:', err);
-            const detailedError = err.response?.data?.detailedError;
-            console.error('DETAILED ERROR FROM BACKEND:', detailedError);
-            // This error will now be shown inside the modal itself, so no need to setPageError
-            // setError(detailedError || err.response?.data?.message || 'Could not proceed to checkout. Please try again.');
-            // setCheckoutModalOpen(false);
-            throw err; // Re-throw the error so the modal can catch it and display it
+            throw err;
         }
     };
 
@@ -315,15 +307,15 @@ function NovelPage() {
                     onSubmit={submitFinalCheckout}
                     bookId={bookId}
                     bookType="textBook"
-                    book={bookDetails} // Pass the full bookDetails object for the price fallback
+                    book={bookDetails}
                 />
-                <div className="fade-in min-h-screen bg-gradient-to-br from-slate-900 to-gray-950 py-12 px-4 sm:px-6 lg:px-8">
+                <div className="min-h-screen bg-gradient-to-br from-slate-900 to-gray-950 px-4 sm:px-6 lg:px-8">
+                    <PageHeader 
+                        title={bookDetails?.title}
+                        subtitle="Your personalized story"
+                    />
                     <div className="max-w-4xl mx-auto">
                         <div className="bg-slate-800/50 backdrop-blur-md p-8 md:p-14 rounded-3xl shadow-2xl border border-slate-700">
-                            <div className="text-center mb-12">
-                                <h1 className="text-4xl md:text-5xl font-extrabold font-serif text-white leading-tight">{bookDetails?.title}</h1>
-                                <p className="text-xl text-slate-400 mt-4 font-light">Your personalized story</p>
-                            </div>
                             <div className="space-y-3">
                                 {chapters.map((chapter) => (
                                     <Chapter key={chapter.chapter_number} chapter={chapter} isOpen={openChapter === chapter.chapter_number} onToggle={() => handleToggleChapter(chapter.chapter_number)} />

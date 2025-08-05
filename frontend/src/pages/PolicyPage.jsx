@@ -196,7 +196,7 @@ const policyContent = {
                 <h2>3. Process for Physical Product Refunds/Replacements</h2>
                 <p>To request a refund or replacement for a damaged, defective, or incorrect physical product:</p>
                 <ol>
-                    <li>Email our support team at <a href="mailto:support@inkwellai.com" className="text-indigo-400 hover:text-indigo-300 transition-colors">support@inkwellai.com</a> within <strong>14 days of delivery</strong>.</li>
+                    <li>Email our support team at <a href="mailto:support@inkwell.net.au" className="text-indigo-400 hover:text-indigo-300 transition-colors">support@inkwell.net.au</a> within <strong>14 days of delivery</strong>.</li>
                     <li>Include your order number, a detailed description of the issue, and clear photographic evidence of the damage or defect.</li>
                     <li>Our team will assess your claim and may provide further instructions, including a return shipping label if a physical return is required. Do not send products back without prior authorization.</li>
                 </ol>
@@ -226,7 +226,7 @@ const policyContent = {
                 <h2>3. How to Initiate a Return</h2>
                 <p>To initiate a return for an eligible item, please follow these steps:</p>
                 <ol>
-                    <li>Email our support team at <a href="mailto:support@inkwellai.com" className="text-indigo-400 hover:text-indigo-300 transition-colors">support@inkwellai.com</a> with the subject line "Return Request - [Your Order Number]".</li>
+                    <li>Email our support team at <a href="mailto:support@inkwell.net.au" className="text-indigo-400 hover:text-indigo-300 transition-colors">support@inkwell.net.au</a> with the subject line "Return Request - [Your Order Number]".</li>
                     <li>In your email, include:
                         <ul>
                             <li>Your full name and order number.</li>

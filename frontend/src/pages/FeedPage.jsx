@@ -1,18 +1,15 @@
 // frontend/src/pages/FeedPage.jsx
 import React from 'react';
-import { ForYouFeed } from '../components/feed/ForYouFeed'; // We will create this next
+import { ForYouFeed } from '../components/feed/ForYouFeed';
+import PageHeader from '../components/PageHeader'; // Import our new header
 
 function FeedPage() {
     return (
-        <div>
-            <header className="mb-8">
-                <h1 className="text-3xl font-bold tracking-tight text-white sm:text-4xl">
-                    For You
-                </h1>
-                <p className="mt-2 text-lg text-slate-400">
-                    Discover new books and creators from the Inkwell AI community.
-                </p>
-            </header>
+        <div className="max-w-7xl mx-auto py-12 px-4 sm:px-6 lg:px-8">
+            <PageHeader
+                title="For You"
+                subtitle="Discover new books and creators from the Inkwell AI community."
+            />
             
             {/* This component will handle fetching and displaying the feed */}
             <ForYouFeed />

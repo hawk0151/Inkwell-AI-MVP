@@ -1,10 +1,13 @@
+// frontend/src/pages/MyProjectsPage.jsx
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import apiClient from '../services/apiClient';
+import { motion } from 'framer-motion';
+import PageHeader from '../components/PageHeader';
 import { LoadingSpinner, Alert } from '../components/common.jsx';
 
-// --- API Functions (unchanged) ---
+// --- API Functions ---
 const fetchProjects = async () => {
     const [picBooksRes, textBooksRes] = await Promise.all([
         apiClient.get('/picture-books'),
@@ -25,7 +28,7 @@ const toggleBookPrivacy = ({ bookId, bookType, is_public }) => {
     return apiClient.patch(endpoint, { is_public });
 };
 
-// --- Sub-components (unchanged) ---
+// --- Sub-components ---
 const PublishButton = ({ project, onPublishToggle }) => {
     const { mutate, isPending } = onPublishToggle;
     const handleClick = (e) => {
@@ -42,8 +45,14 @@ const PublishButton = ({ project, onPublishToggle }) => {
     );
 };
 
+const cardVariants = {
+  hidden: { opacity: 0, x: -20 },
+  visible: { opacity: 1, x: 0, transition: { duration: 0.5, ease: 'easeOut' } }
+};
+
 const ProjectCard = ({ project, onClick, onDelete, onPublishToggle }) => (
-    <div
+    <motion.div
+        variants={cardVariants}
         onClick={onClick}
         className="p-5 border-l-4 border-indigo-500 bg-slate-800 rounded-r-lg flex justify-between items-center cursor-pointer hover:bg-slate-700/50 transition-colors duration-300 group"
     >
@@ -63,8 +72,13 @@ const ProjectCard = ({ project, onClick, onDelete, onPublishToggle }) => (
                 Delete
             </button>
         </div>
-    </div>
+    </motion.div>
 );
+
+const containerVariants = {
+    hidden: { opacity: 0 },
+    visible: { opacity: 1, transition: { staggerChildren: 0.1 } },
+};
 
 // --- Main Page Component ---
 function MyProjectsPage() {
@@ -80,7 +94,7 @@ function MyProjectsPage() {
 
     const createMutation = useMutation({
         mutationFn: createPictureBook,
-        onSuccess: (res) => navigate(`/project/${res.data.bookId}`),
+        onSuccess: (response) => navigate(`/picture-book/${response.bookId}`),
         onError: () => setError("Failed to create new project."),
     });
 
@@ -102,7 +116,7 @@ function MyProjectsPage() {
 
     const handleProjectClick = (project) => {
         if (project.type === 'pictureBook') {
-            navigate(`/project/${project.id}`);
+            navigate(`/picture-book/${project.id}`);
         } else if (project.type === 'textBook') {
             navigate(`/novel/${project.id}`);
         }
@@ -134,35 +148,41 @@ function MyProjectsPage() {
     };
 
     return (
-        // MODIFIED: Adjusted max-w and removed fixed horizontal padding to use responsive padding
-        <div className="fade-in max-w-6xl mx-auto py-12 px-4 sm:px-6 lg:px-8"> 
-            {/* MODIFIED: Changed to flex-wrap on small screens to prevent overflow */}
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 flex-wrap"> 
-                <h1 className="text-4xl md:text-5xl font-bold text-white mb-4 sm:mb-0">My Projects</h1> {/* MODIFIED: Added bottom margin for mobile */}
-                {/* MODIFIED: Flex container for buttons, allows wrapping on small screens */}
-                <div className="flex flex-col sm:flex-row space-y-3 sm:space-y-0 sm:space-x-3 w-full sm:w-auto"> 
-                    <button
-                        onClick={handleNewTextBook}
-                        disabled={isLoading || (allProjects && allProjects.length >= projectLimit)}
-                        className="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded-lg text-sm transition shadow-sm disabled:opacity-50"
-                    >
-                        + New Text Book
-                    </button>
-                    <button
-                        onClick={handleNewPictureBook}
-                        disabled={createMutation.isPending || (allProjects && allProjects.length >= projectLimit)}
-                        className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg text-sm transition shadow-sm disabled:opacity-50"
-                    >
-                        {createMutation.isPending ? 'Creating...' : '+ New Picture Book'}
-                    </button>
-                </div>
+        <div className="max-w-6xl mx-auto py-12 px-4 sm:px-6 lg:px-8"> 
+            <PageHeader 
+                title="My Projects"
+                subtitle="This is your creative dashboard. Continue your stories or start a new one."
+            />
+
+            <div className="flex flex-col sm:flex-row space-y-3 sm:space-y-0 sm:space-x-4 mb-8"> 
+                <button
+                    onClick={handleNewTextBook}
+                    disabled={isLoading || (allProjects && allProjects.length >= projectLimit)}
+                    className="w-full sm:w-auto flex-grow bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 px-6 rounded-lg transition shadow-md disabled:opacity-50"
+                >
+                    + New Text Book
+                </button>
+                <button
+                    onClick={handleNewPictureBook}
+                    disabled={createMutation.isPending || (allProjects && allProjects.length >= projectLimit)}
+                    className="w-full sm:w-auto flex-grow bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-6 rounded-lg transition shadow-md disabled:opacity-50"
+                >
+                    {createMutation.isPending ? 'Creating...' : '+ New Picture Book'}
+                </button>
             </div>
-            {isError && <Alert title="Error">Could not fetch your projects.</Alert>}
-            {error && <Alert title="Error" onClose={() => setError(null)}>{error}</Alert>}
+
+            {isError && <Alert type="error" message="Could not fetch your projects." />}
+            {error && <Alert type="error" message={error} onClose={() => setError(null)} />}
+            
             <div className="bg-slate-800/50 rounded-lg p-6">
                 {isLoading ? <LoadingSpinner text="Fetching your projects..." /> : (
                     allProjects && allProjects.length > 0 ? (
-                        <div className="space-y-4">
+                        <motion.div 
+                            variants={containerVariants}
+                            initial="hidden"
+                            animate="visible"
+                            className="space-y-4"
+                        >
                             {allProjects.map(project => (
                                 <ProjectCard
                                     key={`${project.type}-${project.id}`}
@@ -172,9 +192,9 @@ function MyProjectsPage() {
                                     onPublishToggle={privacyMutation}
                                 />
                             ))}
-                        </div>
+                        </motion.div>
                     ) : (
-                        <p className="text-slate-400 text-center py-8 font-sans">You don't have any saved projects yet. Go create one!</p>
+                        <p className="text-slate-400 text-center py-8">You don't have any projects yet. Let's create one!</p>
                     )
                 )}
             </div>

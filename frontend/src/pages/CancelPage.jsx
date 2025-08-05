@@ -7,13 +7,13 @@ const CancelPage = () => {
     const navigate = useNavigate();
 
     return (
-        <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5 }}
-            className="flex flex-col items-center justify-center min-h-screen bg-gray-900 text-white p-4"
-        >
-            <div className="bg-gray-800 p-8 rounded-lg shadow-xl text-center max-w-md w-full">
+        <div className="min-h-screen bg-gradient-to-br from-slate-900 to-gray-950 flex items-center justify-center p-4 text-center">
+            <motion.div
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ duration: 0.5, ease: 'easeOut' }}
+                className="bg-slate-800/50 backdrop-blur-md p-10 rounded-3xl shadow-2xl border border-slate-700 max-w-lg w-full"
+            >
                 <motion.svg
                     className="mx-auto h-24 w-24 text-red-500 mb-6"
                     fill="none"
@@ -26,9 +26,9 @@ const CancelPage = () => {
                 >
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
                 </motion.svg>
-                <h1 className="text-3xl font-bold mb-4">Payment Cancelled</h1>
-                <p className="text-lg mb-6">Your payment was not completed.</p>
-                <p className="text-sm text-gray-400 mb-8">
+                <h1 className="text-3xl font-bold text-red-400 mb-4">Payment Cancelled</h1>
+                <p className="text-lg mb-6 text-slate-200">Your payment was not completed.</p>
+                <p className="text-sm text-slate-400 mb-8">
                     If you experienced an issue, please try again or contact support.
                 </p>
                 <motion.button
@@ -39,14 +39,8 @@ const CancelPage = () => {
                 >
                     Return to My Projects
                 </motion.button>
-                <button
-                    className="mt-4 text-indigo-400 hover:text-indigo-200 transition-colors duration-200"
-                    onClick={() => navigate('/')}
-                >
-                    Return to Home
-                </button>
-            </div>
-        </motion.div>
+            </motion.div>
+        </div>
     );
 };
 

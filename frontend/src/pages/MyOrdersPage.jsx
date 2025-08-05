@@ -1,10 +1,21 @@
 // frontend/src/pages/MyOrdersPage.jsx
 import React, { useEffect, useState } from 'react';
 import apiClient from '../services/apiClient';
+import { motion } from 'framer-motion';
+import PageHeader from '../components/PageHeader';
 import { LoadingSpinner, Alert } from '../components/common.jsx';
 
+const containerVariants = {
+    hidden: { opacity: 0 },
+    visible: { opacity: 1, transition: { staggerChildren: 0.1 } },
+};
+
+const itemVariants = {
+    hidden: { opacity: 0, y: 20 },
+    visible: { opacity: 1, y: 0 }
+};
+
 const MyOrdersPage = () => {
-    // --- MODIFIED: Initialize state with an empty array to prevent crashes ---
     const [orders, setOrders] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
@@ -40,14 +51,25 @@ const MyOrdersPage = () => {
     if (error) return <Alert type="error" message={error} />;
 
     return (
-        <div className="container mx-auto p-4 text-white">
-            <h1 className="text-3xl font-bold mb-6">My Orders</h1>
+        <div className="max-w-6xl mx-auto py-12 px-4 sm:px-6 lg:px-8">
+            <PageHeader 
+                title="My Orders"
+                subtitle="A history of your completed purchases and their shipping status."
+            />
+            
             {orders.length === 0 ? (
-                <p>You haven't placed any orders yet.</p>
+                <div className="bg-slate-800/50 rounded-lg p-6">
+                    <p className="text-slate-400 text-center py-8">You haven't placed any orders yet.</p>
+                </div>
             ) : (
-                <div className="space-y-6">
+                <motion.div 
+                    variants={containerVariants}
+                    initial="hidden"
+                    animate="visible"
+                    className="space-y-6"
+                >
                     {orders.map(order => (
-                        <div key={order.id} className="bg-slate-800 p-6 rounded-lg shadow-lg">
+                        <motion.div key={order.id} variants={itemVariants} className="bg-slate-800 p-6 rounded-lg shadow-lg">
                             <div className="flex justify-between items-start">
                                 <div>
                                     <h2 className="text-xl font-bold">{order.book_title}</h2>
@@ -58,7 +80,7 @@ const MyOrdersPage = () => {
                                 </div>
                                 <div className="text-right">
                                     <p className="text-lg font-semibold">
-                                        {new Intl.NumberFormat('en-US', { style: 'currency', currency: order.currency || 'USD' }).format((order.total_cost || 0) / 100)}
+                                        {new Intl.NumberFormat('en-US', { style: 'currency', currency: order.currency || 'USD' }).format(order.total_price_usd)}
                                     </p>
                                     <p className="text-sm capitalize font-medium text-cyan-400">{order.status}</p>
                                 </div>
@@ -77,7 +99,7 @@ const MyOrdersPage = () => {
                                             <p><span className="font-bold">Lulu Status:</span> {statusCache[order.lulu_job_id].data.status}</p>
                                             {statusCache[order.lulu_job_id].data.tracking_urls?.length > 0 && (
                                                  <a href={statusCache[order.lulu_job_id].data.tracking_urls[0]} target="_blank" rel="noopener noreferrer" className="text-green-400 hover:underline">
-                                                    View Tracking
+                                                     View Tracking
                                                  </a>
                                             )}
                                         </div>
@@ -87,12 +109,12 @@ const MyOrdersPage = () => {
                                     )}
                                 </div>
                             )}
-                        </div>
+                        </motion.div>
                     ))}
-                </div>
+                </motion.div>
             )}
         </div>
     );
-}
+};
 
 export default MyOrdersPage;
