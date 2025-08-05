@@ -14,24 +14,25 @@ export const createStripeCheckoutSession = async (productDetails, shippingAddres
             // MODIFIED: Pre-fill customer email and shipping address details
             customer_email: shippingAddress.email,
             shipping_address_collection: {
-                allowed_countries: ['AU', 'US', 'CA', 'GB', 'NZ'],
+                allowed_countries: ['AU', 'US', 'CA', 'GB', 'NZ'], // Ensure this matches your supported countries
             },
-            shipping_options: [
-                {
-                    shipping_rate_data: {
-                        type: 'fixed_amount',
-                        fixed_amount: {
-                            amount: productDetails.priceInCents, // Use the total price from productDetails
-                            currency: 'usd', // Use USD as per your pricing structure
-                        },
-                        display_name: 'Shipping & Handling', // Generic name for the single rate
-                    },
-                },
-            ],
+            // REMOVED: The redundant shipping_options array, as the total price is already in line_items
+            // shipping_options: [
+            //     {
+            //         shipping_rate_data: {
+            //             type: 'fixed_amount',
+            //             fixed_amount: {
+            //                 amount: productDetails.priceInCents, // This is total price
+            //                 currency: 'usd',
+            //             },
+            //             display_name: 'Shipping & Handling',
+            //         },
+            //     },
+            // ],
             line_items: [
                 {
                     price_data: {
-                        currency: 'usd', // MODIFIED: Changed to USD to match total price
+                        currency: 'usd', // MODIFIED: Ensure currency is USD here
                         product_data: {
                             name: productDetails.name,
                             description: productDetails.description,
@@ -49,6 +50,19 @@ export const createStripeCheckoutSession = async (productDetails, shippingAddres
                 orderId: orderId,
                 bookId: bookId,
                 bookType: bookType
+            },
+            // ADDED/MODIFIED: Ensure shipping_address is correctly structured for Stripe pre-filling
+            shipping_address: {
+                address: {
+                    line1: shippingAddress.street1,
+                    line2: shippingAddress.street2 || null, // Stripe expects null for empty optional fields
+                    city: shippingAddress.city,
+                    state: shippingAddress.state_code || null, // Stripe expects 'state' and null for empty
+                    postal_code: shippingAddress.postcode, // Stripe expects 'postal_code'
+                    country: shippingAddress.country_code // Stripe expects 'country'
+                },
+                name: shippingAddress.name,
+                phone: shippingAddress.phone_number || null // Stripe expects 'phone' and null for empty
             },
         });
         return session;
