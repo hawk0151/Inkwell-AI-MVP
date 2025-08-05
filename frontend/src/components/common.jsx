@@ -2,7 +2,9 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 import { CheckCircleIcon, XCircleIcon, InformationCircleIcon, ExclamationTriangleIcon } from '@heroicons/react/24/solid';
-import logoImage from '../assets/logo.png'; // Import the new logo image
+import logoImage from '../assets/logo.png';
+import CookieConsent from 'react-cookie-consent'; // <-- ADDED THIS IMPORT
+import { Link } from 'react-router-dom'; // <-- ADDED THIS IMPORT
 
 export const LoadingSpinner = ({ text = "Loading..." }) => (
     <div className="flex flex-col justify-center items-center p-8 gap-4">
@@ -54,6 +56,37 @@ export const Alert = ({ type = 'error', title, message, children, onClose }) => 
                 </div>
             )}
         </div>
+    );
+};
+
+// <-- ADDED THIS NEW COMPONENT -->
+export const CookieConsentBanner = () => {
+    return (
+        <CookieConsent
+            location="bottom"
+            buttonText="I Understand"
+            cookieName="inkwellCookieConsent"
+            style={{ 
+                background: "#0F172A",
+                padding: "1rem",
+                alignItems: "center",
+            }}
+            buttonStyle={{ 
+                color: "#1E293B", 
+                fontSize: "13px", 
+                fontWeight: "bold",
+                backgroundColor: "#6366F1",
+                borderRadius: "8px",
+                padding: "10px 20px"
+            }}
+            expires={150}
+        >
+            This website uses cookies to enhance the user experience. For more information, please read our{" "}
+            <Link to="/policies#privacy-policy-section" className="text-indigo-400 hover:text-indigo-300 font-semibold underline transition-colors duration-200">
+                Privacy Policy
+            </Link>
+            .
+        </CookieConsent>
     );
 };
 
