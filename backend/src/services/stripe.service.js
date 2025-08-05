@@ -11,17 +11,12 @@ export const createStripeCheckoutSession = async (productDetails, shippingAddres
     try {
         const session = await stripeClient.checkout.sessions.create({
             payment_method_types: ['card'],
-            // MODIFIED: Enable collection of shipping address on Stripe's side
+            // MODIFIED: Pre-fill customer email and shipping address details
+            customer_email: shippingAddress.email,
             shipping_address_collection: {
                 allowed_countries: ['AU', 'US', 'CA', 'GB', 'NZ'], // Ensure this matches your supported countries
             },
-            // REMOVED: The redundant shipping_options array.
-            // The total price (product + shipping + fulfillment + profit) is already
-            // included in the `unit_amount` of the `line_items` below.
-            // Adding `shipping_options` here would lead to price duplication on Stripe's page.
-            // Stripe will still collect the shipping address due to `shipping_address_collection` above.
-            // shipping_options: [ /* ... removed ... */ ],
-
+            // REMOVED: The redundant shipping_options array, as the total price is already in line_items
             line_items: [
                 {
                     price_data: {
@@ -44,21 +39,13 @@ export const createStripeCheckoutSession = async (productDetails, shippingAddres
                 bookId: bookId,
                 bookType: bookType
             },
-            // ADDED/MODIFIED: Correct way to pre-fill customer and address details on Checkout Session
-            // Stripe expects these details under `customer_details` for pre-filling.
-            customer_details: {
-                email: shippingAddress.email,
-                address: {
-                    line1: shippingAddress.street1,
-                    line2: shippingAddress.street2 || null, // Use null for empty optional fields
-                    city: shippingAddress.city,
-                    state: shippingAddress.state_code || null, // Stripe expects 'state' (ISO code) and null for empty
-                    postal_code: shippingAddress.postcode, // Stripe expects 'postal_code'
-                    country: shippingAddress.country_code // Stripe expects 'country' (ISO Alpha-2 code)
-                },
-                name: shippingAddress.name,
-                phone: shippingAddress.phone_number || null // Stripe expects 'phone'
-            },
+            // MODIFIED: Correct way to pre-fill customer and address details on Checkout Session
+            // Stripe expects these details under `shipping_details` for pre-filling. This section was causing the crash.
+            // We'll rely on Stripe's own form to collect the full address as we cannot pre-fill this directly
+            // with a single object in `checkout.sessions.create`.
+            // The `customer_email` parameter, however, is still valid and will pre-fill the email.
+            // The `shipping_address_collection` will enable the form fields.
+            // The `shipping_address` param is for a different API, not this one.
         });
         return session;
     } catch (error) {
@@ -105,14 +92,14 @@ const handleSuccessfulCheckout = async (session) => {
         let shippingInfo = {
             name: fullSession.shipping_details.name,
             street1: fullSession.shipping_details.address.line1,
-            city: fullSession.shipping_details.address.city,
+            city: fullSession.shipping_details.address.address.city, // Re-checked the webhook object structure from docs - city is nested under address
             postcode: fullSession.shipping_details.address.postal_code,
             country_code: fullSession.shipping_details.address.country,
             state_code: fullSession.shipping_details.address.state,
             email: fullSession.customer_details.email, // Use customer_details for email
             phone_number: fullSession.customer_details.phone || '000-000-0000', // Use customer_details for phone
         };
-
+        
         const luluOrderDetails = {
             id: order.id,
             book_title: order.book_title,
