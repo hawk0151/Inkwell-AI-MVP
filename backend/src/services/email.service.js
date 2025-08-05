@@ -1,36 +1,35 @@
 // backend/src/services/email.service.js
+import nodemailer from 'nodemailer';
 
-/**
- * Sends an order confirmation email to the user.
- * In a real application, this would integrate with a service like SendGrid, Mailgun, or Nodemailer.
- * This is a placeholder/simulation for now.
- * @param {string} userEmail - The recipient's email address.
- * @param {object} orderDetails - The details of the order.
- */
-export const sendOrderConfirmationEmail = async (userEmail, orderDetails) => {
-  console.log("--- SIMULATING EMAIL SEND ---");
-  console.log(`To: ${userEmail}`);
-  console.log(`Subject: Your Inkwell AI Order is Confirmed! (Order #${orderDetails.id})`);
-  console.log(`Body:`);
-  console.log(`Hi there,`);
-  console.log(`Thank you for your purchase. Your custom book "${orderDetails.product_name}" is now being processed.`);
-  console.log(`Total Price: $${orderDetails.total_price.toFixed(2)}`);
-  console.log(`We will notify you again once it has been shipped.`);
-  console.log("-------------------------------");
-  
-  // In a real app, you would have your email sending logic here.
-  // For example, using Nodemailer:
-  /*
-  import nodemailer from 'nodemailer';
-  const transporter = nodemailer.createTransport({ ... });
-  await transporter.sendMail({
-    from: '"Inkwell AI" <no-reply@inkwell.ai>',
-    to: userEmail,
-    subject: "Your Inkwell AI Order is Confirmed!",
-    html: `<h1>Thank you for your order!</h1><p>Your custom book "${orderDetails.product_name}" is now being processed.</p>`
-  });
-  */
-  
-  console.log("Email simulation complete.");
-  return Promise.resolve();
+const transporter = nodemailer.createTransport({
+    host: process.env.EMAIL_HOST,
+    port: process.env.EMAIL_PORT,
+    secure: process.env.EMAIL_PORT == 465,
+    auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS,
+    },
+});
+
+export const sendContactEmail = async (name, email, message) => {
+    try {
+        const mailOptions = {
+            from: process.env.EMAIL_USER,
+            to: process.env.CONTACT_FORM_RECIPIENT,
+            subject: `New Contact Form Submission from ${name}`,
+            html: `
+                <p><strong>Name:</strong> ${name}</p>
+                <p><strong>Email:</strong> ${email}</p>
+                <p><strong>Message:</strong></p>
+                <p>${message}</p>
+            `,
+        };
+
+        await transporter.sendMail(mailOptions);
+        console.log(`✅ Email sent successfully from ${email} to ${process.env.CONTACT_FORM_RECIPIENT}.`);
+        return { success: true };
+    } catch (error) {
+        console.error("❌ Failed to send contact email:", error);
+        return { success: false, error: error.message };
+    }
 };

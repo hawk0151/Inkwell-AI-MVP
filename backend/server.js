@@ -28,6 +28,9 @@ import productRoutes from './src/api/product.routes.js';
 import paypalRoutes from './src/api/paypal.routes.js';
 import { handleWebhook } from './src/controllers/order.controller.js';
 
+// NEW: Import the contact form routes
+import contactRoutes from './src/api/contact.routes.js';
+
 async function checkDnsResolution() {
     const luluUrl = process.env.LULU_API_BASE_URL;
     if (!luluUrl) {
@@ -114,6 +117,10 @@ const startServer = async () => {
     app.use('/api/feed', feedRoutes);
     app.use('/api/v1/analytics', analyticsRoutes);
     app.use('/api/shipping', shippingRoutes);
+
+    // NEW: Use the contact form routes
+    app.use('/api/contact', contactRoutes);
+
     app.get('/health-check-version', (req, res) => {
       res.json({ 
         message: 'live backend sanity check', 
