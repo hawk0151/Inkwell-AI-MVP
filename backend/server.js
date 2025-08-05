@@ -13,10 +13,6 @@ import dns from 'dns/promises';
 import { setupDatabase } from './src/db/setupDatabase.js';
 import { stripeWebhook } from './src/controllers/stripe.controller.js';
 import { createTestCheckout } from './src/controllers/test.controller.js';
-
-// NEW: Import the new middleware
-import { setCoopHeader } from './src/middleware/coop.middleware.js';
-
 import shippingRoutes from './src/api/shipping.routes.js';
 import orderRoutes from './src/api/order.routes.js';
 import pictureBookRoutes from './src/api/picturebook.routes.js';
@@ -30,7 +26,6 @@ import feedRoutes from './src/api/feed.routes.js';
 import storyRoutes from './src/api/story.routes.js';
 import productRoutes from './src/api/product.routes.js';
 import paypalRoutes from './src/api/paypal.routes.js';
-
 import { handleWebhook } from './src/controllers/order.controller.js';
 
 async function checkDnsResolution() {
@@ -53,10 +48,8 @@ async function checkDnsResolution() {
 const startServer = async () => {
     await checkDnsResolution();
     await setupDatabase();
-
     const __filename = fileURLToPath(import.meta.url);
     const __dirname = dirname(__filename);
-
     let serviceAccount;
     if (process.env.FIREBASE_SERVICE_ACCOUNT_CONFIG) {
         try {
@@ -70,28 +63,20 @@ const startServer = async () => {
         console.error('Error: FIREBASE_SERVICE_ACCOUNT_CONFIG environment variable is not set!');
         process.exit(1);
     }
-
     admin.initializeApp({
         credential: admin.credential.cert(serviceAccount)
     });
-
     console.log('✅ Firebase initialized for project:', serviceAccount.project_id);
-
     const app = express();
     const PORT = process.env.PORT || 5001;
-    
-    // --- THIS IS THE FIX ---
-    // Added your new custom domains to the list of allowed origins.
     const allowedOrigins = [
         process.env.CORS_ORIGIN || 'http://localhost:5173',
         'https://inkwell-ai-mvp-frontend.onrender.com',
         'https://inkwell.net.au',
         'https://www.inkwell.net.au'
     ];
-    
     const corsOptions = {
         origin: function (origin, callback) {
-            // Allow requests with no origin (like mobile apps or curl requests)
             if (!origin) return callback(null, true);
             if (allowedOrigins.indexOf(origin) === -1) {
                 const msg = `The CORS policy for this site does not allow access from the specified Origin: ${origin}`;
@@ -101,28 +86,19 @@ const startServer = async () => {
         },
         credentials: true
     };
-    
     app.use(cors(corsOptions));
     app.options('*', cors(corsOptions)); // Enable pre-flight for all routes
     console.log("DEBUG: CORS middleware applied with preflight handling.");
-
-    // NEW: Apply the COOP middleware to fix the Firebase issue
-    app.use(setCoopHeader); // <-- ADDED THIS LINE
-
     app.use('/api/projects', projectRoutes);
     app.use(morgan('dev'));
-
     // Stripe webhook needs to be registered before express.json()
     app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), stripeWebhook);
-    
     app.use(express.json());
     app.use(express.urlencoded({ extended: true }));
     app.use(cookieParser());
     app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
-    
     // Other webhooks
     app.post('/api/orders/webhook', express.raw({ type: 'application/json' }), handleWebhook);
-
     // API Routes
     app.get('/api/test/create-checkout', createTestCheckout);
     app.use('/api/story', storyRoutes);
@@ -138,7 +114,6 @@ const startServer = async () => {
     app.use('/api/feed', feedRoutes);
     app.use('/api/v1/analytics', analyticsRoutes);
     app.use('/api/shipping', shippingRoutes);
-
     app.get('/health-check-version', (req, res) => {
       res.json({ 
         message: 'live backend sanity check', 
@@ -146,20 +121,16 @@ const startServer = async () => {
         commit: 'final-merge-20250803-1730'
       });
     });
-
     app.get('/', (req, res) => {
         res.send('Inkwell AI Backend is running successfully!');
     });
-    
     app.use((req, res, next) => {
         res.status(404).json({ message: 'Not Found' });
     });
-
     app.use((err, req, res, next) => {
         console.error('Unhandled error:', err);
         res.status(500).json({ message: 'Internal Server Error', error: err.message });
     });
-
     app.listen(PORT, () => {
         console.log(`✅ Server is running on http://localhost:${PORT}`);
     });
