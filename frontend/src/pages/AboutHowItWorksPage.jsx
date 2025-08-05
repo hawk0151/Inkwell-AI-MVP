@@ -3,6 +3,7 @@ import React from 'react';
 import { motion } from 'framer-motion';
 import PageHeader from '../components/PageHeader';
 import { useNavigate } from 'react-router-dom';
+import { HandRaisedIcon, PencilSquareIcon, SparklesIcon, BookOpenIcon, TruckIcon } from '@heroicons/react/24/outline';
 
 const fadeUp = {
     hidden: { opacity: 0, y: 40 },
@@ -12,6 +13,24 @@ const fadeUp = {
         transition: { duration: 0.6, delay },
     }),
 };
+
+const HowItWorksCard = ({ icon: Icon, title, description, delay }) => (
+    <motion.div 
+        className="bg-slate-800/50 backdrop-blur-md p-6 rounded-2xl border border-slate-700 hover:border-indigo-500 transition-colors duration-300 shadow-2xl"
+        variants={fadeUp}
+        custom={delay}
+        initial="hidden"
+        animate="visible"
+    >
+        <div className="flex items-center space-x-4 mb-4">
+            <div className="bg-indigo-600/20 p-3 rounded-full">
+                <Icon className="h-6 w-6 text-indigo-400" />
+            </div>
+            <h3 className="text-xl font-bold font-serif text-white">{title}</h3>
+        </div>
+        <p className="text-slate-300 text-base">{description}</p>
+    </motion.div>
+);
 
 function AboutHowItWorksPage() {
     const navigate = useNavigate();
@@ -31,7 +50,7 @@ function AboutHowItWorksPage() {
                     initial="hidden"
                     animate="visible"
                 >
-                    <h2 className="text-3xl font-bold font-serif text-amber-400 mb-4">
+                    <h2 className="text-3xl font-bold font-serif text-white mb-4">
                         Our Vision: The Inkwell AI Story
                     </h2>
                     <div className="space-y-4 text-slate-300 text-lg">
@@ -47,73 +66,38 @@ function AboutHowItWorksPage() {
                     </div>
                 </motion.section>
 
-                <motion.section
-                    className="mt-10 bg-slate-800/50 backdrop-blur-md p-8 rounded-2xl shadow-2xl border border-slate-700 space-y-6"
-                    variants={fadeUp}
-                    custom={0.4}
-                    initial="hidden"
-                    animate="visible"
-                >
-                    <h2 className="text-3xl font-bold font-serif text-amber-400 mb-4">
-                        Your Story, Step-by-Step
-                    </h2>
-                    <div className="space-y-6 text-slate-300 text-lg">
-                        <p>
-                            Creating a personalized book with Inkwell AI is a magical journey, designed to be simple and intuitive. Here's how you bring your unique stories to life:
-                        </p>
-                        <ol className="list-decimal list-inside space-y-4 pl-4">
-                            <li>
-                                <strong className="text-white">Choose Your Creation Type:</strong>
-                                Start by selecting whether you want a 'Text-Based Book' (a novel or novella) or a 'Picture Book' (an illustrated story with a timeline).
-                            </li>
-                            <li>
-                                <strong className="text-white">Provide Your Details:</strong>
-                                Tell our AI who the book is for, the main character's name, their interests, and a preferred genre. These details are the seeds of your story.
-                            </li>
-                            <li>
-                                <strong className="text-white">AI Generation (The Magic Happens!):</strong>
-                                <ul className="list-disc list-inside ml-4 text-slate-400 mt-2">
-                                    <li>For Text-Based Books, our powerful AI will craft your first chapter. You then guide it to generate subsequent chapters, watching your story unfold.</li>
-                                    <li>For Picture Books, you can generate stunning AI-powered illustrations based on your descriptions or upload your own cherished photos.</li>
-                                </ul>
-                            </li>
-                            <li>
-                                <strong className="text-white">Personalize & Refine:</strong>
-                                In the editor, you have full control.
-                                <ul className="list-disc list-inside ml-4 text-slate-400 mt-2">
-                                    <li>For Novels: Review each chapter, then click 'Continue Story' to prompt the AI for the next part. Our system remembers the plot to ensure coherence.</li>
-                                    <li>For Picture Books: Add descriptions, dates, and even overlay text directly onto your images. You can add or delete pages as needed.</li>
-                                </ul>
-                            </li>
-                            <li>
-                                <strong className="text-white">Finalize & Purchase:</strong>
-                                Once your masterpiece is complete, simply proceed to checkout. We'll handle the printing and delivery of your unique physical book, a keepsake bound forever.
-                            </li>
-                        </ol>
-                    </div>
-                </motion.section>
-
-                <motion.section
-                    className="mt-10 bg-slate-800/50 backdrop-blur-md p-8 rounded-2xl shadow-2xl border border-slate-700 space-y-6"
-                    variants={fadeUp}
-                    custom={0.6}
-                    initial="hidden"
-                    animate="visible"
-                >
-                    <h2 className="text-3xl font-bold font-serif text-amber-400 mb-4">
-                        Behind the Scenes: How Our AI Stays Coherent
-                    </h2>
-                    <div className="space-y-4 text-slate-300 text-lg">
-                        <p>
-                            A key concern with AI-generated multi-chapter stories is maintaining narrative coherence. At Inkwell AI, we've implemented a sophisticated "memory" system:
-                        </p>
-                        <ul className="list-disc list-inside space-y-2 pl-4">
-                            <li><strong className="text-white">Iterative Prompting:</strong> When generating subsequent chapters, our backend feeds the AI a summary of all the *previous chapters* generated so far.</li>
-                            <li><strong className="text-white">Contextual Understanding:</strong> This allows the AI to remember plot points and character traits, ensuring the new chapter builds logically on what came before.</li>
-                            <li><strong className="text-white">Controlled Conclusion:</strong> For the final chapter, we explicitly instruct the AI to provide a satisfying ending, ensuring your story feels complete.</li>
-                        </ul>
-                    </div>
-                </motion.section>
+                <div className="mt-10 grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <HowItWorksCard
+                        icon={PencilSquareIcon}
+                        title="Choose Your Creation Type"
+                        description="Start by selecting either a 'Text-Based Book' (a novel) or a 'Picture Book' (an illustrated story with a timeline)."
+                        delay={0.3}
+                    />
+                    <HowItWorksCard
+                        icon={HandRaisedIcon}
+                        title="Provide Your Details"
+                        description="Tell our AI who the book is for, the main character's name, their interests, and a preferred genre. These details are the seeds of your story."
+                        delay={0.4}
+                    />
+                    <HowItWorksCard
+                        icon={SparklesIcon}
+                        title="AI Generation"
+                        description="Our powerful AI will craft your story. You can generate new chapters for novels or create stunning illustrations for your picture books."
+                        delay={0.5}
+                    />
+                    <HowItWorksCard
+                        icon={BookOpenIcon}
+                        title="Personalize & Refine"
+                        description="In the editor, you have full control to refine chapters, adjust images, and ensure your story is exactly how you envisioned it."
+                        delay={0.6}
+                    />
+                    <HowItWorksCard
+                        icon={TruckIcon}
+                        title="Finalize & Purchase"
+                        description="Once your masterpiece is complete, simply proceed to checkout. We'll handle the professional printing and delivery of your unique physical book."
+                        delay={0.7}
+                    />
+                </div>
 
                 <motion.section
                     className="mt-10 bg-slate-800/50 backdrop-blur-md p-8 rounded-2xl shadow-2xl border border-slate-700 text-center space-y-4"
