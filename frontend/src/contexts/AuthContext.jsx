@@ -1,19 +1,19 @@
 // frontend/src/contexts/AuthContext.jsx
 import React, { useContext, useState, useEffect, createContext } from 'react';
 import {
-  getAuth, // Import getAuth function
-  onAuthStateChanged,
-  createUserWithEmailAndPassword,
-  signInWithEmailAndPassword,
-  signOut,
-  GoogleAuthProvider,
-  signInWithPopup,
+    getAuth, // Import getAuth function
+    onAuthStateChanged,
+    createUserWithEmailAndPassword,
+    signInWithEmailAndPassword,
+    signOut,
+    GoogleAuthProvider,
+    signInWithPopup,
 } from 'firebase/auth';
 import {
-  getFirestore, // Import getFirestore function
-  doc,
-  setDoc,
-  getDoc
+    getFirestore, // Import getFirestore function
+    doc,
+    setDoc,
+    getDoc
 } from 'firebase/firestore';
 
 import firebaseApp from '../firebase'; // Import the initialized Firebase app instance
@@ -21,7 +21,7 @@ import firebaseApp from '../firebase'; // Import the initialized Firebase app in
 const AuthContext = createContext();
 
 export function useAuth() {
-  return useContext(AuthContext);
+    return useContext(AuthContext);
 }
 
 export function AuthProvider({ children }) {
