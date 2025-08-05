@@ -6,33 +6,19 @@ import { randomUUID } from 'crypto';
 
 const stripeClient = stripe(process.env.STRIPE_SECRET_KEY);
 
-// MODIFIED: Added shippingAddress parameter
 export const createStripeCheckoutSession = async (productDetails, shippingAddress, userId, orderId, bookId, bookType) => {
     try {
         const session = await stripeClient.checkout.sessions.create({
             payment_method_types: ['card'],
-            // MODIFIED: Pre-fill customer email and shipping address details
-            customer_email: shippingAddress.email,
             shipping_address_collection: {
-                allowed_countries: ['AU', 'US', 'CA', 'GB', 'NZ'], // Ensure this matches your supported countries
+                allowed_countries: ['AU', 'US', 'CA', 'GB', 'NZ'],
             },
-            // REMOVED: The redundant shipping_options array, as the total price is already in line_items
-            // shipping_options: [
-            //     {
-            //         shipping_rate_data: {
-            //             type: 'fixed_amount',
-            //             fixed_amount: {
-            //                 amount: productDetails.priceInCents, // This is total price
-            //                 currency: 'usd',
-            //             },
-            //             display_name: 'Shipping & Handling',
-            //         },
-            //     },
-            // ],
+            // MODIFIED: Removed the incorrect top-level shipping_address parameter
+            // shipping_address: { /* ... removed ... */ }, 
             line_items: [
                 {
                     price_data: {
-                        currency: 'usd', // MODIFIED: Ensure currency is USD here
+                        currency: 'usd',
                         product_data: {
                             name: productDetails.name,
                             description: productDetails.description,
@@ -51,18 +37,19 @@ export const createStripeCheckoutSession = async (productDetails, shippingAddres
                 bookId: bookId,
                 bookType: bookType
             },
-            // ADDED/MODIFIED: Ensure shipping_address is correctly structured for Stripe pre-filling
-            shipping_address: {
+            // ADDED: Correct way to pre-fill customer and address details on Checkout Session
+            customer_details: {
+                email: shippingAddress.email,
                 address: {
                     line1: shippingAddress.street1,
-                    line2: shippingAddress.street2 || null, // Stripe expects null for empty optional fields
+                    line2: shippingAddress.street2 || null, // Use null for empty optional fields
                     city: shippingAddress.city,
-                    state: shippingAddress.state_code || null, // Stripe expects 'state' and null for empty
-                    postal_code: shippingAddress.postcode, // Stripe expects 'postal_code'
-                    country: shippingAddress.country_code // Stripe expects 'country'
+                    state: shippingAddress.state_code || null,
+                    postal_code: shippingAddress.postcode,
+                    country: shippingAddress.country_code
                 },
                 name: shippingAddress.name,
-                phone: shippingAddress.phone_number || null // Stripe expects 'phone' and null for empty
+                phone: shippingAddress.phone_number || null
             },
         });
         return session;
