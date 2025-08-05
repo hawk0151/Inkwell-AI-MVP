@@ -373,15 +373,21 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
         } else {
             try {
                 luluCostsResponse = await getPrintJobCosts(printCostLineItems, luluShippingAddressForCost, selectedShippingLevel);
-                const selectedShippingOption = luluCostsResponse.shippingOptions.find(opt => opt.level === selectedShippingLevel);
+                // MODIFIED: Defensive check for shippingOptions before .find()
+                const selectedShippingOption = luluCostsResponse.shippingOptions && Array.isArray(luluCostsResponse.shippingOptions)
+                    ? luluCostsResponse.shippingOptions.find(opt => opt.level === selectedShippingLevel)
+                    : null;
+
                 if (!selectedShippingOption) {
-                    throw new Error(`Selected shipping level '${selectedShippingLevel}' not found in Lulu response for final calculation.`);
+                    // If the selected level is not found in Lulu's response (even if response was 200 OK)
+                    // This means Lulu didn't offer that specific level for this final calculation.
+                    throw new Error(`Selected shipping level '${selectedShippingLevel}' not confirmed by Lulu for final calculation.`);
                 }
                 const luluShippingCostAUD = parseFloat(selectedShippingOption.total_cost_incl_tax);
                 luluShippingCostUSD = parseFloat((luluShippingCostAUD * AUD_TO_USD_EXCHANGE_RATE).toFixed(4));
             } catch (luluError) {
                 console.error(`[Checkout] Error fetching print costs from Lulu: ${luluError.message}. Error details:`, luluError.response?.data);
-                throw luluError;
+                throw luluError; // Re-throw to be caught by the main try-catch
             }
         }
 
