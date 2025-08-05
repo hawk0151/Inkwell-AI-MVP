@@ -34,6 +34,9 @@ const getProductDimensions = (luluConfigId) => {
             pageWidthMm = 162.31; pageHeightMm = 240.28; layout = 'portrait'; break;
         case '11.94x8.52':
              pageWidthMm = 303.28; pageHeightMm = 216.41; layout = 'landscape'; break;
+        // --- THIS IS THE NEWLY ADDED CASE FOR THE SQUARE BOOK ---
+        case '8.75x8.75':
+             pageWidthMm = 222.25; pageHeightMm = 222.25; layout = 'portrait'; break;
         default:
             console.error(`[PDF Service] Unknown trim size ${productConfig.trimSize}. Falling back to A4 portrait.`);
             pageWidthMm = 210; pageHeightMm = 297; layout = 'portrait';
@@ -58,7 +61,7 @@ const getProductDimensions = (luluConfigId) => {
         contentX: contentX,
         contentY: contentY,
         contentWidth: contentWidth,
-        contentHeight: contentHeight, // This was already correct
+        contentHeight: contentHeight,
         layout: layout
     };
 };
@@ -187,7 +190,6 @@ function truncateText(doc, text, maxWidth, maxHeight, fontPath, fontSize) {
 }
 
 export const generateAndSavePictureBookPdf = async (book, events, productConfig) => {
-    // THIS IS THE LINE WITH THE FIX. `contentHeight` is now included.
     const { pageWidthWithBleed, pageHeightWithBleed, contentX, contentY, contentWidth, contentHeight, layout } = getProductDimensions(productConfig.id);
 
     const doc = new PDFDocument({

@@ -73,27 +73,25 @@ export const LULU_PRODUCT_CONFIGURATIONS = [
         safeMarginMm: 6.35,
         isDefault: false
     },
+    // --- THIS IS THE MODIFIED PICTURE BOOK CONFIGURATION ---
     {
-        id: 'A4PREMIUM_FC_8.27x11.69',
-        name: 'A4 Landscape Hardcover Picture Book (11.94 x 8.52")',
-        trimSize: '11.94x8.52', // Note: This is landscape, so width x height
-        luluSku: '1169X0827FCPRECW080CW444MXX', // The canonical SKU
-        basePrice: 69.99,
-        // CRITICAL FIX: The PDF service generates a fixed 24-page PDF for this product.
-        // This must be the source of truth for page count.
+        id: 'SQUARE_HC_8.75x8.75', // New, descriptive ID
+        name: 'Square Hardcover Picture Book (8.75 x 8.75")', // New name
+        trimSize: '8.75x8.75', // New square trim size
+        luluSku: '0850X0850FCPRECW080CW444MXX', // Your new SKU
+        basePrice: 59.99, // A reasonable base price, you can adjust this later
         defaultPageCount: 24, 
         minPageCount: 24,
-        maxPageCount: 24,
-        wordsPerPage: 0, // Not applicable
-        defaultWordsPerPage: 0, // Not applicable
-        totalChapters: 0, // Not applicable
+        maxPageCount: 24, // Enforcing our 24-page structure for simplicity
+        wordsPerPage: 0, 
+        defaultWordsPerPage: 0,
+        totalChapters: 0,
         category: 'pictureBook',
         bleedMm: 3.175,
         safeMarginMm: 6.35,
         type: 'pictureBook',
         isDefault: true,
-        // CRITICAL FIX: Add an alias to handle old data in the database.
-        aliases: ['A4LANDSCAPE_HARDCOVER_11.94x8.52']
+        // The old alias for the landscape book is removed as we are fully switching formats.
     }
 ];
 
