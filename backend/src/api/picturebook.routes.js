@@ -2,15 +2,13 @@
 import express from 'express';
 import { protect } from '../middleware/auth.middleware.js';
 import {
-    createPictureBook,
-    addTimelineEvent,
-    getPictureBooks,
-    getPictureBook,
-    deletePictureBook, // Deletes the entire book
-    deleteTimelineEvent, // NEW: For deleting a specific timeline event (page)
-    createBookCheckoutSession, // MODIFIED: This will now handle the full checkout flow
-    togglePictureBookPrivacy,
-    // REMOVED: getPictureBookShippingOptions as it's now handled by shipping.controller.js
+    createPictureBook,
+    getPictureBooks,
+    getPictureBook,
+    deletePictureBook, // Deletes the entire book
+    saveTimelineEvents, // NEW: Import the unified save function
+    createBookCheckoutSession,
+    togglePictureBookPrivacy,
 } from '../controllers/picturebook.controller.js';
 
 const router = express.Router();
@@ -22,14 +20,11 @@ router.post('/', createPictureBook); // Create a new picture book
 router.get('/:bookId', getPictureBook); // Get details of a specific picture book
 router.delete('/:bookId', deletePictureBook); // Delete an entire picture book
 
-// MODIFIED: Route for adding/updating a timeline event (page)
-router.post('/:bookId/events', addTimelineEvent);
+// MODIFIED: This single route now handles adding, updating, and re-ordering all timeline events (pages)
+router.post('/:bookId/events', saveTimelineEvents);
 
-// NEW: Route for deleting a specific timeline event (page) by its pageNumber
-router.delete('/:bookId/events/:pageNumber', deleteTimelineEvent);
-
-// REMOVED: Route to fetch shipping options for a picture book, as it's now handled by /api/shipping/quotes
-// router.get('/:bookId/shipping-options', getPictureBookShippingOptions);
+// REMOVED: The old deleteTimelineEvent route is no longer needed
+// router.delete('/:bookId/events/:pageNumber', deleteTimelineEvent);
 
 router.post('/:bookId/checkout', createBookCheckoutSession); // Checkout session for picture book
 router.patch('/:bookId/privacy', togglePictureBookPrivacy); // Toggle privacy for picture book
