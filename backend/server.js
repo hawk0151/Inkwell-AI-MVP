@@ -18,7 +18,6 @@ import orderRoutes from './src/api/order.routes.js';
 import pictureBookRoutes from './src/api/picturebook.routes.js';
 import textBookRoutes from './src/api/textbook.routes.js';
 import imageRoutes from './src/api/image.routes.js';
-// MODIFIED: Correctly importing named exports
 import { router as userRoutes } from './src/api/user.routes.js';
 import { router as analyticsRoutes } from './src/api/analytics.routes.js';
 import profileRoutes from './src/api/profile.routes.js';
@@ -77,13 +76,18 @@ const startServer = async () => {
     const app = express();
     const PORT = process.env.PORT || 5001;
     
+    // --- THIS IS THE FIX ---
+    // Added your new custom domains to the list of allowed origins.
     const allowedOrigins = [
         process.env.CORS_ORIGIN || 'http://localhost:5173',
-        'https://inkwell-ai-mvp-frontend.onrender.com'
+        'https://inkwell-ai-mvp-frontend.onrender.com',
+        'https://inkwell.net.au',
+        'https://www.inkwell.net.au'
     ];
     
     const corsOptions = {
         origin: function (origin, callback) {
+            // Allow requests with no origin (like mobile apps or curl requests)
             if (!origin) return callback(null, true);
             if (allowedOrigins.indexOf(origin) === -1) {
                 const msg = `The CORS policy for this site does not allow access from the specified Origin: ${origin}`;
@@ -95,19 +99,23 @@ const startServer = async () => {
     };
     
     app.use(cors(corsOptions));
-    app.options('*', cors(corsOptions));
+    app.options('*', cors(corsOptions)); // Enable pre-flight for all routes
     console.log("DEBUG: CORS middleware applied with preflight handling.");
 
     app.use(morgan('dev'));
 
+    // Stripe webhook needs to be registered before express.json()
+    app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), stripeWebhook);
+    
     app.use(express.json());
     app.use(express.urlencoded({ extended: true }));
     app.use(cookieParser());
     app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
     
+    // Other webhooks
     app.post('/api/orders/webhook', express.raw({ type: 'application/json' }), handleWebhook);
-    app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), stripeWebhook);
 
+    // API Routes
     app.get('/api/test/create-checkout', createTestCheckout);
     app.use('/api/story', storyRoutes);
     app.use('/api/products', productRoutes);
