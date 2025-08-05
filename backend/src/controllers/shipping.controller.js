@@ -64,7 +64,6 @@ export const getShippingQuotes = async (req, res) => {
         email: shippingAddress?.email?.trim() || ''
     };
 
-    // MODIFIED: Validation now requires all fields for an accurate quote
     if (!bookId || !bookType || !trimmedAddress.country_code || !trimmedAddress.name || !trimmedAddress.street1 || !trimmedAddress.city || !trimmedAddress.postcode) {
         return res.status(400).json({ message: "Book ID, book type, and a full shipping address (name, street1, city, postcode, country_code) are required." });
     }
@@ -125,45 +124,43 @@ export const getShippingQuotes = async (req, res) => {
 
         let dynamicShippingResult;
         try {
-            // MODIFIED: Pass the full, real address directly to the refactored getLuluShippingOptionsAndCosts
+            // MODIFIED: Call the refactored getLuluShippingOptionsAndCosts which now uses /shipping-options/
             dynamicShippingResult = await getLuluShippingOptionsAndCosts(
                 selectedProductConfig.luluSku,
                 actualFinalPageCount,
-                trimmedAddress // Use the full, real address
+                trimmedAddress, // Pass the full, real address
+                'USD' // Request options in USD
             );
         } catch (luluServiceError) {
-            console.warn(`[Shipping Quotes WARNING] Direct Lulu service call failed. Falling back to fixed rate. Error: ${luluServiceError.message}`);
-            dynamicShippingResult = { shippingOptions: [], printCost: 0, currency: 'AUD' }; // Provide empty results to trigger fallback
+            console.warn(`[Shipping Quotes WARNING] Direct Lulu service call to /shipping-options/ failed. Falling back to fixed rate. Error: ${luluServiceError.message}`);
+            dynamicShippingResult = { shippingOptions: [], printCost: 0, currency: 'USD' }; // Ensure currency is USD for fallback
         }
 
         let finalShippingOptions = [];
-        let luluPrintCostAUD = 0;
+        let luluPrintCostUSD = 0; // Will be estimated from basePrice if Lulu doesn't provide it
         let isFallbackApplied = false;
 
         if (dynamicShippingResult.shippingOptions.length > 0) {
             finalShippingOptions = dynamicShippingResult.shippingOptions;
-            luluPrintCostAUD = dynamicShippingResult.printCost; // This will be 0 from /shipping-options/, handled below
+            // The /shipping-options/ endpoint does NOT return print cost.
+            // We estimate it from basePrice for the quote.
+            luluPrintCostUSD = selectedProductConfig.basePrice * 0.5; // Estimate print cost as 50% of base price for quote
+            console.log(`[Shipping Quotes] Dynamic options found. Estimating print cost for quote: $${luluPrintCostUSD.toFixed(2)} USD`);
         } else {
             console.warn(`[Shipping Quotes] No dynamic shipping options found for ${selectedProductConfig.luluSku} to ${trimmedAddress.country_code}. Applying fallback shipping rate.`);
             finalShippingOptions.push(FALLBACK_SHIPPING_OPTION);
-            // MODIFIED: Calculate fallback print cost more robustly if Lulu didn't provide it
-            luluPrintCostAUD = decodedQuote?.printCostAud || (selectedProductConfig.basePrice / AUD_TO_USD_EXCHANGE_RATE) * 0.7; // Estimate 70% of base price
+            // MODIFIED: Use basePrice to estimate print cost for fallback quote
+            luluPrintCostUSD = selectedProductConfig.basePrice * 0.5; // Estimate print cost as 50% of base price for quote
             isFallbackApplied = true;
         }
 
-        // MODIFIED: If printCost is 0 (from /shipping-options/ endpoint), use the base product price to estimate
-        if (luluPrintCostAUD === 0) {
-             luluPrintCostAUD = (selectedProductConfig.basePrice / AUD_TO_USD_EXCHANGE_RATE) * 0.7; // Estimate 70% of base price
-             console.warn(`[Shipping Quotes] Lulu /shipping-options/ did not return print cost. Estimating print cost from base product price: $${luluPrintCostAUD.toFixed(2)} AUD`);
-        }
-
-        const luluPrintCostUSD = parseFloat((luluPrintCostAUD * AUD_TO_USD_EXCHANGE_RATE).toFixed(2));
         const baseProductPriceUSD = selectedProductConfig.basePrice;
 
+        // Shipping options are already in USD from getLuluShippingOptionsAndCosts
         const formattedShippingOptions = finalShippingOptions.map(option => ({
             level: option.level,
             name: option.name,
-            costUsd: option.isFallback ? option.costUsd : parseFloat((option.costUsd * AUD_TO_USD_EXCHANGE_RATE).toFixed(2)),
+            costUsd: option.costUsd, // Already in USD
             estimatedDeliveryDate: option.estimatedDeliveryDate,
             isFallback: option.isFallback || false
         }));
@@ -179,7 +176,7 @@ export const getShippingQuotes = async (req, res) => {
             luluSku: selectedProductConfig.luluSku,
             pageCount: actualFinalPageCount,
             shippingAddress: trimmedAddress, // Store the full, real address used for quoting
-            printCostAud: luluPrintCostAUD,
+            printCostAud: luluPrintCostUSD / AUD_TO_USD_EXCHANGE_RATE, // Store estimated AUD print cost for consistency
             baseProductPriceUsd: baseProductPriceUSD,
             isFallback: isFallbackApplied,
         };
@@ -190,7 +187,7 @@ export const getShippingQuotes = async (req, res) => {
             quote_token: quoteToken,
             expires_at: expiresAt,
             shipping_options: formattedShippingOptions,
-            print_cost_usd: luluPrintCostUSD,
+            print_cost_usd: luluPrintCostUSD, // This is the estimated print cost for the quote
             base_product_price_usd: baseProductPriceUSD,
             currency: 'USD'
         });
