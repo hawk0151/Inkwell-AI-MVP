@@ -23,43 +23,14 @@ export const createStripeCheckoutSession = async (productDetails, shippingAddres
             payment_method_types: ['card'],
             mode: 'payment',
             
-            // CRITICAL FIX: Use `customer_details` to pre-fill all user information.
-            // This is the correct way to pass the information for a one-time purchase
-            // without creating a permanent Stripe Customer object.
-            customer_details: {
-                name: shippingAddress.name,
-                email: shippingAddress.email,
-                phone: shippingAddress.phone_number,
-                address: {
-                    line1: shippingAddress.street1,
-                    line2: shippingAddress.street2 || null, // Can be null if empty
-                    city: shippingAddress.city,
-                    state: shippingAddress.state_code, // Stripe uses 'state'
-                    postal_code: shippingAddress.postcode, // Stripe uses 'postal_code'
-                    country: shippingAddress.country_code, // Stripe uses 'country'
-                },
-            },
+            // FIX: The API version you are using requires 'customer_email' instead of 'customer_details'
+            // We will provide the customer's email directly and let Stripe handle the rest.
+            customer_email: shippingAddress.email,
 
-            // By providing `customer_details.address`, Stripe will use it to pre-fill
-            // the shipping details form. We must also enable shipping collection.
-            shipping_options: [
-                {
-                    shipping_rate_data: {
-                        type: 'fixed_amount',
-                        fixed_amount: {
-                            // The shipping cost is already included in our total price, so we set this to 0.
-                            // We are just using this to display a shipping line item to the user.
-                            amount: 0,
-                            currency: 'usd',
-                        },
-                        display_name: 'Standard Shipping',
-                        delivery_estimate: {
-                            minimum: { unit: 'business_day', value: 5 },
-                            maximum: { unit: 'business_day', value: 10 },
-                        },
-                    },
-                },
-            ],
+            // We must still enable shipping address collection for the physical product.
+            shipping_address_collection: {
+                allowed_countries: ['US', 'AU', 'CA', 'GB', 'DE', 'FR'], // Add any countries you ship to
+            },
 
             line_items: [
                 {
