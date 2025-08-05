@@ -8,7 +8,7 @@ import {
     getPictureBook,
     deletePictureBook, // Deletes the entire book
     deleteTimelineEvent, // NEW: For deleting a specific timeline event (page)
-    createBookCheckoutSession,
+    createBookCheckoutSession, // MODIFIED: This will now handle the full checkout flow
     togglePictureBookPrivacy,
     // REMOVED: getPictureBookShippingOptions as it's now handled by shipping.controller.js
 } from '../controllers/picturebook.controller.js';

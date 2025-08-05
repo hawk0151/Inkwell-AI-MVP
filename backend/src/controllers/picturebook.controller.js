@@ -297,7 +297,7 @@ export const createBookCheckoutSession = async (req, res) => {
         }
         if (actualFinalPageCount < selectedProductConfig.minPageCount) {
             const errorMessage = `Generated picture book page count (${actualFinalPageCount}) is below the minimum required for this format (${selectedProductConfig.minPageCount}). This indicates an issue with PDF generation or unexpected content. Please generate more content or try a different product.`;
-            console.error("[Checkout] ERROR: Page count still below minimum after PDF generation/fallback.", { bookId, finalPageCount: actualFinalPageCount, product: selectedProductConfig.id });
+            console.error("[Checkout] ERROR: Page count still below minimum.", { bookId, finalPageCount: actualFinalPageCount, product: selectedProductConfig.id });
             return res.status(400).json({ message: errorMessage });
         }
 
