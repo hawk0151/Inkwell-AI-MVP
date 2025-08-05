@@ -1,42 +1,71 @@
-import React from 'react'; // React is needed for JSX
+// frontend/src/components/common.jsx
+import React from 'react';
+import { motion } from 'framer-motion';
+import { CheckCircleIcon, XCircleIcon, InformationCircleIcon, ExclamationTriangleIcon } from '@heroicons/react/24/solid';
+import logoImage from '../assets/logo.png'; // Import the new logo image
 
 export const LoadingSpinner = ({ text = "Loading..." }) => (
     <div className="flex flex-col justify-center items-center p-8 gap-4">
-        <div className="w-12 h-12 border-4 border-amber-200 border-t-amber-600 rounded-full animate-spin"></div>
-        <p className="text-slate-600 font-medium">{text}</p>
+        {/* Themed with our primary indigo color */}
+        <div className="w-12 h-12 border-4 border-indigo-300 border-t-indigo-600 rounded-full animate-spin"></div>
+        <p className="text-slate-400 font-medium">{text}</p>
     </div>
 );
 
-export const Alert = ({ title, children }) => (
-    <div className="bg-red-100 border-l-4 border-red-500 text-red-800 p-4 rounded-lg shadow-md" role="alert">
-        <p className="font-bold">{title}</p>
-        <p>{children}</p>
-    </div>
-);
+export const Alert = ({ type = 'error', title, message, children, onClose }) => {
+    const theme = {
+        error: {
+            icon: <XCircleIcon className="h-6 w-6 text-red-400" />,
+            bgColor: 'bg-red-900/50',
+            borderColor: 'border-red-500/50',
+            titleColor: 'text-red-300',
+        },
+        success: {
+            icon: <CheckCircleIcon className="h-6 w-6 text-teal-400" />,
+            bgColor: 'bg-teal-900/50',
+            borderColor: 'border-teal-500/50',
+            titleColor: 'text-teal-300',
+        },
+        info: {
+            icon: <InformationCircleIcon className="h-6 w-6 text-indigo-400" />,
+            bgColor: 'bg-indigo-900/50',
+            borderColor: 'border-indigo-500/50',
+            titleColor: 'text-indigo-300',
+        }
+    };
 
-// DEFINITIVE: Logo Component - ENSURE THIS IS EXPORTED
+    const selectedTheme = theme[type] || theme.error;
+
+    return (
+        <div className={`flex items-start w-full p-4 rounded-xl shadow-lg border ${selectedTheme.bgColor} ${selectedTheme.borderColor}`} role="alert">
+            <div className="flex-shrink-0">{selectedTheme.icon}</div>
+            <div className="ml-3 flex-grow">
+                {title && <h3 className={`font-bold ${selectedTheme.titleColor}`}>{title}</h3>}
+                <div className="text-sm text-slate-300 mt-1">
+                    {message || children}
+                </div>
+            </div>
+            {onClose && (
+                <div className="ml-auto pl-3">
+                    <button onClick={onClose} className="-mx-1.5 -my-1.5 p-1.5 rounded-lg text-slate-400 hover:bg-white/10 focus:outline-none">
+                        <span className="sr-only">Dismiss</span>
+                        <XCircleIcon className="h-5 w-5" />
+                    </button>
+                </div>
+            )}
+        </div>
+    );
+};
+
 export const Logo = () => (
-  <div className="flex items-center gap-2 cursor-pointer">
-    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M12 3C10.8954 3 10 3.89543 10 5V12.7846C8.06437 13.443 7.23423 15.6942 8.19675 17.4202L11.5 9.5" stroke="white" strokeWidth="2" strokeLinecap="round"/>
-      <path d="M12 3C13.1046 3 14 3.89543 14 5V12.7846C15.9356 13.443 16.7658 15.6942 15.8032 17.4202L12.5 9.5" stroke="white" strokeWidth="2" strokeLinecap="round"/>
-      <path d="M8.19675 17.4202C8.76116 18.4913 9.82674 19.2154 11 19.428V21H13V19.428C14.1733 19.2154 15.2388 18.4913 15.8032 17.4202" stroke="white" strokeWidth="2" strokeLinecap="round"/>
-    </svg>
-    <span className="font-serif font-bold text-2xl text-white">Inkwell AI</span>
-  </div>
+    <div className="flex items-center gap-3 cursor-pointer">
+        <img src={logoImage} alt="Inkwell AI Logo" className="h-8 w-8" />
+        <span className="font-serif font-bold text-2xl text-white">Inkwell AI</span>
+    </div>
 );
 
-// DEFINITIVE: MagicWandIcon Component - ENSURE THIS IS EXPORTED
-export const MagicWandIcon = () => (
-    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-2">
-        <path d="M15 4V2"/>
-        <path d="M15 16v-2"/>
-        <path d="M8 9h2"/>
-        <path d="M20 9h2"/>
-        <path d="M17.8 11.8 19 13"/>
-        <path d="M15 9h.01"/>
-        <path d="M17.8 6.2 19 5"/>
-        <path d="m3 21 9-9"/>
-        <path d="M12.2 6.2 11 5"/>
+export const MagicWandIcon = ({ className }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+        <path d="M15 4V2"/><path d="M15 16v-2"/><path d="M8 9h2"/><path d="M20 9h2"/><path d="M17.8 11.8 19 13"/><path d="M15 9h.01"/><path d="M17.8 6.2 19 5"/><path d="m3 21 9-9"/><path d="M12.2 6.2 11 5"/>
     </svg>
 );
