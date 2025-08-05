@@ -1,3 +1,4 @@
+// backend/src/db/setupDatabase.js
 import { getDb } from './database.js';
 
 const addColumnIfNotExists = async (dbConnection, tableName, columnName, columnDefinition) => {
@@ -11,7 +12,7 @@ const addColumnIfNotExists = async (dbConnection, tableName, columnName, columnD
                 console.log(`Adding column '${columnName}' to table '${tableName}'...`);
                 await dbConnection.query(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnDefinition}`);
             }
-        } else { // SQLite
+        } else { // SQLite - Fallback, typically not used for Render PostgreSQL
             const result = await dbConnection.all(`PRAGMA table_info(${tableName})`);
             if (!result.some(column => column.name === columnName)) {
                 console.log(`Adding column '${columnName}' to table '${tableName}'...`);
@@ -34,34 +35,34 @@ const createFollowsTable = `CREATE TABLE IF NOT EXISTS follows (follower_id TEXT
 const createLikesTable = `CREATE TABLE IF NOT EXISTS likes (user_id TEXT NOT NULL, book_id TEXT NOT NULL, book_type TEXT NOT NULL, created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (user_id, book_id, book_type));`;
 const createCommentsTable = `CREATE TABLE IF NOT EXISTS comments (id SERIAL PRIMARY KEY, user_id TEXT NOT NULL, book_id TEXT NOT NULL, book_type TEXT NOT NULL, comment_text TEXT NOT NULL, created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP);`;
 
-// --- CRITICALLY MODIFIED: Updated createOrdersTable to include ALL columns
-//    from textbook.controller.js INSERT, plus other fields that were previously there ---
+// MODIFIED: Updated createOrdersTable to include ALL columns expected by controllers
 const createOrdersTable = `CREATE TABLE IF NOT EXISTS orders (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,
     book_id TEXT NOT NULL,
     book_type TEXT NOT NULL,
     book_title TEXT,
-    lulu_order_id TEXT,           -- Existing
-    stripe_session_id TEXT,       -- Existing
-    status TEXT,                  -- Existing
-    total_price NUMERIC(10, 2),   -- Existing (was total_cost in controller, now matched)
-    currency TEXT,                -- REQUIRED BY CONTROLLER
-    interior_pdf_url TEXT,        -- Existing
-    cover_pdf_url TEXT,           -- Existing
-    lulu_job_id TEXT,             -- Existing
-    lulu_job_status TEXT,         -- Existing
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, -- REQUIRED BY CONTROLLER
-    order_date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, -- Existing (CORRECTED: added DEFAULT CURRENT_TIMESTAMP)
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, -- Existing
-    lulu_product_id TEXT,         -- REQUIRED BY CONTROLLER
-    actual_page_count INTEGER,    -- REQUIRED BY CONTROLLER
-    is_fallback BOOLEAN DEFAULT FALSE, -- REQUIRED BY CONTROLLER
-    lulu_print_cost_usd NUMERIC(10, 2), -- REQUIRED BY CONTROLLER
-    flat_shipping_cost_usd NUMERIC(10, 2), -- REQUIRED BY CONTROLLER
-    profit_usd NUMERIC(10, 2)     -- REQUIRED BY CONTROLLER
+    lulu_order_id TEXT,
+    stripe_session_id TEXT,
+    status TEXT,
+    total_price_usd NUMERIC(10, 2), -- MODIFIED: Renamed to total_price_usd
+    currency TEXT,
+    interior_pdf_url TEXT,
+    cover_pdf_url TEXT,
+    lulu_job_id TEXT,
+    lulu_job_status TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    order_date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    lulu_product_id TEXT,
+    actual_page_count INTEGER,
+    is_fallback BOOLEAN DEFAULT FALSE,
+    lulu_print_cost_usd NUMERIC(10, 2),
+    lulu_shipping_cost_usd NUMERIC(10, 2), -- ADDED: New column for dynamic shipping cost
+    profit_usd NUMERIC(10, 2),
+    shipping_level_selected TEXT, -- ADDED: New column for selected shipping level
+    lulu_fulfillment_cost_usd NUMERIC(10, 2) -- ADDED: New column for fulfillment cost
 );`;
-// Note: I've kept all timestamp fields as they are explicitly in your INSERT.
 
 export const setupDatabase = async () => {
     let client;
@@ -87,25 +88,27 @@ export const setupDatabase = async () => {
             await addColumnIfNotExists(client, 'timeline_events', 'overlay_text', 'TEXT');
             await addColumnIfNotExists(client, 'timeline_events', 'last_modified', 'TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP');
 
-            // --- CRITICAL: Ensure addColumnIfNotExists for ALL orders columns ---
+            // MODIFIED: Ensure addColumnIfNotExists for ALL new/modified orders columns
+            await addColumnIfNotExists(client, 'orders', 'total_price_usd', 'NUMERIC(10, 2)'); // Ensure this is correctly named
             await addColumnIfNotExists(client, 'orders', 'currency', 'TEXT');
             await addColumnIfNotExists(client, 'orders', 'lulu_product_id', 'TEXT');
             await addColumnIfNotExists(client, 'orders', 'actual_page_count', 'INTEGER');
             await addColumnIfNotExists(client, 'orders', 'is_fallback', 'BOOLEAN DEFAULT FALSE');
             await addColumnIfNotExists(client, 'orders', 'lulu_print_cost_usd', 'NUMERIC(10, 2)');
-            await addColumnIfNotExists(client, 'orders', 'flat_shipping_cost_usd', 'NUMERIC(10, 2)');
+            await addColumnIfNotExists(client, 'orders', 'lulu_shipping_cost_usd', 'NUMERIC(10, 2)'); // ADDED
             await addColumnIfNotExists(client, 'orders', 'profit_usd', 'NUMERIC(10, 2)');
+            await addColumnIfNotExists(client, 'orders', 'shipping_level_selected', 'TEXT'); // ADDED
+            await addColumnIfNotExists(client, 'orders', 'lulu_fulfillment_cost_usd', 'NUMERIC(10, 2)'); // ADDED
             await addColumnIfNotExists(client, 'orders', 'created_at', 'TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP');
-            await addColumnIfNotExists(client, 'orders', 'order_date', 'TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP'); // ADDED DEFAULT HERE
-            // Re-adding the ones that were already there, for completeness, in case the previous alter also failed
+            await addColumnIfNotExists(client, 'orders', 'order_date', 'TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP');
+            await addColumnIfNotExists(client, 'orders', 'updated_at', 'TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP');
+            // Re-adding existing ones for completeness, in case previous alters failed
             await addColumnIfNotExists(client, 'orders', 'interior_pdf_url', 'TEXT');
             await addColumnIfNotExists(client, 'orders', 'cover_pdf_url', 'TEXT');
             await addColumnIfNotExists(client, 'orders', 'shipping_carrier', 'TEXT');
             await addColumnIfNotExists(client, 'orders', 'tracking_number', 'TEXT');
             await addColumnIfNotExists(client, 'orders', 'lulu_job_id', 'TEXT');
             await addColumnIfNotExists(client, 'orders', 'lulu_job_status', 'TEXT');
-            await addColumnIfNotExists(client, 'orders', 'updated_at', 'TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP');
-            // --- END CRITICAL ADDITIONS ---
 
         } else {
             // Fallback for SQLite - if you are not using SQLite, this block is fine as is
