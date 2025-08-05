@@ -1,5 +1,4 @@
 // backend/src/controllers/picturebook.controller.js
-
 import { getDb } from '../db/database.js';
 import { randomUUID } from 'crypto';
 import { generateAndSavePictureBookPdf, generateCoverPdf } from '../services/pdf.service.js';
@@ -12,7 +11,7 @@ import fs from 'fs/promises';
 const AUD_TO_USD_EXCHANGE_RATE = 0.66;
 const JWT_QUOTE_SECRET = process.env.JWT_QUOTE_SECRET || 'your_super_secret_jwt_quote_key';
 const PROFIT_MARGIN_USD = 10.00;
-const REQUIRED_CONTENT_PAGES = 20; // Added constant for validation
+const REQUIRED_CONTENT_PAGES = 20;
 
 async function getFullPictureBook(bookId, userId, client) {
     const bookResult = await client.query(`SELECT * FROM picture_books WHERE id = $1 AND user_id = $2`, [bookId, userId]);
@@ -109,41 +108,78 @@ export const getPictureBooks = async (req, res) => {
     }
 };
 
-export const addTimelineEvent = async (req, res) => {
+// NEW, REFACTORED CONTROLLER: Handles saving the entire timeline
+export const saveTimelineEvents = async (req, res) => {
     let client;
+    const { bookId } = req.params;
+    const { events } = req.body;
+    const userId = req.userId;
+
+    if (!Array.isArray(events)) {
+        return res.status(400).json({ message: "Invalid request body. 'events' must be an array." });
+    }
+
     try {
         const pool = await getDb();
         client = await pool.connect();
-        const { bookId } = req.params;
-        const { page_number, event_date = null, story_text = null, image_url = null, image_style = null, uploaded_image_url = null, overlay_text = null, is_bold_story_text = false } = req.body;
-        if (page_number === undefined || page_number === null) {
-            return res.status(400).json({ message: "Page number is a required field." });
+
+        // Start a database transaction
+        await client.query('BEGIN');
+
+        // Verify the book belongs to the user
+        const bookResult = await client.query(`SELECT id FROM picture_books WHERE id = $1 AND user_id = $2`, [bookId, userId]);
+        if (bookResult.rows.length === 0) {
+            await client.query('ROLLBACK');
+            return res.status(404).json({ message: 'Project not found or you do not have permission.' });
         }
-        const finalImageUrl = uploaded_image_url || image_url;
-        const sql = `
-            INSERT INTO timeline_events (book_id, page_number, event_date, story_text, image_url, image_style, uploaded_image_url, overlay_text, is_bold_story_text)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-            ON CONFLICT(book_id, page_number) DO UPDATE SET
-            event_date = EXCLUDED.event_date,
-            story_text = EXCLUDED.story_text,
-            image_url = EXCLUDED.image_url,
-            image_style = EXCLUDED.image_style,
-            uploaded_image_url = EXCLUDED.uploaded_image_url,
-            overlay_text = EXCLUDED.overlay_text,
-            is_bold_story_text = EXCLUDED.is_bold_story_text,
-            last_modified = CURRENT_TIMESTAMP;
-        `;
-        await client.query(sql, [bookId, page_number, event_date, story_text, finalImageUrl, image_style, uploaded_image_url, overlay_text, is_bold_story_text]);
+
+        // 1. Delete all existing events for this book
+        await client.query(`DELETE FROM timeline_events WHERE book_id = $1`, [bookId]);
+
+        // 2. Insert the new events with their correct page_number
+        if (events.length > 0) {
+            const insertSql = `
+                INSERT INTO timeline_events (book_id, page_number, event_date, story_text, image_url, image_style, uploaded_image_url, overlay_text, is_bold_story_text)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            `;
+            for (let i = 0; i < events.length; i++) {
+                const event = events[i];
+                const pageNumber = i + 1; // Correctly sequence pages from 1 to N
+                const finalImageUrl = event.uploaded_image_url || event.image_url;
+
+                await client.query(insertSql, [
+                    bookId,
+                    pageNumber,
+                    event.event_date || null,
+                    event.story_text || null,
+                    finalImageUrl,
+                    event.image_style || null,
+                    event.uploaded_image_url || null,
+                    event.overlay_text || null,
+                    event.is_bold_story_text || false
+                ]);
+            }
+        }
+        
+        // 3. Update the book's last modified date
         await client.query(`UPDATE picture_books SET last_modified = $1 WHERE id = $2`, [new Date().toISOString(), bookId]);
-        res.status(201).json({ message: 'Event saved.' });
+
+        // Commit the transaction
+        await client.query('COMMIT');
+
+        res.status(200).json({ message: 'Timeline events saved successfully.' });
+
     } catch (err) {
-        console.error("Error in addTimelineEvent:", err.message);
-        res.status(500).json({ message: 'Failed to save timeline event.' });
+        if (client) await client.query('ROLLBACK');
+        console.error(`Error in saveTimelineEvents controller:`, err.message);
+        res.status(500).json({ message: 'Failed to save timeline events.' });
     } finally {
         if (client) client.release();
     }
 };
 
+// The old addTimelineEvent and deleteTimelineEvent controllers have been removed and replaced by saveTimelineEvents.
+// The code for createBookCheckoutSession and below remains the same.
 export const createBookCheckoutSession = async (req, res) => {
     const { bookId } = req.params;
     const { shippingAddress, selectedShippingLevel, quoteToken } = req.body;
