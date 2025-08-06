@@ -115,12 +115,13 @@ const ProjectCard = ({ project, onClick, onDelete, onPublishToggle }) => {
     };
 
     return (
+        // FIX: Conditionally apply a higher z-index when the dropdown is open
         <motion.div
             variants={cardVariants}
             whileHover={{ y: -5, scale: 1.02, boxShadow: "0px 10px 25px rgba(0, 0, 0, 0.3)" }}
             onClick={() => onClick(project)} // Corrected: Clicking card now goes to editor
-            // FIX: Added 'relative' and 'z-10' to the card itself to create a new, higher stacking context.
-            className="group relative z-10 cursor-pointer bg-slate-800/50 backdrop-blur-md rounded-xl p-6 border border-slate-700 transition-all duration-300 hover:border-indigo-500/50 overflow-visible"
+            // The z-index will be z-50 when open, otherwise z-10 (or a default lower than z-50)
+            className={`group relative cursor-pointer bg-slate-800/50 backdrop-blur-md rounded-xl p-6 border border-slate-700 transition-all duration-300 hover:border-indigo-500/50 overflow-visible ${isDropdownOpen ? 'z-50' : 'z-10'}`}
         >
             <div className="flex justify-between items-start">
                 <div>
@@ -133,7 +134,7 @@ const ProjectCard = ({ project, onClick, onDelete, onPublishToggle }) => {
                         <ProjectStatusIndicator project={project} />
                     </div>
                 </div>
-                {/* FIX: Set a higher z-index on the dropdown button container itself to ensure it's on top of everything else. */}
+                {/* The dropdown button container. Its z-index is relative to the ProjectCard's stacking context. */}
                 <div className="relative z-20" ref={dropdownRef}>
                     <button
                         onClick={(e) => { e.stopPropagation(); setIsDropdownOpen(!isDropdownOpen); }}
@@ -149,7 +150,7 @@ const ProjectCard = ({ project, onClick, onDelete, onPublishToggle }) => {
                                 animate={{ opacity: 1, y: 0 }}
                                 exit={{ opacity: 0, y: -10 }}
                                 transition={{ duration: 0.2 }}
-                                // FIX: A higher z-index on the dropdown menu itself for absolute certainty.
+                                // The dropdown menu itself. Its z-index is relative to its parent (the z-20 div).
                                 className="absolute right-0 mt-2 w-48 bg-slate-800 border border-slate-700 rounded-md shadow-lg z-30 py-1"
                             >
                                 <button
