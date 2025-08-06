@@ -119,7 +119,8 @@ const ProjectCard = ({ project, onClick, onDelete, onPublishToggle }) => {
             variants={cardVariants}
             whileHover={{ y: -5, scale: 1.02, boxShadow: "0px 10px 25px rgba(0, 0, 0, 0.3)" }}
             onClick={() => onClick(project)} // Corrected: Clicking card now goes to editor
-            className="group relative cursor-pointer bg-slate-800/50 backdrop-blur-md rounded-xl p-6 border border-slate-700 transition-all duration-300 hover:border-indigo-500/50 overflow-visible"
+            // FIX: Added 'relative' and 'z-10' to the card itself to create a new, higher stacking context.
+            className="group relative z-10 cursor-pointer bg-slate-800/50 backdrop-blur-md rounded-xl p-6 border border-slate-700 transition-all duration-300 hover:border-indigo-500/50 overflow-visible"
         >
             <div className="flex justify-between items-start">
                 <div>
@@ -132,8 +133,8 @@ const ProjectCard = ({ project, onClick, onDelete, onPublishToggle }) => {
                         <ProjectStatusIndicator project={project} />
                     </div>
                 </div>
-                {/* MODIFIED: Added a high z-index to the dropdown container to fix layering issue */}
-                <div className="relative z-[100]" ref={dropdownRef}>
+                {/* FIX: Set a higher z-index on the dropdown button container itself to ensure it's on top of everything else. */}
+                <div className="relative z-20" ref={dropdownRef}>
                     <button
                         onClick={(e) => { e.stopPropagation(); setIsDropdownOpen(!isDropdownOpen); }}
                         className="p-2 rounded-full text-slate-400 hover:bg-white/10 hover:text-white transition-colors"
@@ -148,7 +149,8 @@ const ProjectCard = ({ project, onClick, onDelete, onPublishToggle }) => {
                                 animate={{ opacity: 1, y: 0 }}
                                 exit={{ opacity: 0, y: -10 }}
                                 transition={{ duration: 0.2 }}
-                                className="absolute right-0 mt-2 w-48 bg-slate-800 border border-slate-700 rounded-md shadow-lg py-1"
+                                // FIX: A higher z-index on the dropdown menu itself for absolute certainty.
+                                className="absolute right-0 mt-2 w-48 bg-slate-800 border border-slate-700 rounded-md shadow-lg z-30 py-1"
                             >
                                 <button
                                     onClick={(e) => onClick(project)}
