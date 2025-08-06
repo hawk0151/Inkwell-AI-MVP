@@ -115,11 +115,12 @@ const ProjectCard = ({ project, onClick, onDelete, onPublishToggle }) => {
     };
 
     return (
+        // MODIFIED: Added overflow-visible to the card itself
         <motion.div
             variants={cardVariants}
             whileHover={{ y: -5, scale: 1.02, boxShadow: "0px 10px 25px rgba(0, 0, 0, 0.3)" }}
             onClick={() => onClick(project)} // Corrected: Clicking card now goes to editor
-            className="group relative cursor-pointer bg-slate-800/50 backdrop-blur-md rounded-xl p-6 border border-slate-700 transition-all duration-300 hover:border-indigo-500/50"
+            className="group relative cursor-pointer bg-slate-800/50 backdrop-blur-md rounded-xl p-6 border border-slate-700 transition-all duration-300 hover:border-indigo-500/50 overflow-visible"
         >
             <div className="flex justify-between items-start">
                 <div>
@@ -148,7 +149,8 @@ const ProjectCard = ({ project, onClick, onDelete, onPublishToggle }) => {
                                 animate={{ opacity: 1, y: 0 }}
                                 exit={{ opacity: 0, y: -10 }}
                                 transition={{ duration: 0.2 }}
-                                className="absolute right-0 mt-2 w-48 bg-slate-800 border border-slate-700 rounded-md shadow-lg z-50 py-1"
+                                // MODIFIED: Added a higher z-index here as well for extra robustness
+                                className="absolute right-0 mt-2 w-48 bg-slate-800 border border-slate-700 rounded-md shadow-lg z-[100] py-1"
                             >
                                 <button
                                     onClick={(e) => onClick(project)}
