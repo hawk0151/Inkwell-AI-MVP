@@ -48,8 +48,8 @@ function PictureBookPage() {
             const { data } = await apiClient.get(`/picture-books/${bookId}`);
             setBook(data.book);
             // Ensure each fetched event has a unique client-side ID for React's key prop
-            const fetchedTimeline = data.timeline.length > 0 
-                ? data.timeline.map(event => ({ ...event, id: event.id || Date.now() + Math.random() })) 
+            const fetchedTimeline = data.timeline.length > 0
+                ? data.timeline.map(event => ({ ...event, id: event.id || Date.now() + Math.random() }))
                 : [{ id: Date.now(), story_text: '', event_date: '', image_url: null, uploaded_image_url: null, overlay_text: '', is_bold_story_text: false }];
             setTimeline(fetchedTimeline);
             setError(null); // Clear any previous errors on successful fetch
@@ -94,16 +94,15 @@ function PictureBookPage() {
             // The backend expects an object with an 'events' array
             await apiClient.post(`/picture-books/${bookId}/events`, { events: currentTimeline });
             console.log("Timeline saved successfully!");
-            // After successful save, re-fetch to ensure local state is perfectly synced with backend,
-            // especially important for page_number re-indexing on backend.
-            await fetchBook(); 
+            // This is the line we are removing to prevent the full component re-render
+            // await fetchBook(); 
         } catch (err) {
             console.error("Failed to save timeline events:", err);
             setSaveError("Failed to save progress. Please try again.");
         } finally {
             setTimeout(() => setIsSaving(false), 1000); // Debounce saving state
         }
-    }, [bookId, isSaving, fetchBook]);
+    }, [bookId, isSaving]); // Removed fetchBook from dependencies as it's no longer used here
 
     // Auto-save effect: Triggers saveAllTimelineEvents when timeline changes
     // Debounce to prevent saving on every single keystroke/change
@@ -195,7 +194,7 @@ function PictureBookPage() {
                 <div className="max-w-screen-2xl mx-auto py-8 px-4 sm:px-6 lg:px-8 flex flex-col min-h-screen">
                     
                     {/* New Compact Header for Editor */}
-                    <motion.div 
+                    <motion.div
                         initial={{ opacity: 0, y: -20 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ duration: 0.5 }}
@@ -216,7 +215,7 @@ function PictureBookPage() {
                         </button>
                     </motion.div>
 
-                    <motion.div 
+                    <motion.div
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         transition={{ duration: 0.5, delay: 0.2 }}
@@ -254,20 +253,20 @@ function PictureBookPage() {
                         </div>
                         <div className="md:w-2/3 lg:w-3/4">
                             {/* Pass the saveAllTimelineEvents function as onSave to ImageEditor */}
-                            <ImageEditor 
-                                currentEvent={currentEvent} 
-                                onImageUpdate={handleFieldChange} 
+                            <ImageEditor
+                                currentEvent={currentEvent}
+                                onImageUpdate={handleFieldChange}
                                 onSave={saveAllTimelineEvents} // Pass the new save function
                                 // Pass the entire timeline to ImageEditor so it can manage its own internal state and pass it back
-                                timeline={timeline} 
+                                timeline={timeline}
                             />
                         </div>
                     </motion.div>
                     <div className="mt-8 text-center">
-                        <motion.button 
+                        <motion.button
                             whileHover={{ scale: 1.05 }}
                             whileTap={{ scale: 0.95 }}
-                            onClick={handleFinalizeAndPurchase} 
+                            onClick={handleFinalizeAndPurchase}
                             disabled={!meetsPageRequirement || isSaving} // Disable if saving is in progress
                             className="bg-teal-600 text-white font-bold py-4 px-10 rounded-lg hover:bg-teal-500 disabled:bg-slate-700 disabled:text-slate-400 disabled:cursor-not-allowed transition-all duration-300 transform shadow-lg text-lg"
                         >
