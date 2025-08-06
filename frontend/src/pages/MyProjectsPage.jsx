@@ -37,8 +37,8 @@ const toggleBookPrivacy = ({ bookId, bookType, is_public }) => {
 const ProjectStatusIndicator = ({ project }) => {
     let statusText = "Draft";
     let statusColor = "bg-slate-500";
-    const isModified = project.date_created && project.last_modified && 
-                       new Date(project.last_modified).getTime() > new Date(project.date_created).getTime();
+    const isModified = project.date_created && project.last_modified &&
+                        new Date(project.last_modified).getTime() > new Date(project.date_created).getTime();
 
     if (project.is_public) {
         statusText = "Published";
@@ -132,7 +132,8 @@ const ProjectCard = ({ project, onClick, onDelete, onPublishToggle }) => {
                         <ProjectStatusIndicator project={project} />
                     </div>
                 </div>
-                <div className="relative" ref={dropdownRef}>
+                {/* MODIFIED: Added z-50 to ensure dropdown is on top */}
+                <div className="relative z-50" ref={dropdownRef}>
                     <button
                         onClick={(e) => { e.stopPropagation(); setIsDropdownOpen(!isDropdownOpen); }}
                         className="p-2 rounded-full text-slate-400 hover:bg-white/10 hover:text-white transition-colors"
@@ -147,7 +148,7 @@ const ProjectCard = ({ project, onClick, onDelete, onPublishToggle }) => {
                                 animate={{ opacity: 1, y: 0 }}
                                 exit={{ opacity: 0, y: -10 }}
                                 transition={{ duration: 0.2 }}
-                                className="absolute right-0 mt-2 w-48 bg-slate-800 border border-slate-700 rounded-md shadow-lg z-20 py-1"
+                                className="absolute right-0 mt-2 w-48 bg-slate-800 border border-slate-700 rounded-md shadow-lg z-50 py-1"
                             >
                                 <button
                                     onClick={(e) => onClick(project)}
@@ -255,13 +256,13 @@ function MyProjectsPage() {
 
     return (
         <div className="min-h-screen bg-slate-900 bg-[radial-gradient(ellipse_80%_80%_at_50%_-20%,rgba(120,119,198,0.3),rgba(255,255,255,0))]">
-            <div className="max-w-6xl mx-auto py-12 px-4 sm:px-6 lg:px-8"> 
-                <PageHeader 
+            <div className="max-w-6xl mx-auto py-12 px-4 sm:px-6 lg:px-8">
+                <PageHeader
                     title="My Projects"
                     subtitle="This is your creative dashboard. Continue your stories or start a new one."
                 />
 
-                <div className="flex flex-col sm:flex-row space-y-3 sm:space-y-0 sm:space-x-4 mb-8"> 
+                <div className="flex flex-col sm:flex-row space-y-3 sm:space-y-0 sm:space-x-4 mb-8">
                     <motion.button
                         whileHover={{ scale: 1.05 }}
                         whileTap={{ scale: 0.95 }}
@@ -290,7 +291,7 @@ function MyProjectsPage() {
                 <div className="bg-slate-800/50 rounded-2xl p-6 border border-slate-700">
                     {isLoading ? <LoadingSpinner text="Fetching your projects..." /> : (
                         allProjects && allProjects.length > 0 ? (
-                            <motion.div 
+                            <motion.div
                                 variants={containerVariants}
                                 initial="hidden"
                                 animate="visible"
