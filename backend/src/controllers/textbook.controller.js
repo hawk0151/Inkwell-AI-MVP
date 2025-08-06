@@ -55,6 +55,19 @@ export const createTextBook = async (req, res) => {
     let client;
     const { title, promptDetails, luluProductId } = req.body;
     const userId = req.userId;
+    
+    // --- NEW: Add validation to prevent server errors from missing data ---
+    if (!title || typeof title !== 'string' || title.trim() === '') {
+        return res.status(400).json({ message: 'Book title is required.' });
+    }
+    if (!luluProductId) {
+        return res.status(400).json({ message: 'Lulu product ID is required.' });
+    }
+    if (!promptDetails || !promptDetails.wordsPerPage || !promptDetails.totalChapters || !promptDetails.maxPageCount) {
+        return res.status(400).json({ message: 'wordsPerPage, totalChapters, and maxPageCount are required for story generation.' });
+    }
+    // --- END NEW VALIDATION ---
+    
     try {
         const pool = await getDb();
         client = await pool.connect();
@@ -80,6 +93,9 @@ export const createTextBook = async (req, res) => {
 
         const firstChapterText = await generateStoryFromApi({
             ...promptDetails,
+            wordsPerPage: selectedProductConfig.wordsPerPage,
+            totalChapters: selectedProductConfig.totalChapters,
+            maxPageCount: effectiveMaxPageCount,
             chapterNumber: 1,
             isFinalChapter: totalChaptersForBook === 1
         });
@@ -334,7 +350,7 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
         console.log("[Checkout] Fetching print costs from Lulu with selected shipping level...");
         const printCostLineItems = [{
             pod_package_id: luluSku,
-            page_count: actualFinalPageCount,
+            page_count: actualFinalFinalPageCount,
             quantity: 1
         }];
 
@@ -418,12 +434,12 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
         const finalPriceInCents = Math.round(finalPriceDollars * 100);
 
         console.log(`[Checkout] Final Pricing Breakdown (Textbook):`);
-        console.log(`  - Product Retail Price: $${selectedProductConfig.basePrice.toFixed(2)} USD`);
-        console.log(`  - Lulu Print Cost: $${luluPrintCostUSD.toFixed(2)} USD (from $${luluPrintCostAUD.toFixed(2)} AUD)`);
-        console.log(`  - Dynamic Shipping Cost (${selectedShippingLevel}): $${luluShippingCostUSD.toFixed(2)} USD`);
-        console.log(`  - Fulfillment Cost: $${luluFulfillmentCostUSD.toFixed(2)} USD (from $${luluFulfillmentCostAUD.toFixed(2)} AUD)`);
-        console.log(`  -----------------------------------------`);
-        console.log(`  - Total Price for Stripe: $${finalPriceDollars.toFixed(2)} USD (${finalPriceInCents} cents)`);
+        console.log(`    - Product Retail Price: $${selectedProductConfig.basePrice.toFixed(2)} USD`);
+        console.log(`    - Lulu Print Cost: $${luluPrintCostUSD.toFixed(2)} USD (from $${luluPrintCostAUD.toFixed(2)} AUD)`);
+        console.log(`    - Dynamic Shipping Cost (${selectedShippingLevel}): $${luluShippingCostUSD.toFixed(2)} USD`);
+        console.log(`    - Fulfillment Cost: $${luluFulfillmentCostUSD.toFixed(2)} USD (from $${luluFulfillmentCostAUD.toFixed(2)} AUD)`);
+        console.log(`    -----------------------------------------`);
+        console.log(`    - Total Price for Stripe: $${finalPriceDollars.toFixed(2)} USD (${finalPriceInCents} cents)`);
 
         const orderId = randomUUID();
         const insertOrderSql = `

@@ -80,13 +80,14 @@ export const unlikeBook = async (req, res) => {
         const pool = await getDb();
         client = await pool.connect();
         await client.query('BEGIN');
-        
+
         const deleteLikeQuery = 'DELETE FROM likes WHERE user_id = $1 AND book_id = $2 AND book_type = $3';
         const deleteResult = await client.query(deleteLikeQuery, [userId, bookId, bookType]);
         console.log(`[UNLIKE DEBUG] Deleted from likes table. Changes: ${deleteResult.rowCount}`);
 
         if (deleteResult.rowCount > 0) {
-            const updateCountQuery = `UPDATE ${tableName} SET like_count = MAX(0, like_count - 1) WHERE id = $1`;
+            // FIX: Replaced invalid MAX(0, like_count - 1) with correct GREATEST(0, like_count - 1)
+            const updateCountQuery = `UPDATE ${tableName} SET like_count = GREATEST(0, like_count - 1) WHERE id = $1`;
             const updateResult = await client.query(updateCountQuery, [bookId]);
             console.log(`[UNLIKE DEBUG] Updated ${tableName} like_count. Changes: ${updateResult.rowCount}`);
         } else {
@@ -229,7 +230,8 @@ export const deleteComment = async (req, res) => {
             return res.status(404).json({ message: 'Comment not found or already deleted.' });
         }
 
-        const updateCountQuery = `UPDATE ${tableName} SET comment_count = MAX(0, comment_count - 1) WHERE id = $1`;
+        // FIX: Replaced invalid MAX(0, like_count - 1) with correct GREATEST(0, comment_count - 1)
+        const updateCountQuery = `UPDATE ${tableName} SET comment_count = GREATEST(0, comment_count - 1) WHERE id = $1`;
         const updateResult = await client.query(updateCountQuery, [bookId]);
         console.log(`[COMMENT DELETE DEBUG] Updated ${tableName} comment_count. Changes: ${updateResult.rowCount}`);
 
