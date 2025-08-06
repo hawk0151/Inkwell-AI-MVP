@@ -115,7 +115,6 @@ const ProjectCard = ({ project, onClick, onDelete, onPublishToggle }) => {
     };
 
     return (
-        // MODIFIED: Added overflow-visible to the card itself
         <motion.div
             variants={cardVariants}
             whileHover={{ y: -5, scale: 1.02, boxShadow: "0px 10px 25px rgba(0, 0, 0, 0.3)" }}
@@ -133,8 +132,8 @@ const ProjectCard = ({ project, onClick, onDelete, onPublishToggle }) => {
                         <ProjectStatusIndicator project={project} />
                     </div>
                 </div>
-                {/* MODIFIED: Added z-50 to ensure dropdown is on top */}
-                <div className="relative z-50" ref={dropdownRef}>
+                {/* MODIFIED: Added a high z-index to the dropdown container to fix layering issue */}
+                <div className="relative z-[100]" ref={dropdownRef}>
                     <button
                         onClick={(e) => { e.stopPropagation(); setIsDropdownOpen(!isDropdownOpen); }}
                         className="p-2 rounded-full text-slate-400 hover:bg-white/10 hover:text-white transition-colors"
@@ -149,8 +148,7 @@ const ProjectCard = ({ project, onClick, onDelete, onPublishToggle }) => {
                                 animate={{ opacity: 1, y: 0 }}
                                 exit={{ opacity: 0, y: -10 }}
                                 transition={{ duration: 0.2 }}
-                                // MODIFIED: Added a higher z-index here as well for extra robustness
-                                className="absolute right-0 mt-2 w-48 bg-slate-800 border border-slate-700 rounded-md shadow-lg z-[100] py-1"
+                                className="absolute right-0 mt-2 w-48 bg-slate-800 border border-slate-700 rounded-md shadow-lg py-1"
                             >
                                 <button
                                     onClick={(e) => onClick(project)}
