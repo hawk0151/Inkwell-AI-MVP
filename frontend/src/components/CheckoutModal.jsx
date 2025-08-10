@@ -1,10 +1,8 @@
-// frontend/src/components/CheckoutModal.jsx
 import React, { useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import apiClient from '../services/apiClient';
-import { LoadingSpinner, Alert } from './common.jsx'; // Assuming common.jsx is in the same components folder
+import { LoadingSpinner, Alert } from './common.jsx';
 
-// The COUNTRIES constant is now part of this self-contained component
 const COUNTRIES = [
     { code: 'US', name: 'United States', stateRequired: true },
     { code: 'AU', name: 'Australia', stateRequired: true },
@@ -26,6 +24,7 @@ const CheckoutModal = ({ isOpen, onClose, bookId, bookType, onSubmit, book }) =>
     const [isLoadingOptions, setIsLoadingOptions] = useState(false);
     const [isProcessingCheckout, setIsProcessingCheckout] = useState(false);
     const [modalError, setModalError] = useState(null);
+    const [loadingMessage, setLoadingMessage] = useState(''); // <-- NEW STATE FOR LOADING MESSAGE
 
     const inputClasses = "w-full p-3 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:ring-2 focus:ring-green-500 focus:border-green-500";
     const buttonClasses = "bg-green-600 text-white font-bold py-2 px-6 rounded-lg hover:bg-green-700 disabled:bg-green-300 transition";
@@ -49,34 +48,30 @@ const CheckoutModal = ({ isOpen, onClose, bookId, bookType, onSubmit, book }) =>
     const fetchShippingQuotes = useCallback(async () => {
         setModalError(null);
         setIsLoadingOptions(true);
+        setLoadingMessage('Getting shipping options...'); // <-- SET MESSAGE
         setShippingOptions([]);
         setSelectedShippingLevel(null);
         setQuoteDetails(null);
         
         try {
-            // This API call is already generic and works for both book types
             const response = await apiClient.post('/shipping/quotes', {
                 bookId,
                 bookType,
                 shippingAddress,
             });
 
-            // The backend returns 'shipping_options' and we should handle if it is empty.
             const options = response.data.shipping_options || [];
             setShippingOptions(options);
 
-            // Set other details from the quote response
             setQuoteDetails({
                 quote_token: response.data.quote_token,
                 expires_at: response.data.expires_at,
-                // Use base_product_price_usd for the retail price, as it comes from a single source of truth
-                base_product_price_usd: response.data.base_product_price_usd,
+                base_product_price_aud: response.data.base_product_price_aud, 
                 currency: response.data.currency,
             });
 
             if (options.length > 0) {
-                // The costs are now 'costUsd' as per your original file
-                const cheapest = options.reduce((min, current) => (current.costUsd < min.costUsd ? current : min));
+                const cheapest = options.reduce((min, current) => (current.cost < min.cost ? current : min));
                 setSelectedShippingLevel(cheapest.level);
             }
             setCheckoutStep('shipping_options');
@@ -86,6 +81,7 @@ const CheckoutModal = ({ isOpen, onClose, bookId, bookType, onSubmit, book }) =>
             setShippingOptions([]);
         } finally {
             setIsLoadingOptions(false);
+            setLoadingMessage(''); // <-- CLEAR MESSAGE
         }
     }, [bookId, bookType, shippingAddress]);
 
@@ -124,26 +120,27 @@ const CheckoutModal = ({ isOpen, onClose, bookId, bookType, onSubmit, book }) =>
             return;
         }
         setIsProcessingCheckout(true);
+        setLoadingMessage('Securing your book... Please wait while we prepare your order.'); // <-- SET MESSAGE
         try {
             const finalShippingOption = shippingOptions.find(opt => opt.level === selectedShippingLevel);
             if (!finalShippingOption || !quoteDetails || !quoteDetails.quote_token) {
                 throw new Error("Missing shipping option details or quote token for checkout.");
             }
-            // The onSubmit prop is called, allowing the parent page to handle the final checkout call
             await onSubmit(shippingAddress, selectedShippingLevel, quoteDetails.quote_token);
         } catch (err) {
             console.error('handleProceedToPayment: Could not proceed to checkout:', err);
             setModalError(err.response?.data?.detailedError || err.response?.data?.message || 'Could not proceed to checkout. Please try again.');
         } finally {
             setIsProcessingCheckout(false);
+            setLoadingMessage(''); // <-- CLEAR MESSAGE
         }
     };
 
     const getDisplayPrice = () => {
         if (!quoteDetails) return null;
         const selectedOption = shippingOptions.find(opt => opt.level === selectedShippingLevel);
-        const totalShippingCostUsd = selectedOption ? selectedOption.costUsd : 0;
-        const totalPrice = (quoteDetails.base_product_price_usd || book.price) + totalShippingCostUsd;
+        const totalShippingCost = selectedOption ? selectedOption.cost : 0;
+        const totalPrice = (quoteDetails.base_product_price_aud || book.price) + totalShippingCost;
         return totalPrice;
     };
     const currentTotalDisplayPrice = getDisplayPrice();
@@ -164,10 +161,12 @@ const CheckoutModal = ({ isOpen, onClose, bookId, bookType, onSubmit, book }) =>
                         </p>
                         
                         {modalError && <Alert type="error" message={modalError} onClose={() => setModalError(null)} className="mb-4" />}
-                        {isLoadingOptions && <LoadingSpinner text="Getting shipping options..." className="my-4" />}
-                        {isProcessingCheckout && <LoadingSpinner text="Processing checkout..." className="my-4" />}
                         
-                        {checkoutStep === 'shipping_input' && (
+                        {/* --- MODIFIED LOADING SPINNER RENDERING --- */}
+                        {isLoadingOptions && <LoadingSpinner text={loadingMessage} className="my-4" />}
+                        {isProcessingCheckout && <LoadingSpinner text={loadingMessage} className="my-4" />}
+                        
+                        {checkoutStep === 'shipping_input' && !isLoadingOptions && (
                             <form onSubmit={handleGetOptions} className="space-y-5">
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <div>
@@ -194,17 +193,17 @@ const CheckoutModal = ({ isOpen, onClose, bookId, bookType, onSubmit, book }) =>
                                         <input type="text" id="city" name="city" value={shippingAddress.city} onChange={handleFullAddressChange} placeholder="Springfield" required className={inputClasses} />
                                         {formErrors.city && <p className="text-red-400 text-xs mt-1">{formErrors.city}</p>}
                                     </div>
-                                     <div>
+                                    <div>
                                         <label htmlFor="state_code" className="block text-sm font-medium text-slate-300 mb-1">State/Province</label>
                                         <input type="text" id="state_code" name="state_code" value={shippingAddress.state_code} onChange={handleFullAddressChange} placeholder="NY" className={inputClasses} />
                                         {formErrors.state_code && <p className="text-red-400 text-xs mt-1">{formErrors.state_code}</p>}
                                     </div>
-                                     <div>
+                                    <div>
                                         <label htmlFor="postcode" className="block text-sm font-medium text-slate-300 mb-1">Postal Code</label>
                                         <input type="text" id="postcode" name="postcode" value={shippingAddress.postcode} onChange={handleFullAddressChange} placeholder="12345" required className={inputClasses} />
                                         {formErrors.postcode && <p className="text-red-400 text-xs mt-1">{formErrors.postcode}</p>}
                                     </div>
-                                     <div>
+                                    <div>
                                         <label htmlFor="country_code" className="block text-sm font-medium text-slate-300 mb-1">Country</label>
                                         <select id="country_code" name="country_code" value={shippingAddress.country_code} onChange={handleFullAddressChange} required className={inputClasses}>
                                             <option value="">Select a country</option>
@@ -212,7 +211,7 @@ const CheckoutModal = ({ isOpen, onClose, bookId, bookType, onSubmit, book }) =>
                                         </select>
                                         {formErrors.country_code && <p className="text-red-400 text-xs mt-1">{formErrors.country_code}</p>}
                                     </div>
-                                     <div className="md:col-span-2">
+                                    <div className="md:col-span-2">
                                         <label htmlFor="phone_number" className="block text-sm font-medium text-slate-300 mb-1">Phone Number</label>
                                         <input type="tel" id="phone_number" name="phone_number" value={shippingAddress.phone_number} onChange={handleFullAddressChange} placeholder="555-123-4567" required className={inputClasses} />
                                         {formErrors.phone_number && <p className="text-red-400 text-xs mt-1">{formErrors.phone_number}</p>}
@@ -227,7 +226,7 @@ const CheckoutModal = ({ isOpen, onClose, bookId, bookType, onSubmit, book }) =>
                             </form>
                         )}
                         
-                        {checkoutStep === 'shipping_options' && (
+                        {checkoutStep === 'shipping_options' && !isProcessingCheckout && (
                             <>
                                 {shippingOptions.length === 0 && !isLoadingOptions ? (
                                     <p className="text-slate-300">No shipping options available for the selected destination. Please try a different address.</p>
@@ -240,7 +239,7 @@ const CheckoutModal = ({ isOpen, onClose, bookId, bookType, onSubmit, book }) =>
                                                     {option.name}
                                                     <span className="block text-xs text-slate-400">Est. Delivery: {option.estimatedDeliveryDate || 'N/A'}</span>
                                                 </span>
-                                                <span className="font-semibold text-white">${option.costUsd.toFixed(2)}</span>
+                                                <span className="font-semibold text-white">${option.cost.toFixed(2)}</span>
                                             </label>
                                         ))}
                                     </div>
@@ -256,14 +255,14 @@ const CheckoutModal = ({ isOpen, onClose, bookId, bookType, onSubmit, book }) =>
                                     <div className="mt-6 border-t border-slate-700 pt-4">
                                         <div className="flex justify-between items-center text-slate-300">
                                             <span>Base Price:</span>
-                                            <span>${(quoteDetails.base_product_price_usd || book.price).toFixed(2)}</span>
+                                            <span>${(quoteDetails.base_product_price_aud || book.price).toFixed(2)}</span>
                                         </div>
                                         <div className="flex justify-between items-center text-slate-300">
                                             <span>Shipping:</span>
-                                            <span>${(shippingOptions.find(opt => opt.level === selectedShippingLevel)?.costUsd || 0).toFixed(2)}</span>
+                                            <span>${(shippingOptions.find(opt => opt.level === selectedShippingLevel)?.cost || 0).toFixed(2)}</span>
                                         </div>
                                         <div className="flex justify-between items-center text-xl font-bold text-white mt-2">
-                                            <span>Total Price (USD):</span>
+                                            <span>Total Price (AUD):</span>
                                             <span>${currentTotalDisplayPrice.toFixed(2)}</span>
                                         </div>
                                         {quoteDetails?.expires_at && (

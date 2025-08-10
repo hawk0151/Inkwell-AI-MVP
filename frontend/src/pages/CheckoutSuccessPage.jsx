@@ -1,28 +1,37 @@
 // frontend/src/pages/CheckoutSuccessPage.jsx
 import React, { useEffect, useState } from 'react';
-import { useSearchParams, Link as RouterLink } from 'react-router-dom'; // Renamed to avoid conflict
+import { useSearchParams, Link as RouterLink } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import apiClient from '../services/apiClient'; // Import apiClient
+import apiClient from '../services/apiClient';
+import { LoadingSpinner, Alert } from '../components/common';
 
-// Make the React Router Link component animatable
 const MotionLink = motion(RouterLink);
 
 const CheckoutSuccessPage = () => {
     const [searchParams] = useSearchParams();
     const sessionId = searchParams.get('session_id');
     const [status, setStatus] = useState('verifying');
+    const [order, setOrder] = useState(null);
 
     useEffect(() => {
-        if (sessionId) {
-            // In a real app, you would verify the session on your backend
-            // This is just a simulation for the UI
-            const timer = setTimeout(() => {
+        const fetchOrder = async () => {
+            if (!sessionId) {
+                setStatus('invalid');
+                return;
+            }
+            setStatus('verifying');
+            try {
+                // Call the backend to verify the session and get the order details
+                const response = await apiClient.get(`/orders/session/${sessionId}`);
+                setOrder(response.data);
                 setStatus('success');
-            }, 1500);
-            return () => clearTimeout(timer);
-        } else {
-            setStatus('invalid');
-        }
+            } catch (error) {
+                console.error("Failed to fetch order for session:", sessionId, error);
+                setStatus('error');
+            }
+        };
+
+        fetchOrder();
     }, [sessionId]);
 
     const iconPathVariants = {
@@ -48,14 +57,11 @@ const CheckoutSuccessPage = () => {
             >
                 {status === 'verifying' && (
                     <div className="text-white">
-                        <svg className="animate-spin h-10 w-10 text-teal-400 mx-auto mb-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 0020 13a8 8 0 00-6.002-7.792M6 13a8 8 0 1112 0v0A8.002 8.002 0 0110 21m-4 0h-.582m15.356-2a8.001 8.001 0 00-15.356 0" />
-                        </svg>
-                        <h2 className="text-3xl font-bold text-white mb-4 font-serif">Processing Your Order...</h2>
-                        <p className="text-slate-300">Please do not close this page. We are confirming your payment.</p>
+                        <LoadingSpinner text="Processing your order..." />
+                        <p className="text-slate-300 mt-4">Please do not close this page. We are confirming your payment.</p>
                     </div>
                 )}
-                {status === 'success' && (
+                {status === 'success' && order && (
                     <div className="text-white">
                         <motion.svg className="h-24 w-24 text-teal-500 mx-auto mb-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                             <motion.path 
@@ -84,9 +90,26 @@ const CheckoutSuccessPage = () => {
                     </div>
                 )}
                 {status === 'invalid' && (
-                     <div className="text-white">
-                        {/* ... Invalid status content ... */}
-                     </div>
+                    <div className="text-white">
+                        <Alert type="error" message="Invalid session. Please check your order history." />
+                        <MotionLink 
+                            to="/my-orders" 
+                            className="mt-6 inline-block bg-indigo-600 text-white font-bold py-3 px-8 rounded-lg hover:bg-indigo-500 transition-colors duration-300 shadow-lg text-lg"
+                        >
+                            View My Orders
+                        </MotionLink>
+                    </div>
+                )}
+                {status === 'error' && (
+                    <div className="text-white">
+                        <Alert type="error" message="Failed to load order details. Please check your order history." />
+                        <MotionLink 
+                            to="/my-orders" 
+                            className="mt-6 inline-block bg-indigo-600 text-white font-bold py-3 px-8 rounded-lg hover:bg-indigo-500 transition-colors duration-300 shadow-lg text-lg"
+                        >
+                            View My Orders
+                        </MotionLink>
+                    </div>
                 )}
             </motion.div>
         </div>

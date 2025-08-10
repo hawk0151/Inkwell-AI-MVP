@@ -1,4 +1,5 @@
 // frontend/src/pages/MyProjectsPage.jsx
+
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -18,11 +19,32 @@ const cardVariants = {
     visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: 'easeOut' } }
 };
 
-// --- API Functions (Same as before) ---
-const fetchProjects = async () => {
-    const response = await apiClient.get('/projects');
-    return response.data;
+// --- MODIFICATION START ---
+// 1. This new, robust function replaces the old 'fetchProjects' function.
+const fetchAllProjects = async () => {
+    try {
+        const textBooksPromise = apiClient.get('/text-books');
+        const pictureBooksPromise = apiClient.get('/picture-books');
+
+        const [textBooksResponse, pictureBooksResponse] = await Promise.all([
+            textBooksPromise,
+            pictureBooksPromise,
+        ]);
+
+        const textBooks = Array.isArray(textBooksResponse.data) ? textBooksResponse.data : [];
+        const pictureBooks = Array.isArray(pictureBooksResponse.data) ? pictureBooksResponse.data : [];
+
+        const allProjects = [...textBooks, ...pictureBooks];
+        
+        allProjects.sort((a, b) => new Date(b.last_modified) - new Date(a.last_modified));
+
+        return allProjects;
+    } catch (error) {
+        console.error("Failed to fetch all projects:", error);
+        throw new Error("Could not fetch projects from the server.");
+    }
 };
+// --- MODIFICATION END ---
 
 const deletePictureBook = (bookId) => apiClient.delete(`/picture-books/${bookId}`);
 const deleteTextBook = (bookId) => apiClient.delete(`/text-books/${bookId}`);
@@ -33,18 +55,21 @@ const toggleBookPrivacy = ({ bookId, bookType, is_public }) => {
     return apiClient.patch(endpoint, { is_public });
 };
 
-// --- NEW: Project Status Indicator Component ---
 const ProjectStatusIndicator = ({ project }) => {
     let statusText = "Draft";
     let statusColor = "bg-slate-500";
-    const isModified = project.date_created && project.last_modified &&
-                        new Date(project.last_modified).getTime() > new Date(project.date_created).getTime();
+    const hasChapters = project.chapters && Array.isArray(project.chapters) && project.chapters.length > 0;
+    const isGenerating = project.type === 'textBook' && project.total_chapters > 0 && (!project.chapters || project.chapters.length < project.total_chapters);
+    const isComplete = project.type === 'textBook' && hasChapters && project.chapters.length === project.total_chapters;
 
     if (project.is_public) {
         statusText = "Published";
         statusColor = "bg-teal-500";
-    } else if (isModified) {
-        statusText = "In Progress";
+    } else if (isGenerating) {
+        statusText = `In Progress... (${project.chapters ? project.chapters.length : 0}/${project.total_chapters})`;
+        statusColor = "bg-yellow-500 animate-pulse";
+    } else if (isComplete) {
+        statusText = "Complete";
         statusColor = "bg-indigo-500";
     }
 
@@ -55,7 +80,6 @@ const ProjectStatusIndicator = ({ project }) => {
     );
 };
 
-// --- MODIFIED: Publish Button (now designed to be inside dropdown) ---
 const PublishButton = ({ project, onPublishToggle }) => {
     const { mutate, isPending } = onPublishToggle;
     const handleClick = (e) => {
@@ -74,11 +98,22 @@ const PublishButton = ({ project, onPublishToggle }) => {
     );
 };
 
-// --- MODIFIED: Project Card with Action Buttons and Status ---
 const ProjectCard = ({ project, onClick, onDelete, onPublishToggle }) => {
-    const navigate = useNavigate();
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
     const dropdownRef = useRef(null);
+    const hasGeneratedChapters = project.chapters && Array.isArray(project.chapters) && project.chapters.length > 0;
+    const isGenerating = project.total_chapters > 0 && (!hasGeneratedChapters || project.chapters.length < project.total_chapters);
+    const isTextBookComplete = !isGenerating && hasGeneratedChapters;
+
+    const previewMutation = useMutation({
+        mutationFn: (bookId) => apiClient.get(`/text-books/${bookId}/preview`),
+        onSuccess: (response) => {
+            window.open(response.data.previewUrl, '_blank');
+        },
+        onError: (error) => {
+            alert(`Failed to generate preview: ${error.response?.data?.message || 'A server error occurred.'}`);
+        }
+    });
 
     useEffect(() => {
         const handleClickOutside = (event) => {
@@ -97,11 +132,10 @@ const ProjectCard = ({ project, onClick, onDelete, onPublishToggle }) => {
         if (action === 'delete') {
             onDelete(project);
         } else if (action === 'preview') {
-            if (project.type === 'pictureBook') {
-                navigate(`/picture-book/${project.id}/preview`);
+            if (project.type === 'pictureBook' || isTextBookComplete) {
+                previewMutation.mutate(project.id);
             } else {
-                alert('Text book preview not available yet. Navigating to editor.');
-                navigate(`/novel/${project.id}`);
+                alert('Preview is only available for complete books.');
             }
         } else if (action === 'share') {
             const shareUrl = `${window.location.origin}/feed/${project.type}/${project.id}`;
@@ -115,26 +149,23 @@ const ProjectCard = ({ project, onClick, onDelete, onPublishToggle }) => {
     };
 
     return (
-        // FIX: Conditionally apply a higher z-index when the dropdown is open
         <motion.div
             variants={cardVariants}
             whileHover={{ y: -5, scale: 1.02, boxShadow: "0px 10px 25px rgba(0, 0, 0, 0.3)" }}
-            onClick={() => onClick(project)} // Corrected: Clicking card now goes to editor
-            // The z-index will be z-50 when open, otherwise z-10 (or a default lower than z-50)
+            onClick={() => onClick(project)}
             className={`group relative cursor-pointer bg-slate-800/50 backdrop-blur-md rounded-xl p-6 border border-slate-700 transition-all duration-300 hover:border-indigo-500/50 overflow-visible ${isDropdownOpen ? 'z-50' : 'z-10'}`}
         >
             <div className="flex justify-between items-start">
                 <div>
                     <h3 className="font-bold text-xl text-white font-serif">{project.title}</h3>
                     <p className="text-sm text-indigo-300 font-sans mt-1">
-                        {project.type === 'pictureBook' ? 'Picture Book' : 'Text Book'}
+                        {project.productName || (project.type === 'pictureBook' ? 'Picture Book' : 'Text Book')}
                     </p>
                     <p className="text-xs text-slate-500 font-sans mt-2">Last modified: {new Date(project.last_modified).toLocaleString()}</p>
                     <div className="mt-2">
                         <ProjectStatusIndicator project={project} />
                     </div>
                 </div>
-                {/* The dropdown button container. Its z-index is relative to the ProjectCard's stacking context. */}
                 <div className="relative z-20" ref={dropdownRef}>
                     <button
                         onClick={(e) => { e.stopPropagation(); setIsDropdownOpen(!isDropdownOpen); }}
@@ -150,20 +181,21 @@ const ProjectCard = ({ project, onClick, onDelete, onPublishToggle }) => {
                                 animate={{ opacity: 1, y: 0 }}
                                 exit={{ opacity: 0, y: -10 }}
                                 transition={{ duration: 0.2 }}
-                                // The dropdown menu itself. Its z-index is relative to its parent (the z-20 div).
                                 className="absolute right-0 mt-2 w-48 bg-slate-800 border border-slate-700 rounded-md shadow-lg z-30 py-1"
                             >
                                 <button
-                                    onClick={(e) => onClick(project)}
+                                    onClick={(e) => { e.stopPropagation(); onClick(project); }}
                                     className="flex items-center gap-2 px-4 py-2 text-sm text-slate-300 hover:bg-slate-700 w-full text-left"
                                 >
                                     <PencilIcon className="h-5 w-5" /> Edit
                                 </button>
                                 <button
                                     onClick={(e) => handleActionClick(e, 'preview')}
-                                    className="flex items-center gap-2 px-4 py-2 text-sm text-slate-300 hover:bg-slate-700 w-full text-left"
+                                    disabled={previewMutation.isPending || isGenerating}
+                                    className="flex items-center gap-2 px-4 py-2 text-sm text-slate-300 hover:bg-slate-700 w-full text-left disabled:opacity-50"
                                 >
-                                    <EyeIcon className="h-5 w-5" /> Preview
+                                    <EyeIcon className="h-5 w-5" />
+                                    {previewMutation.isPending ? 'Generating...' : 'Preview'}
                                 </button>
                                 {project.is_public && (
                                     <button
@@ -190,21 +222,27 @@ const ProjectCard = ({ project, onClick, onDelete, onPublishToggle }) => {
     );
 };
 
-// --- Main Page Component ---
 function MyProjectsPage() {
     const navigate = useNavigate();
     const queryClient = useQueryClient();
     const [error, setError] = useState(null);
     const projectLimit = 5;
 
-    const { data: allProjects, isLoading, isError } = useQuery({
-        queryKey: ['projects'],
-        queryFn: fetchProjects,
+    // --- MODIFICATION START ---
+    // 2. The useQuery hook now uses the new function, a new cache key, and removes the old polling logic.
+    const { data: allProjects, isLoading, isError, error: queryError } = useQuery({
+        queryKey: ['allProjects'],
+        queryFn: fetchAllProjects,
     });
+    // --- MODIFICATION END ---
 
+    const projectsToRender = Array.isArray(allProjects) ? allProjects : [];
+
+    // --- MODIFICATION START ---
+    // 3. Mutations now invalidate the new 'allProjects' cache key to ensure the list refreshes correctly.
     const createMutation = useMutation({
         mutationFn: createPictureBook,
-        onSuccess: (response) => navigate(`/picture-book/${response.bookId}`),
+        onSuccess: () => queryClient.invalidateQueries({ queryKey: ['allProjects'] }),
         onError: () => setError("Failed to create new project."),
     });
 
@@ -214,15 +252,16 @@ function MyProjectsPage() {
             if (project.type === 'textBook') return deleteTextBook(project.id);
             return Promise.reject(new Error("Unknown project type."));
         },
-        onSuccess: () => queryClient.invalidateQueries({ queryKey: ['projects'] }),
+        onSuccess: () => queryClient.invalidateQueries({ queryKey: ['allProjects'] }),
         onError: (err) => setError(err.message || "Failed to delete project."),
     });
 
     const privacyMutation = useMutation({
         mutationFn: toggleBookPrivacy,
-        onSuccess: () => queryClient.invalidateQueries({ queryKey: ['projects'] }),
+        onSuccess: () => queryClient.invalidateQueries({ queryKey: ['allProjects'] }),
         onError: () => setError("Failed to update privacy status."),
     });
+    // --- MODIFICATION END ---
 
     const handleProjectClick = (project) => {
         if (project.type === 'pictureBook') {
@@ -239,7 +278,7 @@ function MyProjectsPage() {
     };
 
     const handleNewPictureBook = () => {
-        if (allProjects && allProjects.length >= projectLimit) {
+        if (projectsToRender.length >= projectLimit) {
             setError(`You have reached the project limit of ${projectLimit}.`);
             return;
         }
@@ -250,7 +289,7 @@ function MyProjectsPage() {
     };
 
     const handleNewTextBook = () => {
-        if (allProjects && allProjects.length >= projectLimit) {
+        if (projectsToRender.length >= projectLimit) {
             setError(`You have reached the project limit of ${projectLimit}.`);
             return;
         }
@@ -270,7 +309,7 @@ function MyProjectsPage() {
                         whileHover={{ scale: 1.05 }}
                         whileTap={{ scale: 0.95 }}
                         onClick={handleNewTextBook}
-                        disabled={isLoading || (allProjects && allProjects.length >= projectLimit)}
+                        disabled={isLoading || (projectsToRender.length >= projectLimit)}
                         className="w-full sm:w-auto flex-grow flex items-center justify-center gap-2 bg-slate-700 hover:bg-slate-600 text-white font-bold py-3 px-6 rounded-lg transition-colors shadow-md disabled:opacity-50"
                     >
                         <DocumentPlusIcon className="h-5 w-5" />
@@ -280,7 +319,7 @@ function MyProjectsPage() {
                         whileHover={{ scale: 1.05 }}
                         whileTap={{ scale: 0.95 }}
                         onClick={handleNewPictureBook}
-                        disabled={createMutation.isPending || (allProjects && allProjects.length >= projectLimit)}
+                        disabled={createMutation.isPending || (projectsToRender.length >= projectLimit)}
                         className="w-full sm:w-auto flex-grow flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 px-6 rounded-lg transition-colors shadow-md disabled:opacity-50"
                     >
                         <PhotoIcon className="h-5 w-5" />
@@ -288,19 +327,19 @@ function MyProjectsPage() {
                     </motion.button>
                 </div>
 
-                {isError && <Alert type="error" message="Could not fetch your projects." />}
+                {isError && <Alert type="error" message={queryError?.message || "Could not fetch your projects."} />}
                 {error && <Alert type="error" message={error} onClose={() => setError(null)} />}
                 
                 <div className="bg-slate-800/50 rounded-2xl p-6 border border-slate-700">
                     {isLoading ? <LoadingSpinner text="Fetching your projects..." /> : (
-                        allProjects && allProjects.length > 0 ? (
+                        projectsToRender && projectsToRender.length > 0 ? (
                             <motion.div
                                 variants={containerVariants}
                                 initial="hidden"
                                 animate="visible"
                                 className="space-y-4"
                             >
-                                {allProjects.map(project => (
+                                {projectsToRender.map(project => (
                                     <ProjectCard
                                         key={`${project.type}-${project.id}`}
                                         project={project}

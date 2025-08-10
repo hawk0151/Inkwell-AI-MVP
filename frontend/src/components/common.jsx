@@ -1,10 +1,9 @@
-// frontend/src/components/common.jsx
 import React from 'react';
 import { motion } from 'framer-motion';
 import { CheckCircleIcon, XCircleIcon, InformationCircleIcon, ExclamationTriangleIcon } from '@heroicons/react/24/solid';
-import logoImage from '../assets/logo.png';
-import CookieConsent from 'react-cookie-consent'; // <-- ADDED THIS IMPORT
-import { Link } from 'react-router-dom'; // <-- ADDED THIS IMPORT
+import logoImage from '../assets/inkwell-logo.svg';
+import CookieConsent from 'react-cookie-consent'; 
+import { Link } from 'react-router-dom'; 
 
 export const LoadingSpinner = ({ text = "Loading..." }) => (
     <div className="flex flex-col justify-center items-center p-8 gap-4">
@@ -59,21 +58,20 @@ export const Alert = ({ type = 'error', title, message, children, onClose }) => 
     );
 };
 
-// <-- ADDED THIS NEW COMPONENT -->
 export const CookieConsentBanner = () => {
     return (
         <CookieConsent
             location="bottom"
             buttonText="I Understand"
             cookieName="inkwellCookieConsent"
-            style={{ 
+            style={{
                 background: "#0F172A",
                 padding: "1rem",
                 alignItems: "center",
             }}
-            buttonStyle={{ 
-                color: "#1E293B", 
-                fontSize: "13px", 
+            buttonStyle={{
+                color: "#1E293B",
+                fontSize: "13px",
                 fontWeight: "bold",
                 backgroundColor: "#6366F1",
                 borderRadius: "8px",
@@ -92,7 +90,7 @@ export const CookieConsentBanner = () => {
 
 export const Logo = () => (
     <div className="flex items-center gap-3 cursor-pointer">
-        <img src={logoImage} alt="Inkwell AI Logo" className="h-8 w-8" />
+        <img src={logoImage} alt="Inkwell AI Logo" className="h-14 w-14" />
         <span className="font-serif font-bold text-2xl text-white">Inkwell AI</span>
     </div>
 );

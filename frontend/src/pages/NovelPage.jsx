@@ -1,20 +1,118 @@
-import React, { useState, useEffect } from 'react';
+// frontend/src/pages/NovelPage.jsx
+
+import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import apiClient from '../services/apiClient';
-import { useQueryClient, useQuery } from '@tanstack/react-query';
+import { useQueryClient, useQuery, useMutation } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'framer-motion';
 import { LoadingSpinner, Alert } from '../components/common.jsx';
 import CheckoutModal from '../components/CheckoutModal.jsx';
 import PageHeader from '../components/PageHeader.jsx';
-import PromptForm from '../components/PromptForm.jsx';
+import PromptWizard from '../components/PromptWizard.jsx';
+import { ChevronDownIcon, PhotoIcon } from '@heroicons/react/24/solid';
+import toast from 'react-hot-toast';
 
-// --- Sub-component: Chapter ---
-const Chapter = ({ chapter, isOpen, onToggle }) => {
-    const ChevronDownIcon = (props) => (
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" {...props}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
-        </svg>
+// CoverUploader component remains unchanged
+const CoverUploader = ({ bookId, currentCoverUrl }) => {
+    const [selectedFile, setSelectedFile] = useState(null);
+    const [previewUrl, setPreviewUrl] = useState(null);
+    const [error, setError] = useState('');
+    const fileInputRef = useRef(null);
+    const queryClient = useQueryClient();
+
+    const uploadMutation = useMutation({
+        mutationFn: (file) => {
+            const formData = new FormData();
+            formData.append('image', file);
+            return apiClient.post(`/text-books/${bookId}/cover`, formData, {
+                headers: { 'Content-Type': 'multipart/form-data' },
+            });
+        },
+        onSuccess: () => {
+            toast.success('Cover uploaded successfully!');
+            queryClient.invalidateQueries({ queryKey: ['bookDetails', bookId] });
+            setSelectedFile(null);
+            setPreviewUrl(null);
+        },
+        onError: (err) => {
+            toast.error(err.response?.data?.message || 'Failed to upload cover.');
+        },
+    });
+
+    const handleFileChange = (event) => {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        const MAX_SIZE_MB = 9;
+        if (file.size > MAX_SIZE_MB * 1024 * 1024) {
+            setError(`File size cannot exceed ${MAX_SIZE_MB}MB.`);
+            return;
+        }
+
+        setError('');
+        setSelectedFile(file);
+        if (previewUrl) URL.revokeObjectURL(previewUrl);
+        setPreviewUrl(URL.createObjectURL(file));
+    };
+
+    const handleUpload = () => {
+        if (selectedFile) {
+            uploadMutation.mutate(selectedFile);
+        }
+    };
+
+    return (
+        <div className="flex flex-col items-center gap-4">
+            <div className="w-48 h-64 rounded-md border-2 border-dashed border-slate-500 flex items-center justify-center bg-slate-800 overflow-hidden">
+                {previewUrl ? (
+                    <img src={previewUrl} alt="New cover preview" className="w-full h-full object-cover" />
+                ) : currentCoverUrl ? (
+                    <img src={currentCoverUrl} alt="Current book cover" className="w-full h-full object-cover" />
+                ) : (
+                    <div className="text-center text-slate-500 p-4">
+                        <PhotoIcon className="w-12 h-12 mx-auto" />
+                        <p className="text-sm mt-2">Upload a Cover</p>
+                    </div>
+                )}
+            </div>
+            
+            <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleFileChange}
+                accept="image/png, image/jpeg"
+                className="hidden"
+            />
+
+            {selectedFile ? (
+                <button
+                    onClick={handleUpload}
+                    disabled={uploadMutation.isPending}
+                    className="bg-green-600 text-white font-bold py-2 px-6 rounded-lg hover:bg-green-500 disabled:bg-slate-500 disabled:cursor-not-allowed transition-colors w-48"
+                >
+                    {uploadMutation.isPending ? <LoadingSpinner text='Uploading...'/> : 'Confirm Upload'}
+                </button>
+            ) : (
+                <button
+                    onClick={() => fileInputRef.current.click()}
+                    className="bg-indigo-600 text-white font-bold py-2 px-6 rounded-lg hover:bg-indigo-500 transition-colors w-48"
+                >
+                    Choose Image
+                </button>
+            )}
+            
+            {error && <p className="text-sm text-red-400 mt-2">{error}</p>}
+        </div>
     );
+};
+
+// Chapter component remains unchanged
+const Chapter = ({ chapter, isOpen, onToggle, onRegenerate, isLoading, guidance, onGuidanceChange, isLatest }) => {
+    const handleRegenerateClick = (e) => {
+        e.stopPropagation();
+        onRegenerate(chapter.chapter_number, guidance);
+    };
+
     return (
         <div className="border-b border-slate-700 last:border-b-0">
             <button onClick={onToggle} className="w-full flex justify-between items-center text-left py-5 px-4 hover:bg-slate-700/50 rounded-lg transition-colors duration-200">
@@ -34,6 +132,32 @@ const Chapter = ({ chapter, isOpen, onToggle }) => {
                                 <p key={index} className="mb-4">{paragraph}</p>
                             ))}
                         </div>
+                        
+                        {isLatest && (
+                            <div className="px-4 pb-8 pt-4 border-t border-slate-700 flex flex-col items-center">
+                                <div className="w-full">
+                                    <label htmlFor={`guidance-${chapter.chapter_number}`} className="block text-sm font-medium text-slate-400 mb-2">
+                                        Guide your story:
+                                    </label>
+                                    <textarea
+                                        id={`guidance-${chapter.chapter_number}`}
+                                        rows="3"
+                                        value={guidance}
+                                        onChange={(e) => onGuidanceChange(chapter.chapter_number, e.target.value)}
+                                        placeholder="e.g., 'Make the main character find a mysterious key.' (Optional)"
+                                        className="w-full p-2 bg-slate-700/50 text-slate-100 rounded-md border border-slate-600 focus:ring focus:ring-amber-500 focus:border-amber-500"
+                                        disabled={isLoading}
+                                    />
+                                </div>
+                                <button
+                                    onClick={handleRegenerateClick}
+                                    disabled={isLoading}
+                                    className="mt-4 bg-amber-500 text-slate-900 font-bold py-2 px-6 rounded-lg hover:bg-amber-400 disabled:bg-slate-500 disabled:cursor-not-allowed transition-all duration-300"
+                                >
+                                    {isLoading ? 'Regenerating...' : 'Regenerate Chapter'}
+                                </button>
+                            </div>
+                        )}
                     </motion.div>
                 )}
             </AnimatePresence>
@@ -41,152 +165,166 @@ const Chapter = ({ chapter, isOpen, onToggle }) => {
     );
 };
 
-// --- Sub-component: FauxReview ---
-const FauxReview = ({ quote, author, avatar }) => (
-    <div className="bg-slate-800/60 backdrop-blur-md p-7 rounded-2xl shadow-xl border border-slate-700 hover:border-indigo-600/50 transition-colors duration-200">
-        <p className="text-slate-300 italic text-xl leading-relaxed mb-4">"{quote}"</p>
-        <div className="flex items-center">
-            <img src={avatar} alt={author} className="w-12 h-12 rounded-full mr-4 object-cover border-2 border-amber-400" />
-            <span className="font-semibold text-amber-300 text-lg">{author}</span>
-        </div>
-    </div>
-);
-
-// --- Helper function: fetchBookOptions ---
+// fetchBookOptions remains unchanged
 const fetchBookOptions = async () => {
     const { data } = await apiClient.get('/products/book-options');
     return data;
 };
 
-// --- Main Component: NovelPage ---
 function NovelPage() {
     const navigate = useNavigate();
     const location = useLocation();
     const queryClient = useQueryClient();
     const { bookId: paramBookId } = useParams();
-
-    const [bookId, setBookId] = useState(paramBookId && paramBookId !== 'new' ? paramBookId : null);
-    const [bookDetails, setBookDetails] = useState(null);
-    const [chapters, setChapters] = useState([]);
+    
     const [openChapter, setOpenChapter] = useState(null);
-    const [isLoadingPage, setIsLoadingPage] = useState(true);
-    const [isActionLoading, setIsActionLoading] = useState(false);
-    const [error, setError] = useState(null);
-    const [isStoryComplete, setIsStoryComplete] = useState(false);
-    const [isCheckoutModalOpen, setCheckoutModalOpen] = useState(false);
+    const [guidanceInputs, setGuidanceInputs] = useState({});
+    const [isPolling, setIsPolling] = useState(false);
+    
+    const previousChapterCount = useRef(0);
 
-    const { data: allBookOptions, isLoading: isLoadingBookOptions, isError: isErrorBookOptions } = useQuery({
-        queryKey: ['allBookOptions'], queryFn: fetchBookOptions, staleTime: Infinity, enabled: true,
+    const { data: bookQueryData, isLoading: isLoadingBookDetails, error: bookQueryError, refetch } = useQuery({
+        queryKey: ['bookDetails', paramBookId],
+        queryFn: async () => {
+            if (!paramBookId || paramBookId === 'new') return null;
+            const res = await apiClient.get(`/text-books/${paramBookId}`);
+            return res.data;
+        },
+        enabled: !!paramBookId && paramBookId !== 'new',
+    });
+
+    const { data: allBookOptions, isLoading: isLoadingBookOptions } = useQuery({
+        queryKey: ['allBookOptions'], queryFn: fetchBookOptions, staleTime: Infinity
     });
     const [selectedProductForNew, setSelectedProductForNew] = useState(null);
 
+    const bookDetails = bookQueryData?.book;
+    
+    const chapters = bookQueryData?.chapters ? bookQueryData.chapters.filter((chapter, index, self) =>
+      index === self.findIndex((c) => (
+        c.chapter_number === chapter.chapter_number
+      ))
+    ) : [];
+
+    const createBookMutation = useMutation({
+        mutationFn: (bookData) => apiClient.post('/text-books', bookData),
+        onSuccess: (response) => {
+            queryClient.invalidateQueries({ queryKey: ['allProjects'] });
+            navigate(`/novel/${response.data.bookId}`, { 
+                replace: true, 
+                state: { isNewBook: true } 
+            });
+        },
+        onError: (err) => {
+            console.error('Failed to create book:', err);
+            toast.error(err.response?.data?.message || 'Failed to create the book.');
+        },
+    });
+
+    const generateNextChapterMutation = useMutation({
+        mutationKey: ['generateNextChapterMutation', paramBookId],
+        mutationFn: (bookId) => apiClient.post(`/text-books/${bookId}/generate-next-chapter`),
+        onSuccess: () => {
+            toast.success('A new chapter is being written...');
+            setIsPolling(true);
+        },
+        onError: (err) => {
+            toast.error(err.response?.data?.message || 'Failed to submit next chapter generation job.');
+            setIsPolling(false);
+        },
+    });
+
+    const regenerateChapterMutation = useMutation({
+        mutationKey: ['regenerateChapterMutation', paramBookId],
+        mutationFn: ({ bookId, chapterNumber, guidance }) => apiClient.post(`/text-books/${bookId}/chapters/${chapterNumber}/regenerate`, { guidance }),
+        onSuccess: () => {
+            toast.success('Regenerating chapter...');
+            setIsPolling(true);
+        },
+        onError: (err) => {
+            toast.error(err.response?.data?.message || 'Failed to submit chapter regeneration job.');
+            setIsPolling(false);
+        },
+    });
+    
     useEffect(() => {
-        setError(null);
-        if (paramBookId && paramBookId !== 'new') {
-            if (!bookDetails || (bookDetails.id && bookDetails.id !== paramBookId)) {
-                setIsLoadingPage(true);
-                apiClient.get(`/text-books/${paramBookId}`).then((res) => {
-                    const bookData = res.data.book;
-                    const fetchedChapters = res.data.chapters || [];
-                    setBookDetails(bookData);
-                    setChapters(fetchedChapters);
-                    setBookId(paramBookId);
-                    setIsStoryComplete(fetchedChapters.length >= (bookData.total_chapters || 1));
-                    setOpenChapter(fetchedChapters.length > 0 ? fetchedChapters[fetchedChapters.length - 1].chapter_number : null);
-                    const product = allBookOptions?.find((p) => p.id === bookData.lulu_product_id);
-                    if (product) {
-                        setSelectedProductForNew(product);
-                    } else {
-                        setSelectedProductForNew({
-                            id: bookData.lulu_product_id, name: bookData.title || 'Unknown Product', type: 'textBook', price: 0,
-                            defaultPageCount: bookData.prompt_details?.pageCount || 66,
-                            defaultWordsPerPage: bookData.prompt_details?.wordsPerPage || 250,
-                            totalChapters: bookData.total_chapters || 6
-                        });
-                    }
-                    setIsLoadingPage(false);
-                }).catch((err) => {
-                    console.error('NovelPage useEffect: Error loading existing book details:', err);
-                    setError(err.response?.data?.message || 'Could not load your project.');
-                    setIsLoadingPage(false);
-                });
-            } else {
-                setIsLoadingPage(false);
-            }
+        if (location.state?.isNewBook) {
+            toast.success('Your first chapter is being created!');
+            setIsPolling(true);
+            navigate(location.pathname, { replace: true, state: {} });
         }
-        else if (paramBookId === 'new' || !paramBookId) {
-            if (bookDetails) { setIsLoadingPage(false); return; }
-            if (allBookOptions && location.state?.selectedProductId && !selectedProductForNew) {
+    }, [location.state, navigate, location.pathname]);
+
+    useEffect(() => {
+        if (!isPolling) return;
+        const interval = setInterval(() => {
+            console.log('Polling for new chapter data...');
+            refetch();
+        }, 5000);
+        return () => clearInterval(interval);
+    }, [isPolling, refetch]);
+    
+    useEffect(() => {
+        if (isPolling && chapters.length > previousChapterCount.current) {
+            console.log('New chapter detected. Stopping poll.');
+            setIsPolling(false);
+            toast.success('Your new chapter has arrived!');
+        }
+        
+        previousChapterCount.current = chapters.length;
+    }, [chapters, isPolling]);
+
+    const previewPdfMutation = useMutation({
+        mutationFn: (bookId) => apiClient.get(`/text-books/${bookId}/preview`),
+        onSuccess: (response) => {
+            window.open(response.data.previewUrl, '_blank');
+        },
+        onError: (err) => {
+            toast.error(err.response?.data?.message || 'Failed to generate PDF preview.');
+        },
+    });
+    
+    useEffect(() => {
+        const isNewBookFlow = !paramBookId || paramBookId === 'new';
+        if (isNewBookFlow) {
+            if (isLoadingBookOptions) return;
+            if (location.state?.selectedProductId) {
                 const product = allBookOptions.find((p) => p.id === location.state.selectedProductId);
                 if (product) {
                     setSelectedProductForNew(product);
-                    setIsLoadingPage(false);
-                } else {
-                    setError('Invalid book format selected. Please go back and choose a format.');
-                    setIsLoadingPage(false);
                 }
-            } else if (selectedProductForNew && isLoadingPage) {
-                setIsLoadingPage(false);
-            } else if (!selectedProductForNew && !location.state?.selectedProductId && !isLoadingBookOptions && isLoadingPage) {
-                setError('To create a new novel, please select a book format first.');
-                setIsLoadingPage(false);
             }
         }
-        else if (isLoadingPage) {
-            setIsLoadingPage(false);
-        }
-    }, [paramBookId, allBookOptions, isLoadingBookOptions, location.state?.selectedProductId, bookDetails, selectedProductForNew, isLoadingPage]);
+    }, [paramBookId, allBookOptions, isLoadingBookOptions, location.state]);
 
-    const handleCreateBook = async (formData) => {
-        setIsActionLoading(true);
-        setError(null);
-        if (!selectedProductForNew || !selectedProductForNew.id) {
-            setError('Internal error: Book format not selected. Please try again from selection page.');
-            setIsActionLoading(false);
-            return;
-        }
-        
-        const { title, ...promptDetails } = formData;
-        
-        const aiGenerationParams = {
-            // --- THIS IS THE FIX ---
-            maxPageCount: selectedProductForNew.defaultPageCount,
-            wordsPerPage: selectedProductForNew.defaultWordsPerPage,
-            totalChapters: selectedProductForNew.totalChapters,
-        };
-        
-        const bookData = { title, promptDetails: { ...promptDetails, ...aiGenerationParams }, luluProductId: selectedProductForNew.id };
-
-        try {
-            const response = await apiClient.post('/text-books', bookData);
-            queryClient.invalidateQueries({ queryKey: ['projects'] });
-            navigate(`/novel/${response.data.bookId}`, { replace: true });
-        } catch (err) {
-            setError(err.response?.data?.message || 'Failed to create the book.');
-        } finally {
-            setIsActionLoading(false);
-        }
+    const handleGuidanceChange = (chapterNumber, text) => {
+        setGuidanceInputs(prev => ({
+            ...prev,
+            [chapterNumber]: text
+        }));
     };
 
-    const handleGenerateNextChapter = async () => {
-        setIsActionLoading(true);
-        setError(null);
-        try {
-            const response = await apiClient.post(`/text-books/${bookId}/generate-chapter`);
-            const newChapterData = {
-                chapter_number: response.data.chapterNumber,
-                content: response.data.newChapter,
-            };
-            setChapters((prev) => {
-                const updatedChapters = [...prev, newChapterData];
-                setIsStoryComplete(updatedChapters.length >= (bookDetails?.total_chapters || 1));
-                return updatedChapters;
-            });
-            setOpenChapter(newChapterData.chapter_number);
-        } catch (err) {
-            setError(err.response?.data?.message || 'Failed to generate the next chapter.');
-        } finally {
-            setIsActionLoading(false);
+    const handleCreateBook = async (formData) => {
+        if (!selectedProductForNew || !selectedProductForNew.id) {
+            toast.error('Book format not selected.');
+            return;
+        }
+        const bookData = {
+            promptData: formData,
+            luluProductId: selectedProductForNew.id
+        };
+        createBookMutation.mutate(bookData);
+    };
+
+    const handleGenerateNextChapter = () => {
+        if (bookDetails && !isPolling && !generateNextChapterMutation.isPending) {
+            generateNextChapterMutation.mutate(bookDetails.id);
+        }
+    };
+    
+    const handleRegenerateChapter = (chapterNumber, guidance) => {
+        if (bookDetails && !isPolling && !regenerateChapterMutation.isPending) {
+            regenerateChapterMutation.mutate({ bookId: bookDetails.id, chapterNumber, guidance });
         }
     };
 
@@ -194,89 +332,157 @@ function NovelPage() {
         setOpenChapter(openChapter === chapterNumber ? null : chapterNumber);
     };
 
-    const handleFinalizeAndPurchase = () => {
-        setCheckoutModalOpen(true);
+    const handlePreviewPdf = () => {
+        if (bookDetails) {
+            previewPdfMutation.mutate(bookDetails.id);
+        }
     };
 
+    const [isCheckoutModalOpen, setCheckoutModalOpen] = useState(false);
     const submitFinalCheckout = async (shippingAddress, selectedShippingLevel, quoteToken) => {
         try {
-            const response = await apiClient.post(`/text-books/${bookId}/checkout`, {
+            const response = await apiClient.post(`/text-books/${paramBookId}/checkout`, {
                 shippingAddress,
                 selectedShippingLevel,
                 quoteToken,
             });
             window.location.href = response.data.url;
         } catch (err) {
-            console.error('submitFinalCheckout: Could not proceed to checkout:', err);
+            console.error('submitFinalCheckout error:', err);
             throw err;
         }
     };
 
-    if (error) { return <Alert type="error" message={error} onClose={() => setError(null)} />; }
-    if (isLoadingPage || isLoadingBookOptions) { return <LoadingSpinner text="Getting your book ready..." />; }
+    const isCreatingBook = createBookMutation.isPending;
+    const isAnyMutationPending = generateNextChapterMutation.isPending || regenerateChapterMutation.isPending;
+    const isLoadingPage = isLoadingBookDetails || isLoadingBookOptions || isCreatingBook;
+    
+    const chaptersCount = chapters.length;
+    const totalChapters = bookDetails?.total_chapters || 1;
+    const isComplete = chaptersCount > 0 && chaptersCount >= totalChapters;
+    
+    if (isLoadingPage) {
+        return <LoadingSpinner text="Loading your masterpiece..." />;
+    }
 
-    return (
-        <div className="min-h-screen bg-slate-900 bg-[radial-gradient(ellipse_80%_80%_at_50%_-20%,rgba(120,119,198,0.3),rgba(255,255,255,0))]">
-            {(paramBookId === 'new' || !paramBookId) && selectedProductForNew && !bookDetails ? (
+    if (bookQueryError) {
+        return (
+            <div className="flex flex-col items-center justify-center text-center py-10">
+                <Alert type="error" message={bookQueryError.response?.data?.message || 'Could not load project.'} />
+                <button onClick={() => navigate('/my-projects')} className="mt-6 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-8 rounded-lg">
+                    Back to Projects
+                </button>
+            </div>
+        );
+    }
+
+    if ((!paramBookId || paramBookId === 'new') && selectedProductForNew) {
+        return (
+            <div className="min-h-screen bg-slate-900 text-white">
                 <div className="max-w-2xl mx-auto py-12 px-4 sm:px-6 lg:px-8">
                     <PageHeader 
                         title={`Create Your ${selectedProductForNew?.name || 'Novel'}`}
                         subtitle="Fill in the details below to begin the magic."
                     />
-                    <PromptForm isLoading={isActionLoading} onSubmit={handleCreateBook} />
+                    <PromptWizard isLoading={isCreatingBook} onSubmit={handleCreateBook} />
                 </div>
-            ) : bookId && bookDetails ? (
-                <>
-                    <CheckoutModal isOpen={isCheckoutModalOpen} onClose={() => setCheckoutModalOpen(false)} onSubmit={submitFinalCheckout} bookId={bookId} bookType="textBook" book={bookDetails} />
-                    <div className="max-w-4xl mx-auto py-12 px-4 sm:px-6 lg:px-8">
-                        <PageHeader 
-                            title={bookDetails?.title}
-                            subtitle="Your personalized story"
-                        />
-                        <motion.div 
-                            initial={{ opacity: 0, y: 20 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ duration: 0.5, delay: 0.2 }}
-                            className="bg-slate-800/50 backdrop-blur-md p-8 md:p-14 rounded-2xl shadow-2xl border border-slate-700"
-                        >
-                            <div className="space-y-3">
-                                {chapters.map((chapter) => (
-                                    <Chapter key={chapter.chapter_number} chapter={chapter} isOpen={openChapter === chapter.chapter_number} onToggle={() => handleToggleChapter(chapter.chapter_number)} />
-                                ))}
-                            </div>
-                            {isActionLoading && (
-                                <div className="mt-10"><LoadingSpinner text={`Generating Chapter ${chapters.length + 1}...`} /></div>
-                            )}
-                            <div className="mt-14 border-t border-dashed border-slate-600 pt-10 text-center">
-                                {!isStoryComplete ? (
-                                    <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={handleGenerateNextChapter} disabled={isActionLoading} className="bg-indigo-600 text-white font-bold py-3 px-8 rounded-lg hover:bg-indigo-500 disabled:bg-slate-500 disabled:cursor-not-allowed transition-all duration-300 shadow-lg text-lg">
-                                        {isActionLoading ? 'Writing...' : `Continue Story (${chapters.length}/${bookDetails.total_chapters || 1})`}
-                                    </motion.button>
-                                ) : (
-                                    <div>
-                                        <p className="text-2xl text-green-400 font-bold mb-5">Your story is complete! Ready to bring it to life?</p>
-                                        <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={handleFinalizeAndPurchase} disabled={isActionLoading} className="bg-teal-600 text-white font-bold py-3 px-8 rounded-lg hover:bg-teal-500 disabled:bg-slate-500 disabled:cursor-not-allowed transition-all duration-300 shadow-lg text-lg">
-                                            {isActionLoading ? 'Preparing...' : 'Finalize & Purchase'}
-                                        </motion.button>
-                                    </div>
-                                )}
-                            </div>
-                        </motion.div>
-                        <div className="mt-20 max-w-3xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-8">
-                            <FauxReview quote="A heartwarming tale my whole family enjoyed. The personalized details made it truly special!" author="Jane D." avatar="/avatars/jane.jpg" />
-                            <FauxReview quote="This book truly captured my son's imagination. He loves being the main character!" author="Mike S." avatar="/avatars/mike.jpg" />
-                            <FauxReview quote="Incredible story, perfect for kids who love adventure! A unique gift idea." author="Sarah P." avatar="/avatars/sarah.jpg" />
+            </div>
+        );
+    }
+    
+    if (bookDetails) {
+        return (
+            <div className="min-h-screen bg-slate-900 bg-[radial-gradient(ellipse_80%_80%_at_50%_-20%,rgba(120,119,198,0.3),rgba(255,255,255,0))]">
+                <CheckoutModal isOpen={isCheckoutModalOpen} onClose={() => setCheckoutModalOpen(false)} onSubmit={submitFinalCheckout} bookId={paramBookId} bookType="textBook" book={bookDetails} />
+                <div className="max-w-4xl mx-auto py-12 px-4 sm:px-6 lg:px-8">
+                    <PageHeader title={bookDetails.title} subtitle="Your personalized story" />
+                    <motion.div 
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.5, delay: 0.2 }}
+                        className="bg-slate-800/50 backdrop-blur-md p-8 md:p-14 rounded-2xl shadow-2xl border border-slate-700"
+                    >
+                        <div className="space-y-3">
+                            {chapters.map((chapter, index) => {
+                                const isLatest = index === chapters.length - 1;
+                                return (
+                                    <Chapter 
+                                        key={chapter.chapter_number} 
+                                        chapter={chapter}
+                                        isLatest={isLatest} 
+                                        isOpen={openChapter === chapter.chapter_number} 
+                                        onToggle={() => handleToggleChapter(chapter.chapter_number)} 
+                                        onRegenerate={handleRegenerateChapter}
+                                        isLoading={isPolling || isAnyMutationPending}
+                                        guidance={guidanceInputs[chapter.chapter_number] || ''}
+                                        onGuidanceChange={handleGuidanceChange}
+                                    />
+                                );
+                            })}
                         </div>
-                    </div>
-                </>
-            ) : (
-                <div className="min-h-screen flex flex-col items-center justify-center text-center">
-                    <Alert type="info" message="To create a new novel, please select a book format first." />
-                    <button onClick={() => navigate('/select-novel')} className="mt-6 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-8 rounded-lg shadow-md transition-transform transform hover:scale-105">
-                        Back to Selection
-                    </button>
+                        
+                        {isPolling && (
+                            <div className="mt-10 flex justify-center items-center flex-col text-center">
+                                <LoadingSpinner text={`Writing Chapter ${chaptersCount + 1}...`} />
+                                <p className="text-slate-400 mt-2">This may take a minute. The page will update automatically.</p>
+                            </div>
+                        )}
+
+                        <div className="mt-14 border-t border-dashed border-slate-600 pt-10 text-center">
+                            {!isComplete && !isPolling && (
+                                <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={handleGenerateNextChapter} disabled={isAnyMutationPending} className="bg-indigo-600 text-white font-bold py-3 px-8 rounded-lg hover:bg-indigo-500 disabled:bg-slate-500 disabled:cursor-not-allowed transition-all duration-300 shadow-lg text-lg">
+                                    {isAnyMutationPending ? 'Submitting...' : `Continue Story (${chaptersCount}/${totalChapters})`}
+                                </motion.button>
+                            )}
+                            
+                            {/* --- MODIFICATION START: Add CoverUploader when story is complete --- */}
+                            {isComplete && (
+                                <div>
+                                    <p className="text-2xl text-green-400 font-bold mb-5">Your story is complete! Ready to bring it to life?</p>
+                                    
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-8 items-start mt-8">
+                                        {/* Column 1: Cover Uploader */}
+                                        <div className="md:col-span-1 flex flex-col items-center justify-start">
+                                            <h3 className="text-lg font-semibold text-slate-200 mb-2">Custom Cover</h3>
+                                            <p className="text-xs text-slate-400 mb-4 text-center">Upload an image to create a personalized cover.</p>
+                                            <CoverUploader 
+                                                bookId={bookDetails.id} 
+                                                currentCoverUrl={bookDetails.user_cover_image_url} 
+                                            />
+                                        </div>
+
+                                        {/* Column 2: Final Actions */}
+                                        <div className="md:col-span-2 flex flex-col items-center justify-center gap-4 border-t-2 md:border-t-0 md:border-l-2 border-slate-700 border-dashed pt-8 md:pt-0 md:pl-8">
+                                             <h3 className="text-lg font-semibold text-slate-200 mb-2">Finalize Your Book</h3>
+                                             <p className="text-slate-400 text-center mb-4">
+                                                Preview your book's interior and proceed to purchase when you're ready.
+                                            </p>
+                                            <div className="flex flex-col sm:flex-row items-center justify-center gap-4 w-full">
+                                                <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={handlePreviewPdf} disabled={previewPdfMutation.isPending} className="bg-sky-600 text-white font-bold py-3 px-8 rounded-lg hover:bg-sky-500 disabled:bg-slate-500 disabled:cursor-not-allowed transition-all duration-300 shadow-lg text-lg w-full sm:w-auto">
+                                                    {previewPdfMutation.isPending ? 'Generating...' : 'Preview PDF'}
+                                                </motion.button>
+                                                <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={() => setCheckoutModalOpen(true)} disabled={previewPdfMutation.isPending} className="bg-teal-600 text-white font-bold py-3 px-8 rounded-lg hover:bg-teal-500 disabled:bg-slate-500 disabled:cursor-not-allowed transition-all duration-300 shadow-lg text-lg w-full sm:w-auto">
+                                                    {'Finalize & Purchase'}
+                                                </motion.button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                            {/* --- MODIFICATION END --- */}
+                        </div>
+                    </motion.div>
                 </div>
-            )}
+            </div>
+        );
+    }
+    
+    return (
+        <div className="flex flex-col items-center justify-center text-center py-10">
+            <Alert type="info" message="Project not found or is still being created." />
+            <button onClick={() => navigate('/my-projects')} className="mt-6 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-8 rounded-lg">
+                Back to Projects
+            </button>
         </div>
     );
 }
