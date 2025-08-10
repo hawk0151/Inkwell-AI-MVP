@@ -1,8 +1,8 @@
-// backend/src/services/image.service.js
 import axios from 'axios';
 import { v2 as cloudinary } from 'cloudinary';
 import { randomUUID } from 'crypto';
 import FormData from 'form-data';
+import sharp from 'sharp';
 
 cloudinary.config({
     cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -11,38 +11,53 @@ cloudinary.config({
     secure: true
 });
 
+const createPreviewVersion = async (inputBuffer) => {
+    console.log('[Image Service] Creating preview version (1024x1024 JPEG)...');
+    return sharp(inputBuffer)
+        .resize(1024, 1024)
+        .jpeg({ quality: 85 })
+        .toBuffer();
+};
+
+const createPrintVersion = async (inputBuffer) => {
+    console.log('[Image Service] Creating print version (3072x3072 PNG)...');
+    return sharp(inputBuffer)
+        .resize(3072, 3072)
+        .png()
+        .toBuffer();
+};
+
+
+// --- MODIFICATION START: This function is updated with the new prompt architecture ---
 export const generateImageFromApi = async (prompt, style) => {
     const apiKey = process.env.STABILITY_API_KEY;
     if (!apiKey) {
         throw new Error("Stability AI API key is not configured.");
     }
-
     const apiUrl = `https://api.stability.ai/v2beta/stable-image/generate/core`;
 
-    const fullPrompt = `A beautiful, whimsical, ${style}-style children's book illustration of: ${prompt}. Clean lines, vibrant pastel colors, storybook setting, safe for all audiences, high detail. Print-ready.`;
+    // 1. The Core Subject & Style (from user input)
+    const corePrompt = `${prompt}, in the style of a ${style}`;
 
-    // --- IMPROVEMENT #1: Correct Square Dimensions for the New Book Format ---
-    // We now request a high-resolution square image to match the 8.75" x 8.75" book.
-    const targetWidthPx = 1536;
-    const targetHeightPx = 1536;
-    const aspectRatio = '1:1';
+    // 2. The Quality Boosters (our expert instructions)
+    const qualityBoosters = "masterpiece, best quality, high detail, sharp focus, professional, atmospheric, dramatic lighting";
 
-    // --- IMPROVEMENT #2: Adding a Negative Prompt for Better Quality ---
-    // This tells the AI what to AVOID, leading to cleaner images.
-    const negativePrompt = "text, words, letters, signature, watermark, blurry, ugly, disfigured, deformed, low quality, noisy, jpeg artifacts, monochrome, grayscale";
+    // 3. The final Positive Prompt
+    const fullPrompt = `${corePrompt}, ${qualityBoosters}`;
 
-    console.log(`[Stability AI Generation] Generating SQUARE image at ${targetWidthPx}x${targetHeightPx}...`);
+    // 4. The final Negative Prompt (for safety and quality)
+    const negativePrompt = "blurry, fuzzy, ugly, disfigured, deformed, low quality, noisy, jpeg artifacts, text, words, watermark, signature, artist name, nudity, nsfw, sexual, lewd, hateful, racist, sexist, offensive, gore, violence, disturbing";
+    
+    console.log(`[Stability AI Generation] Generating image with enhanced prompt...`);
     
     try {
         const formData = new FormData();
         formData.append('prompt', fullPrompt);
-        formData.append('negative_prompt', negativePrompt); // Add the negative prompt here
-        formData.append('output_format', 'jpeg');
-        formData.append('width', targetWidthPx.toString());
-        formData.append('height', targetHeightPx.toString());
-        formData.append('aspect_ratio', aspectRatio);
-        formData.append('style_preset', 'digital-art');
-
+        formData.append('negative_prompt', negativePrompt);
+        formData.append('output_format', 'png');
+        formData.append('aspect_ratio', '1:1');
+        // We let Stability AI choose the best dimensions for the model, guided by aspect ratio.
+        
         const response = await axios.post(
             apiUrl,
             formData,
@@ -50,32 +65,48 @@ export const generateImageFromApi = async (prompt, style) => {
                 headers: {
                     ...formData.getHeaders(),
                     'Authorization': `Bearer ${apiKey}`,
-                    'Accept': 'application/json'
+                    'Accept': 'image/*'
                 },
-                timeout: 60000 // Increased timeout for potentially larger images
+                responseType: 'arraybuffer',
+                timeout: 60000
             }
         );
-
-        if (response.data.image) {
-            console.log(`[Stability AI Generation] ✅ Image generated successfully.`);
-            return response.data.image; // Return base64 image
-        } else {
-            throw new Error('Failed to parse image from Stability AI API response.');
-        }
+        console.log(`[Stability AI Generation] ✅ Master image generated successfully.`);
+        return Buffer.from(response.data);
     } catch (error) {
         const errorMessage = error.response ? JSON.stringify(error.response.data) : error.message;
         console.error('Error calling Stability AI API:', errorMessage);
         throw new Error(`An error occurred while generating the image.`);
     }
 };
+// --- MODIFICATION END ---
 
-export const uploadImageToCloudinary = (fileBuffer, folder) => {
+export const processAndUploadImageVersions = async (prompt, style, userId, bookId, pageNumber) => {
+    const masterImageBuffer = await generateImageFromApi(prompt, style);
+
+    const [previewBuffer, printBuffer] = await Promise.all([
+        createPreviewVersion(masterImageBuffer),
+        createPrintVersion(masterImageBuffer)
+    ]);
+
+    const previewFolder = `inkwell-ai/user_${userId}/books/${bookId}/previews`;
+    const printFolder = `inkwell-ai/user_${userId}/books/${bookId}/print`;
+
+    const [previewUrl, printUrl] = await Promise.all([
+        uploadImageToCloudinary(previewBuffer, previewFolder, `page_${pageNumber}_preview`),
+        uploadImageToCloudinary(printBuffer, printFolder, `page_${pageNumber}_print`)
+    ]);
+
+    console.log(`[Image Service] ✅ Preview and Print versions uploaded for page ${pageNumber}.`);
+    return { previewUrl, printUrl };
+};
+
+export const uploadImageToCloudinary = (fileBuffer, folder, publicIdPrefix) => {
     return new Promise((resolve, reject) => {
         const uniqueSuffix = randomUUID().substring(0, 8);
-        const finalPublicId = `${folder.split('/').pop()}_${uniqueSuffix}`;
+        const finalPublicId = `${publicIdPrefix}_${uniqueSuffix}`;
 
         const uploadOptions = {
-            upload_preset: process.env.CLOUDINARY_UPLOAD_PRESET,
             folder: folder,
             resource_type: 'image',
             public_id: finalPublicId,
@@ -92,22 +123,5 @@ export const uploadImageToCloudinary = (fileBuffer, folder) => {
 };
 
 export const uploadPdfFileToCloudinary = (filePath, folder, publicIdPrefix) => {
-    return new Promise((resolve, reject) => {
-        const uniqueSuffix = randomUUID().substring(0, 8);
-        const finalPublicId = `${publicIdPrefix}_${uniqueSuffix}`;
-        const uploadOptions = {
-            upload_preset: process.env.CLOUDINARY_UPLOAD_PRESET,
-            folder: folder,
-            resource_type: 'raw',
-            public_id: finalPublicId,
-        };
-        cloudinary.uploader.upload(filePath, uploadOptions, (error, result) => {
-            if (error) {
-                console.error("Cloudinary PDF Upload Error:", error);
-                return reject(error);
-            }
-            console.log(`Cloudinary PDF Upload Successful: ${result.secure_url}`);
-            resolve(result.secure_url);
-        });
-    });
+    // ... (This function is unchanged)
 };

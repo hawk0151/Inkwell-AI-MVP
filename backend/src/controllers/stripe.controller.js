@@ -1,18 +1,15 @@
-// backend/src/controllers/stripe.controller.js
-
 import stripe from 'stripe';
 import { getDb } from '../db/database.js';
-import { createLuluPrintJob } from '../services/lulu.service.js';
+import * as luluService from '../services/lulu.service.js';
 
 const stripeClient = stripe(process.env.STRIPE_SECRET_KEY);
 
 const handleSuccessfulCheckout = async (session) => {
     console.log("✅ Stripe Webhook received for Session ID:", session.id);
+    const { orderId, bookId, bookType } = session.metadata;
 
-    const { orderId } = session.metadata;
-
-    if (!orderId) {
-        console.error("❌ CRITICAL: Stripe session is missing the 'orderId' in metadata.");
+    if (!orderId || !bookId || !bookType) {
+        console.error("❌ CRITICAL: Stripe session is missing required metadata (orderId, bookId, or bookType).");
         return;
     }
 
@@ -30,16 +27,16 @@ const handleSuccessfulCheckout = async (session) => {
             await client.query('COMMIT');
             return;
         }
-        
-        console.log(`Found pending order ${order.id}. Preparing for Lulu submission.`);
 
-        const shippingDetails = session.shipping_details;
-        if (!shippingDetails || !shippingDetails.address) {
-            throw new Error("Shipping details are missing from the completed session.");
+        const shippingDetails = session.collected_information?.shipping_details;
+        if (!shippingDetails) {
+            throw new Error('Shipping details are missing from the session payload.');
         }
+
         const shippingInfo = {
             name: shippingDetails.name,
             street1: shippingDetails.address.line1,
+            street2: shippingDetails.address.line2,
             city: shippingDetails.address.city,
             postcode: shippingDetails.address.postal_code,
             country_code: shippingDetails.address.country,
@@ -48,59 +45,78 @@ const handleSuccessfulCheckout = async (session) => {
             phone_number: session.customer_details.phone || '000-000-0000',
         };
 
-        if (order.is_fallback) {
-            console.warn(`⚠️ Order ${order.id} was created with fallback dimensions. Submitting to Lulu, but cover may require manual adjustment later.`);
-            // You could add logic here to flag this order for manual review, e.g., send an email to yourself.
+        const finalInteriorPdfUrl = order.interior_pdf_url;
+        const finalCoverPdfUrl = order.cover_pdf_url;
+        const finalLuluProductId = order.lulu_product_id;
+        const finalBookTitle = order.book_title;
+
+        if (!finalInteriorPdfUrl || !finalCoverPdfUrl) {
+            throw new Error(`CRITICAL: Order ${orderId} is missing pre-validated PDF URLs.`);
         }
+
+        console.log(`[Webhook] Processing order ${orderId}. Using pre-validated PDFs.`);
 
         const luluOrderDetails = {
             id: order.id,
-            book_title: order.book_title,
-            lulu_product_id: order.lulu_product_id,
-            cover_pdf_url: order.cover_pdf_url,
-            interior_pdf_url: order.interior_pdf_url
+            book_title: finalBookTitle,
+            lulu_product_id: finalLuluProductId,
+            shipping_level_selected: order.shipping_level_selected,
+            cover_pdf_url: finalCoverPdfUrl,
+            interior_pdf_url: finalInteriorPdfUrl
         };
 
-        const luluJob = await createLuluPrintJob(luluOrderDetails, shippingInfo);
+        const luluJob = await luluService.createLuluPrintJob(luluOrderDetails, shippingInfo);
 
         await client.query(
-            `UPDATE orders SET lulu_job_id = $1, status = $2, lulu_job_status = $3 WHERE id = $4`,
-            [luluJob.id, 'processing', luluJob.status, order.id]
+            `UPDATE orders SET lulu_job_id = $1, status = 'processing', lulu_job_status = $2 WHERE id = $3`,
+            [luluJob.id, luluJob.status.name, order.id]
         );
-        console.log(`✅ Order ${order.id} submitted to Lulu. Job ID: ${luluJob.id}`);
 
         await client.query('COMMIT');
+        console.log(`✅ Order ${orderId} successfully submitted to Lulu. Job ID: ${luluJob.id}`);
 
     } catch (error) {
-        if (client) await client.query('ROLLBACK');
-        console.error(`❌ CRITICAL: Failed to process successful checkout for Order ID ${orderId}:`, error);
+        if (client) {
+            console.error(`❌ CRITICAL: Failed to process successful checkout for Order ID ${orderId}:`, error.stack);
+            await client.query(`UPDATE orders SET status = 'fulfillment_failed', error_message = $1 WHERE id = $2`, [error.message, orderId]);
+            await client.query('COMMIT');
+        }
     } finally {
         if (client) client.release();
     }
 };
 
-export const stripeWebhook = (req, res) => {
+export const stripeWebhook = (req, res, endpointSecret) => {
     const sig = req.headers['stripe-signature'];
-    const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
     let event;
     try {
-        event = stripeClient.webhooks.constructEvent(req.body, sig, endpointSecret);
+        // --- ADDED LOGGING STATEMENTS ---
+        console.log(`[Stripe Webhook] Received signature: ${sig}`);
+        console.log(`[Stripe Webhook] Using endpoint secret: ${endpointSecret}`);
+        // --- END ADDED LOGGING STATEMENTS ---
+        event = stripe.webhooks.constructEvent(req.body, sig, endpointSecret);
     } catch (err) {
         console.error(`❌ Webhook signature verification failed.`, err.message);
         return res.status(400).send(`Webhook Error: ${err.message}`);
     }
-    
-    if (event.type === 'checkout.session.completed') {
-        stripeClient.checkout.sessions.retrieve(event.data.object.id, {
-            expand: ['customer'],
-        }).then(session => {
-            handleSuccessfulCheckout(session);
-        }).catch(err => {
-            console.error("Error retrieving full session from Stripe:", err);
-        });
-    } else {
-        console.log(`Unhandled event type ${event.type}`);
+
+    switch (event.type) {
+        case 'checkout.session.completed':
+            handleSuccessfulCheckout(event.data.object);
+            break;
+        case 'payment_intent.succeeded':
+            console.log(`✅ PaymentIntent ${event.data.object.id} succeeded!`);
+            break;
+        case 'payment_intent.created':
+        case 'charge.succeeded':
+        case 'charge.updated':
+        case 'product.created':
+        case 'price.created':
+            console.log(`⚠️ Unhandled but acknowledged event type: ${event.type}`);
+            break;
+        default:
+            console.log(`⚠️ Unhandled event type: ${event.type}`);
     }
-    
+
     res.json({ received: true });
 };

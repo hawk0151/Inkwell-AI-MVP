@@ -2,31 +2,39 @@
 import express from 'express';
 import { protect } from '../middleware/auth.middleware.js';
 import {
-    createPictureBook,
-    getPictureBooks,
-    getPictureBook,
-    deletePictureBook, // Deletes the entire book
-    saveTimelineEvents, // NEW: Import the unified save function
-    createBookCheckoutSession,
-    togglePictureBookPrivacy,
+    createPictureBook,
+    getPictureBooks,
+    getPictureBook,
+    deletePictureBook,
+    saveTimelineEvents,
+    createBookCheckoutSession,
+    togglePictureBookPrivacy,
+    generateEventImage,     // NEW: Import the image generation function
+    generatePreviewPdf,     // NEW: Import the preview generation function
 } from '../controllers/picturebook.controller.js';
 
 const router = express.Router();
 
 router.use(protect); // All routes in this router require authentication
 
-router.get('/', getPictureBooks); // Get all picture books for user
-router.post('/', createPictureBook); // Create a new picture book
-router.get('/:bookId', getPictureBook); // Get details of a specific picture book
-router.delete('/:bookId', deletePictureBook); // Delete an entire picture book
+// --- Book-Level Routes ---
+router.get('/', getPictureBooks);
+router.post('/', createPictureBook);
+router.get('/:bookId', getPictureBook);
+router.delete('/:bookId', deletePictureBook);
+router.patch('/:bookId/privacy', togglePictureBookPrivacy);
 
-// MODIFIED: This single route now handles adding, updating, and re-ordering all timeline events (pages)
+// --- NEW: Route to generate a PDF preview for a book ---
+router.get('/:bookId/preview', generatePreviewPdf);
+
+// --- Checkout Route ---
+router.post('/:bookId/checkout', createBookCheckoutSession);
+
+// --- Event/Page Routes ---
 router.post('/:bookId/events', saveTimelineEvents);
 
-// REMOVED: The old deleteTimelineEvent route is no longer needed
-// router.delete('/:bookId/events/:pageNumber', deleteTimelineEvent);
+// --- NEW: Route to generate an AI image for a specific page number ---
+router.post('/:bookId/events/:pageNumber/generate-image', generateEventImage);
 
-router.post('/:bookId/checkout', createBookCheckoutSession); // Checkout session for picture book
-router.patch('/:bookId/privacy', togglePictureBookPrivacy); // Toggle privacy for picture book
 
 export default router;

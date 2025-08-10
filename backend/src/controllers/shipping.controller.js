@@ -1,8 +1,7 @@
 // backend/src/controllers/shipping.controller.js
-
 import { getDb } from '../db/database.js';
 import { findProductConfiguration, getLuluShippingOptionsAndCosts } from '../services/lulu.service.js';
-import { generateAndSaveTextBookPdf, finalizePdfPageCount } from '../services/pdf.service.js';
+import { generateAndSaveTextBookPdf, finalizePdfPageCount, calculatePictureBookPageCount } from '../services/pdf.service.js';
 import jsonwebtoken from 'jsonwebtoken';
 import fs from 'fs/promises';
 
@@ -12,7 +11,7 @@ const QUOTE_TOKEN_EXPIRY_MINUTES = 10;
 const FALLBACK_SHIPPING_OPTION = {
     level: 'FALLBACK_STANDARD',
     name: 'Standard Shipping (Fallback)',
-    costUsd: 15.00,
+    cost: 20.00, // Generic 'cost' key for consistency
     estimatedDeliveryDate: '7-21 business days',
     isFallback: true
 };
@@ -38,7 +37,6 @@ async function getFullPictureBook(bookId, userId, client) {
     return book;
 }
 
-// CRITICAL FIX: The "export" keyword is present here.
 export const getShippingQuotes = async (req, res) => {
     let client;
     let tempInteriorPdfPath = null;
@@ -92,8 +90,7 @@ export const getShippingQuotes = async (req, res) => {
 
         let actualFinalPageCount;
         if (bookType === 'pictureBook') {
-            console.log(`[Shipping Quotes] Picture book detected. Using fixed page count from configuration.`);
-            actualFinalPageCount = selectedProductConfig.defaultPageCount;
+            actualFinalPageCount = calculatePictureBookPageCount(book.timeline, selectedProductConfig);
         } else { // bookType === 'textBook'
             console.log(`[Shipping Quotes] Textbook detected. Generating temporary PDF for page count...`);
             const { path: interiorPath, pageCount: trueContentPageCount } = await generateAndSaveTextBookPdf(book, selectedProductConfig);
@@ -119,7 +116,7 @@ export const getShippingQuotes = async (req, res) => {
                 selectedProductConfig.luluSku,
                 actualFinalPageCount,
                 trimmedAddress,
-                'USD'
+                'AUD'
             );
         } catch (luluServiceError) {
             console.warn(`[Shipping Quotes WARNING] Dynamic shipping options failed. Error: ${luluServiceError.message}`);
@@ -129,16 +126,18 @@ export const getShippingQuotes = async (req, res) => {
         let finalShippingOptions = dynamicShippingResult.shippingOptions.length > 0
             ? dynamicShippingResult.shippingOptions
             : [FALLBACK_SHIPPING_OPTION];
-            
-        const luluPrintCostUSD = selectedProductConfig.basePrice * 0.5;
-        const baseProductPriceUSD = selectedProductConfig.basePrice;
+        
+        const baseProductPriceAUD = selectedProductConfig.basePrice;
 
+        // FIXED: Add the full shipping options and costs to the JWT payload
         const payload = {
             bookId,
             bookType,
             luluSku: selectedProductConfig.luluSku,
             pageCount: actualFinalPageCount,
             shippingAddress: trimmedAddress,
+            shippingOptions: finalShippingOptions, // Include the full options array
+            basePrice: baseProductPriceAUD, // Include the base price
             isFallback: finalShippingOptions[0].isFallback || false,
         };
         const quoteToken = jsonwebtoken.sign(payload, JWT_QUOTE_SECRET, { expiresIn: `${QUOTE_TOKEN_EXPIRY_MINUTES}m` });
@@ -148,9 +147,8 @@ export const getShippingQuotes = async (req, res) => {
             quote_token: quoteToken,
             expires_at: expiresAt.toISOString(),
             shipping_options: finalShippingOptions,
-            print_cost_usd: luluPrintCostUSD,
-            base_product_price_usd: baseProductPriceUSD,
-            currency: 'USD'
+            base_product_price_aud: baseProductPriceAUD,
+            currency: 'AUD'
         });
 
     } catch (error) {

@@ -1,24 +1,23 @@
 // backend/src/controllers/picturebook.controller.js
 import { getDb } from '../db/database.js';
 import { randomUUID } from 'crypto';
-import { generateAndSavePictureBookPdf, generateCoverPdf } from '../services/pdf.service.js';
-import { findProductConfiguration, getCoverDimensionsFromApi, getPrintJobCosts } from '../services/lulu.service.js';
-import { createStripeCheckoutSession } from '../services/stripe.service.js';
-import { uploadPdfFileToCloudinary } from '../services/image.service.js';
+import * as pdfService from '../services/pdf.service.js';
+import * as luluService from '../services/lulu.service.js';
+import * as stripeService from '../services/stripe.service.js';
+import * as imageService from '../services/image.service.js';
+import * as fileHostService from '../services/fileHost.service.js';
 import jsonwebtoken from 'jsonwebtoken';
+import { JWT_QUOTE_SECRET } from '../config/jwt.config.js';
 import fs from 'fs/promises';
 
-const AUD_TO_USD_EXCHANGE_RATE = 0.66;
-const JWT_QUOTE_SECRET = process.env.JWT_QUOTE_SECRET || 'your_super_secret_jwt_quote_key';
-const PROFIT_MARGIN_USD = 10.00;
+const PROFIT_MARGIN_AUD = 15.00;
 const REQUIRED_CONTENT_PAGES = 20;
 
 async function getFullPictureBook(bookId, userId, client) {
     const bookResult = await client.query(`SELECT * FROM picture_books WHERE id = $1 AND user_id = $2`, [bookId, userId]);
     const book = bookResult.rows[0];
     if (!book) return null;
-    // FIX: Explicitly select all columns needed by the frontend
-    const eventsSql = `SELECT id, book_id, page_number, event_date, story_text, image_url, image_style, uploaded_image_url, overlay_text, is_bold_story_text, last_modified FROM timeline_events WHERE book_id = $1 ORDER BY page_number ASC`;
+    const eventsSql = `SELECT id, book_id, page_number, event_date, story_text, image_url, image_style, uploaded_image_url, image_url_preview, image_url_print, overlay_text, is_bold_story_text, last_modified FROM timeline_events WHERE book_id = $1 ORDER BY page_number ASC`;
     const timelineResult = await client.query(eventsSql, [bookId]);
     book.timeline = timelineResult.rows;
     return book;
@@ -32,7 +31,7 @@ export const createPictureBook = async (req, res) => {
         let { title, luluProductId } = req.body;
         const userId = req.userId;
         if (!luluProductId) {
-            const defaultPictureBookConfig = findProductConfiguration('A4PREMIUM_FC_8.27x11.69');
+            const defaultPictureBookConfig = luluService.findProductConfiguration('SQUARE_HC_8.75x8.75');
             if (defaultPictureBookConfig) {
                 luluProductId = defaultPictureBookConfig.id;
             } else {
@@ -92,7 +91,7 @@ export const getPictureBooks = async (req, res) => {
         const books = booksResult.rows;
 
         const booksWithType = books.map(book => {
-            const productConfig = findProductConfiguration(book.lulu_product_id);
+            const productConfig = luluService.findProductConfiguration(book.lulu_product_id);
             return {
                 ...book,
                 productName: productConfig ? productConfig.name : 'Unknown Book',
@@ -122,63 +121,38 @@ export const saveTimelineEvents = async (req, res) => {
     try {
         const pool = await getDb();
         client = await pool.connect();
-
-        // Start a database transaction
         await client.query('BEGIN');
 
-        // Verify the book belongs to the user
         const bookResult = await client.query(`SELECT id FROM picture_books WHERE id = $1 AND user_id = $2`, [bookId, userId]);
         if (bookResult.rows.length === 0) {
             await client.query('ROLLBACK');
             return res.status(404).json({ message: 'Project not found or you do not have permission.' });
         }
-
-        // 1. Sanitize the incoming events data to remove non-breaking spaces
-        const sanitizedEvents = events.map(event => {
-            // Check if the event has a 'story_text' field and it's a string
-            if (event.story_text && typeof event.story_text === 'string') {
-                // Replace all non-breaking spaces (\u00A0) with a regular space
-                event.story_text = event.story_text.replace(/\u00A0/g, ' ');
-            }
-            return event;
-        });
-
-        // 2. Delete all existing events for this book
+        
         await client.query(`DELETE FROM timeline_events WHERE book_id = $1`, [bookId]);
 
-        // 3. Insert the new, sanitized events with their correct page_number
-        if (sanitizedEvents.length > 0) {
+        if (events.length > 0) {
             const insertSql = `
-                INSERT INTO timeline_events (book_id, page_number, event_date, story_text, image_url, image_style, uploaded_image_url, overlay_text, is_bold_story_text)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                INSERT INTO timeline_events (
+                    book_id, page_number, event_date, story_text, image_url, 
+                    image_style, uploaded_image_url, overlay_text, is_bold_story_text,
+                    image_url_preview, image_url_print
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             `;
-            for (let i = 0; i < sanitizedEvents.length; i++) {
-                const event = sanitizedEvents[i];
-                const pageNumber = i + 1; // Correctly sequence pages from 1 to N
-                const finalImageUrl = event.uploaded_image_url || event.image_url;
-
+            for (let i = 0; i < events.length; i++) {
+                const event = events[i];
                 await client.query(insertSql, [
-                    bookId,
-                    pageNumber,
-                    event.event_date || null,
-                    event.story_text || null,
-                    finalImageUrl,
-                    event.image_style || null,
-                    event.uploaded_image_url || null,
-                    event.overlay_text || null,
-                    event.is_bold_story_text || false
+                    bookId, i + 1, event.event_date || null,
+                    event.story_text || null, event.image_url || null, event.image_style || null,
+                    event.uploaded_image_url || null, event.overlay_text || null, event.is_bold_story_text || false,
+                    event.image_url_preview || null, event.image_url_print || null
                 ]);
             }
         }
 
-        // 4. Update the book's last modified date
         await client.query(`UPDATE picture_books SET last_modified = $1 WHERE id = $2`, [new Date().toISOString(), bookId]);
-
-        // Commit the transaction
         await client.query('COMMIT');
-
         res.status(200).json({ message: 'Timeline events saved successfully.' });
-
     } catch (err) {
         if (client) await client.query('ROLLBACK');
         console.error(`Error in saveTimelineEvents controller:`, err.message);
@@ -188,8 +162,64 @@ export const saveTimelineEvents = async (req, res) => {
     }
 };
 
-// The old addTimelineEvent and deleteTimelineEvent controllers have been removed and replaced by saveTimelineEvents.
-// The code for createBookCheckoutSession and below remains the same.
+export const generateEventImage = async (req, res) => {
+    const { bookId, pageNumber } = req.params;
+    const { prompt, style } = req.body;
+    const userId = req.userId;
+    let client;
+    try {
+        const { previewUrl, printUrl } = await imageService.processAndUploadImageVersions(prompt, style, userId, bookId, pageNumber);
+
+        const pool = await getDb();
+        client = await pool.connect();
+        const updateSql = `
+            UPDATE timeline_events 
+            SET image_url_preview = $1, image_url_print = $2, 
+                image_url = $1, uploaded_image_url = $1
+            WHERE book_id = $3 AND page_number = $4
+        `;
+        const result = await client.query(updateSql, [previewUrl, printUrl, bookId, pageNumber]);
+
+        if (result.rowCount === 0) {
+            throw new Error(`Page number ${pageNumber} not found for book ${bookId}.`);
+        }
+        
+        res.status(200).json({ previewUrl, printUrl });
+    } catch(err) {
+        console.error('Error generating event image:', err);
+        res.status(500).json({ message: 'Failed to generate image.' });
+    } finally {
+        if (client) client.release();
+    }
+};
+
+export const generatePreviewPdf = async (req, res) => {
+    const { bookId } = req.params;
+    const userId = req.userId;
+    let client;
+    try {
+        const pool = await getDb();
+        client = await pool.connect();
+        const book = await getFullPictureBook(bookId, userId, client);
+        if (!book) return res.status(404).json({ message: "Project not found." });
+
+        const productConfig = luluService.findProductConfiguration(book.lulu_product_id);
+        if (!productConfig) throw new Error(`Product config not found for ${book.lulu_product_id}.`);
+
+        const { path: tempPdfPath } = await pdfService.generateAndSavePictureBookPdf(book, productConfig);
+        
+        const publicId = `preview_${bookId}_${Date.now()}`;
+        const previewUrl = await fileHostService.uploadPreviewFile(tempPdfPath, publicId);
+        
+        res.status(200).json({ previewUrl });
+    } catch (error) {
+        console.error(`[Controller] Error generating preview PDF for book ${bookId}:`, error);
+        res.status(500).json({ message: 'Failed to generate preview PDF.' });
+    } finally {
+        if (client) client.release();
+    }
+};
+
 export const createBookCheckoutSession = async (req, res) => {
     const { bookId } = req.params;
     const { shippingAddress, selectedShippingLevel, quoteToken } = req.body;
@@ -214,75 +244,98 @@ export const createBookCheckoutSession = async (req, res) => {
             return res.status(404).json({ message: "Project not found." });
         }
 
-        // THIS IS THE FINAL PATCH
         if (book.timeline.length !== REQUIRED_CONTENT_PAGES) {
-            const errorMessage = `This book is incomplete. It must have exactly ${REQUIRED_CONTENT_PAGES} content pages to be printed, but it currently has ${book.timeline.length}.`;
-            console.error(`[Checkout PB ERROR] ${errorMessage}`);
+            const errorMessage = `This book must have exactly ${REQUIRED_CONTENT_PAGES} pages to be printed.`;
             return res.status(400).json({ message: "Book is incomplete.", detailedError: errorMessage });
         }
 
-        const productConfig = findProductConfiguration(book.lulu_product_id);
-        if (!productConfig) {
-            return res.status(500).json({ message: `Internal Error: Product configuration not found for ID ${book.lulu_product_id}.` });
+        const productConfig = luluService.findProductConfiguration(book.lulu_product_id);
+
+        // --- GENERATE AND VALIDATE PRINT FILES ---
+        
+        // 1. Generate interior print PDF and finalize page count
+        const { path: interiorPdfPath, pageCount: finalPageCount } = await pdfService.generateAndSavePictureBookPdf(book, productConfig);
+        tempInteriorPdfPath = interiorPdfPath;
+        
+        // 2. Generate cover print PDF using the finalized page count
+        const coverDimensions = await luluService.getCoverDimensions(productConfig.luluSku, finalPageCount, 'mm');
+        const { path: coverPdfPath } = await pdfService.generateCoverPdf(book, productConfig, coverDimensions);
+        tempCoverPdfPath = coverPdfPath;
+
+        // 3. Upload both PDFs to a temporary host
+        console.log('[Checkout PB] Uploading print files for validation...');
+        const [interiorUrl, coverUrl] = await Promise.all([
+            fileHostService.uploadPrintFile(interiorPdfPath, `interior_${bookId}_${Date.now()}`),
+            fileHostService.uploadPrintFile(coverPdfPath, `cover_${bookId}_${Date.now()}`)
+        ]);
+
+        // 4. Validate both files with Lulu's API
+        console.log('[Checkout PB] Submitting files for Lulu validation...');
+        const [interiorValidation, coverValidation] = await Promise.all([
+            luluService.validateInteriorFile(interiorUrl, productConfig.luluSku),
+            luluService.validateCoverFile(coverUrl, productConfig.luluSku, finalPageCount)
+        ]);
+
+        // 5. Check validation results before proceeding
+        if (interiorValidation.status !== 'VALIDATED' && interiorValidation.status !== 'NORMALIZED' || coverValidation.status !== 'VALIDATED' && coverValidation.status !== 'NORMALIZED') {
+            const validationErrors = [
+                ...(interiorValidation.errors || []),
+                ...(coverValidation.errors || [])
+            ];
+            console.error('[Checkout PB ERROR] Lulu file validation failed:', validationErrors);
+            return res.status(400).json({
+                message: 'One or more of your files failed Lulu’s validation.',
+                detailedError: 'Please check your book content for issues and try again.',
+                validationErrors: validationErrors
+            });
+        }
+        
+        console.log('[Checkout PB] ✅ Both interior and cover files validated successfully!');
+        
+        // --- END OF VALIDATION LOGIC ---
+
+        // FIX: The failing `getPrintJobCosts` function has been removed.
+        // We will now get the cost from the `productConfig` and the `shippingOptions` API call,
+        // both of which are working.
+        const { shippingOptions } = await luluService.getLuluShippingOptionsAndCosts(
+            productConfig.luluSku,
+            finalPageCount,
+            shippingAddress
+        );
+
+        const selectedOption = shippingOptions.find(option => option.level === selectedShippingLevel);
+        if (!selectedOption) {
+            return res.status(400).json({ message: "Selected shipping option not found." });
         }
 
-        console.log(`[Checkout PB] Book is complete. Generating final PDFs for order...`);
-        const { path: interiorPath, pageCount: finalPageCount } = await generateAndSavePictureBookPdf(book, book.timeline, productConfig);
-        tempInteriorPdfPath = interiorPath;
-        const interiorPdfUrl = await uploadPdfFileToCloudinary(tempInteriorPdfPath, `inkwell-ai/user_${req.userId}/books`, `book_${bookId}_interior`);
-
-        const coverDimensions = await getCoverDimensionsFromApi(productConfig.luluSku, finalPageCount);
-        tempCoverPdfPath = await generateCoverPdf(book, productConfig, coverDimensions);
-        const coverPdfUrl = await uploadPdfFileToCloudinary(tempCoverPdfPath, `inkwell-ai/user_${req.userId}/covers`, `book_${bookId}_cover`);
-        console.log(`[Checkout PB] PDFs generated and uploaded successfully.`);
-
-        const lineItems = [{ pod_package_id: productConfig.luluSku, page_count: finalPageCount, quantity: 1 }];
-        const luluCosts = await getPrintJobCosts(lineItems, shippingAddress, selectedShippingLevel);
-
-        if (!luluCosts?.lineItemCosts?.[0]?.total_cost_incl_tax) {
-            throw new Error("Lulu cost response was missing expected print cost data.");
-        }
-
-        const luluPrintCostAUD = parseFloat(luluCosts.lineItemCosts[0].total_cost_incl_tax);
-        const luluFulfillmentCostAUD = parseFloat(luluCosts.fulfillmentCost?.total_cost_incl_tax || 0);
-        const selectedShippingOption = luluCosts.shippingOptions.find(opt => opt.level === selectedShippingLevel);
-        if (!selectedShippingOption) {
-            throw new Error(`The selected shipping level '${selectedShippingLevel}' was not available in the final cost calculation from Lulu.`);
-        }
-        const luluShippingCostAUD = parseFloat(selectedShippingOption.total_cost_incl_tax);
-        const luluPrintCostUSD = parseFloat((luluPrintCostAUD * AUD_TO_USD_EXCHANGE_RATE).toFixed(2));
-        const luluFulfillmentCostUSD = parseFloat((luluFulfillmentCostAUD * AUD_TO_USD_EXCHANGE_RATE).toFixed(2));
-        const luluShippingCostUSD = parseFloat((luluShippingCostAUD * AUD_TO_USD_EXCHANGE_RATE).toFixed(2));
-
-        const finalPriceDollars = luluPrintCostUSD + luluShippingCostUSD + luluFulfillmentCostUSD + PROFIT_MARGIN_USD;
-        const finalPriceInCents = Math.round(finalPriceDollars * 100);
-
-        console.log(`[Checkout PB] Final Pricing (USD): Print=$${luluPrintCostUSD}, Ship=$${luluShippingCostUSD}, Fulfill=$${luluFulfillmentCostUSD}, Profit=$${PROFIT_MARGIN_USD} -> TOTAL=$${finalPriceDollars.toFixed(2)}`);
-
+        // Calculate the final price using the book's base price and the selected shipping cost.
+        const luluTotalCostAUD = productConfig.basePrice + parseFloat(selectedOption.cost);
+        const finalPriceAUD = luluTotalCostAUD + PROFIT_MARGIN_AUD;
+        const finalPriceInCents = Math.round(finalPriceAUD * 100);
+        
+        console.log(`[Checkout PB] Final Pricing (AUD): Lulu Total=$${luluTotalCostAUD.toFixed(2)}, Profit=$${PROFIT_MARGIN_AUD} -> TOTAL=$${finalPriceAUD.toFixed(2)}`);
+        
         const orderId = randomUUID();
         const insertOrderSql = `
             INSERT INTO orders (
                 id, user_id, book_id, book_type, book_title, lulu_product_id, status,
-                total_price_usd, currency, interior_pdf_url, cover_pdf_url, actual_page_count,
-                lulu_print_cost_usd, lulu_shipping_cost_usd, profit_usd,
-                shipping_level_selected, lulu_fulfillment_cost_usd, order_date, updated_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`;
+                total_price_aud, currency, actual_page_count, shipping_level_selected,
+                interior_pdf_url, cover_pdf_url, order_date, updated_at 
+            ) VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7, 'AUD', $8, $9, $10, $11, $12, $13)`;
 
         await client.query(insertOrderSql, [
             orderId, req.userId, bookId, 'pictureBook', book.title, productConfig.luluSku,
-            'pending', parseFloat(finalPriceDollars.toFixed(2)), 'USD', interiorPdfUrl, coverPdfUrl, finalPageCount,
-            luluPrintCostUSD, luluShippingCostUSD, PROFIT_MARGIN_USD,
-            selectedShippingLevel, luluFulfillmentCostUSD, new Date(), new Date()
+            parseFloat(finalPriceAUD.toFixed(2)), finalPageCount,
+            selectedShippingLevel, interiorUrl, coverUrl, new Date(), new Date()
         ]);
 
-        const session = await createStripeCheckoutSession(
+        const session = await stripeService.createStripeCheckoutSession(
             {
                 name: book.title,
                 description: `Custom Picture Book - ${productConfig.name}`,
                 priceInCents: finalPriceInCents
             },
-            shippingAddress,
-            req.userId, orderId, bookId, 'pictureBook'
+            shippingAddress, req.userId, orderId, bookId, 'pictureBook'
         );
 
         await client.query('UPDATE orders SET stripe_session_id = $1 WHERE id = $2', [session.id, orderId]);
@@ -295,8 +348,13 @@ export const createBookCheckoutSession = async (req, res) => {
         res.status(500).json({ message: 'Failed to create checkout session.', detailedError });
     } finally {
         if (client) client.release();
-        if (tempInteriorPdfPath) { try { await fs.unlink(tempInteriorPdfPath); } catch (e) { console.error(`[Cleanup] Error deleting temp file: ${e.message}`); } }
-        if (tempCoverPdfPath) { try { await fs.unlink(tempCoverPdfPath); } catch (e) { console.error(`[Cleanup] Error deleting temp file: ${e.message}`); } }
+        // Clean up temporary files regardless of success or failure
+        if (tempInteriorPdfPath) {
+            try { await fs.unlink(tempInteriorPdfPath); } catch (e) { console.error(`[Cleanup] Error deleting temp interior PDF: ${e.message}`); }
+        }
+        if (tempCoverPdfPath) {
+            try { await fs.unlink(tempCoverPdfPath); } catch (e) { console.error(`[Cleanup] Error deleting temp cover PDF: ${e.message}`); }
+        }
     }
 };
 

@@ -1,0 +1,147 @@
+{
+  "id": "evt_1RsBlyBS9VcPMjr2nK4ot91s",
+  "object": "event",
+  "api_version": "2025-06-30.basil",
+  "created": 1754265422,
+  "data": {
+    "object": {
+      "id": "cs_test_a137cloFxg43BNgLFYKmqeAjseN8MHzWhV3Is5gXNrFGCOgLjK0quzw1IJ",
+      "object": "checkout.session",
+      "adaptive_pricing": {
+        "enabled": true
+      },
+      "after_expiration": null,
+      "allow_promotion_codes": null,
+      "amount_subtotal": 4989,
+      "amount_total": 4989,
+      "automatic_tax": {
+        "enabled": false,
+        "liability": null,
+        "provider": null,
+        "status": null
+      },
+      "billing_address_collection": null,
+      "cancel_url": "https://inkwell-ai-mvp-frontend.onrender.com/",
+      "client_reference_id": null,
+      "client_secret": null,
+      "collected_information": {
+        "shipping_details": {
+          "address": {
+            "city": "Adelaide",
+            "country": "AU",
+            "line1": "12 Galway Avenue",
+            "line2": null,
+            "postal_code": "5047",
+            "state": "SA"
+          },
+          "name": "Tyler Hawke"
+        }
+      },
+      "consent": null,
+      "consent_collection": null,
+      "created": 1754265407,
+      "currency": "aud",
+      "currency_conversion": null,
+      "custom_fields": [],
+      "custom_text": {
+        "after_submit": null,
+        "shipping_address": null,
+        "submit": null,
+        "terms_of_service_acceptance": null
+      },
+      "customer": null,
+      "customer_creation": "if_required",
+      "customer_details": {
+        "address": {
+          "city": "Adelaide",
+          "country": "AU",
+          "line1": "12 Galway Avenue",
+          "line2": null,
+          "postal_code": "5047",
+          "state": "SA"
+        },
+        "email": "tylerjaynoname@gmail.com",
+        "name": "Tyler Hawke",
+        "phone": null,
+        "tax_exempt": "none",
+        "tax_ids": []
+      },
+      "customer_email": null,
+      "discounts": [],
+      "expires_at": 1754351807,
+      "invoice": null,
+      "invoice_creation": {
+        "enabled": false,
+        "invoice_data": {
+          "account_tax_ids": null,
+          "custom_fields": null,
+          "description": null,
+          "footer": null,
+          "issuer": null,
+          "metadata": {},
+          "rendering_options": null
+        }
+      },
+      "livemode": false,
+      "locale": null,
+      "metadata": {
+        "bookType": "textBook",
+        "orderId": "e05c805d-254a-4702-8fe0-98d9f8682fa0",
+        "userId": "JBbxylv9BtNVu07pYNVII9EwMbt1",
+        "bookId": "f4dc70e0-2a82-418a-8e4d-4b4fef66f6b9"
+      },
+      "mode": "payment",
+      "origin_context": null,
+      "payment_intent": "pi_3RsBlxBS9VcPMjr216Bhqj5p",
+      "payment_link": null,
+      "payment_method_collection": "if_required",
+      "payment_method_configuration_details": null,
+      "payment_method_options": {
+        "card": {
+          "request_three_d_secure": "automatic"
+        }
+      },
+      "payment_method_types": [
+        "card"
+      ],
+      "payment_status": "paid",
+      "permissions": null,
+      "phone_number_collection": {
+        "enabled": false
+      },
+      "recovered_from": null,
+      "saved_payment_method_options": null,
+      "setup_intent": null,
+      "shipping_address_collection": {
+        "allowed_countries": [
+          "AU",
+          "US",
+          "CA",
+          "GB",
+          "NZ"
+        ]
+      },
+      "shipping_cost": null,
+      "shipping_options": [],
+      "status": "complete",
+      "submit_type": null,
+      "subscription": null,
+      "success_url": "https://inkwell-ai-mvp-frontend.onrender.com/checkout-success?session_id={CHECKOUT_SESSION_ID}",
+      "total_details": {
+        "amount_discount": 0,
+        "amount_shipping": 0,
+        "amount_tax": 0
+      },
+      "ui_mode": "hosted",
+      "url": null,
+      "wallet_options": null
+    }
+  },
+  "livemode": false,
+  "pending_webhooks": 1,
+  "request": {
+    "id": null,
+    "idempotency_key": null
+  },
+  "type": "checkout.session.completed"
+}

@@ -1,45 +1,63 @@
 // backend/src/controllers/textbook.controller.js
 
+/**
+ * @fileoverview Controller functions for textbook projects.
+ */
 import { getDb } from '../db/database.js';
 import { randomUUID } from 'crypto';
-import { generateStoryFromApi } from '../services/gemini.service.js';
-import { LULU_PRODUCT_CONFIGURATIONS, getCoverDimensionsFromApi, getPrintOptions, getPrintJobCosts, createLuluPrintJob } from '../services/lulu.service.js';
-import { generateAndSaveTextBookPdf, generateCoverPdf, finalizePdfPageCount } from '../services/pdf.service.js';
-import { uploadPdfFileToCloudinary } from '../services/image.service.js';
-import { createStripeCheckoutSession } from '../services/stripe.service.js';
+import { callGeminiAPI } from '../services/gemini.service.js';
+import { storyGenerationQueue } from '../services/queue.service.js';
+import * as luluService from '../services/lulu.service.js';
+import * as pdfService from '../services/pdf.service.js';
+import * as fileHostService from '../services/fileHost.service.js';
+import * as stripeService from '../services/stripe.service.js';
+import { uploadImageToCloudinary } from '../services/image.service.js';
 import jsonwebtoken from 'jsonwebtoken';
-import path from 'path';
 import fs from 'fs/promises';
+import { lockBook, unlockBook } from '../utils/lock.util.js';
+import { validatePrompt } from '../utils/prompt.util.js';
 
-const AUD_TO_USD_EXCHANGE_RATE = 0.66;
+const PROFIT_MARGIN_AUD = 15.00;
 const JWT_QUOTE_SECRET = process.env.JWT_QUOTE_SECRET || 'your_super_secret_jwt_quote_key_please_change_this_in_production';
 
-const FALLBACK_SHIPPING_OPTION = {
-    level: 'FALLBACK_STANDARD',
-    name: 'Standard Shipping (Fallback)',
-    costUsd: 15.00,
-    estimatedDeliveryDate: '7-21 business days',
-    isFallback: true
-};
+export const uploadTextbookCover = async (req, res) => {
+    const { bookId } = req.params;
+    const userId = req.userId;
 
-let AbortController;
-if (typeof globalThis.AbortController === 'function') {
-    AbortController = globalThis.AbortController;
-} else {
-    try {
-        const NodeAbortController = require('node-abort-controller');
-        AbortController = NodeAbortController.AbortController;
-    } catch (e) {
-        console.error("Critical: AbortController not available. Please ensure Node.js v15+ is used or 'node-abort-controller' is installed. Error:", e.message);
-        throw new Error("AbortController is not available. Please install 'node-abort-controller' or use Node.js v15+.");
+    if (!req.file) {
+        return res.status(400).json({ message: 'No image file provided.' });
     }
-}
+    
+    let client;
+    try {
+        const folder = `inkwell-ai/user_${userId}/textbook_covers`;
+        const publicIdPrefix = `cover_${bookId}`;
+        const imageUrl = await uploadImageToCloudinary(req.file.buffer, folder, publicIdPrefix);
+        const pool = await getDb();
+        client = await pool.connect();
+        const updateQuery = `
+            UPDATE text_books
+            SET user_cover_image_url = $1, last_modified = CURRENT_TIMESTAMP
+            WHERE id = $2 AND user_id = $3
+        `;
+        const result = await client.query(updateQuery, [imageUrl, bookId, userId]);
 
-const VALID_ISO_COUNTRY_CODES = new Set([
-    'AF', 'AX', 'AL', 'DZ', 'AS', 'AD', 'AO', 'AI', 'AQ', 'AG', 'AR', 'AM', 'AW', 'AU', 'AT', 'AZ', 'BS', 'BH', 'BD', 'BB', 'BY', 'BE', 'BZ', 'BJ', 'BM', 'BT', 'BO', 'BQ', 'BA', 'BW', 'BV', 'BR', 'IO', 'BN', 'BG', 'BF', 'BI', 'CV', 'KH', 'CM', 'CA', 'KY', 'CF', 'TD', 'CL', 'CN', 'CX', 'CC', 'CO', 'KM', 'CD', 'CG', 'CK', 'CR', 'CI', 'HR', 'CU', 'CW', 'CY', 'CZ', 'DK', 'DJ', 'DM', 'DO', 'EC', 'EG', 'SV', 'GQ', 'ER', 'EE', 'SZ', 'ET', 'FK', 'FO', 'FJ', 'FI', 'FR', 'GF', 'PF', 'TF', 'GA', 'GM', 'GE', 'DE', 'GH', 'GI', 'GR', 'GL', 'GD', 'GP', 'GU', 'GT', 'GG', 'GN', 'GW', 'GY', 'HT', 'HM', 'VA', 'HN', 'HK', 'HU', 'IS', 'IN', 'ID', 'IR', 'IQ', 'IE', 'IM', 'IL', 'IT', 'JM', 'JP', 'JE', 'JO', 'KZ', 'KE', 'KI', 'KP', 'KR', 'KW', 'KG', 'LA', 'LV', 'LB', 'LS', 'LR', 'LY', 'LI', 'LT', 'LU', 'MO', 'MG', 'MW', 'MY', 'MV', 'ML', 'MT', 'MH', 'MQ', 'MR', 'MU', 'YT', 'MX', 'FM', 'MD', 'MC', 'MN', 'ME', 'MS', 'MA', 'MZ', 'MM', 'NA', 'NR', 'NP', 'NL', 'NC', 'NZ', 'NI', 'NE', 'NG', 'NU', 'NF', 'MP', 'NO', 'OM', 'PK', 'PW', 'PS', 'PA', 'PG', 'PY', 'PE', 'PH', 'PN', 'PL', 'PT', 'PR', 'QA', 'MK', 'RO', 'RU', 'RW', 'RE', 'SA', 'SN', 'RS', 'SC', 'SL', 'SG', 'SX', 'SK', 'SI', 'SB', 'SO', 'ZA', 'GS', 'SS', 'ES', 'LK', 'SD', 'SR', 'SJ', 'SE', 'CH', 'SY', 'TW', 'TJ', 'TZ', 'TH', 'TL', 'TG', 'TK', 'TO', 'TT', 'TN', 'TR', 'TM', 'TC', 'TV', 'UG', 'UA', 'AE', 'GB', 'US', 'UM', 'UY', 'UZ', 'VU', 'VE', 'VN', 'VG', 'VI', 'WF', 'EH', 'YE', 'ZM', 'ZW'
-]);
-
-let printOptionsCache = null;
+        if (result.rowCount === 0) {
+            return res.status(404).json({ message: 'Book not found or you do not have permission to edit it.' });
+        }
+        res.status(200).json({ 
+            message: 'Cover image uploaded successfully.',
+            imageUrl: imageUrl 
+        });
+    } catch (error) {
+        console.error(`Error uploading cover for textbook ${bookId}:`, error);
+        res.status(500).json({ message: 'Failed to upload cover image.' });
+    } finally {
+        if (client) {
+            client.release();
+        }
+    }
+};
 
 async function getFullTextBook(bookId, userId, client) {
     const bookResult = await client.query(`SELECT * FROM text_books WHERE id = $1 AND user_id = $2`, [bookId, userId]);
@@ -53,61 +71,68 @@ async function getFullTextBook(bookId, userId, client) {
 
 export const createTextBook = async (req, res) => {
     let client;
-    const { title, promptDetails, luluProductId } = req.body;
+    const { promptData, luluProductId } = req.body;
     const userId = req.userId;
+
+    console.log('[Textbook Controller] Received promptData for new book:', JSON.stringify(promptData, null, 2));
     
-    // --- NEW: Add validation to prevent server errors from missing data ---
-    if (!title || typeof title !== 'string' || title.trim() === '') {
-        return res.status(400).json({ message: 'Book title is required.' });
+    if (!promptData || !promptData.bookTitle || !luluProductId) {
+        return res.status(400).json({ message: 'Book title and product ID are required.' });
     }
-    if (!luluProductId) {
-        return res.status(400).json({ message: 'Lulu product ID is required.' });
-    }
-    if (!promptDetails || !promptDetails.wordsPerPage || !promptDetails.totalChapters || !promptDetails.maxPageCount) {
-        return res.status(400).json({ message: 'wordsPerPage, totalChapters, and maxPageCount are required for story generation.' });
-    }
-    // --- END NEW VALIDATION ---
-    
+
     try {
         const pool = await getDb();
         client = await pool.connect();
-        const selectedProductConfig = LULU_PRODUCT_CONFIGURATIONS.find(p => p.id === luluProductId);
+        await client.query('BEGIN');
+
+        const selectedProductConfig = luluService.findProductConfiguration(luluProductId);
         if (!selectedProductConfig) {
-            return res.status(400).json({ message: `Product configuration with ID ${luluProductId} not found.` });
+            throw new Error(`Product configuration with ID ${luluProductId} not found.`);
         }
         const totalChaptersForBook = selectedProductConfig.totalChapters;
-
-        const effectiveMaxPageCount = Math.min(
-            selectedProductConfig.maxPageCount,
-            Math.max(
-                selectedProductConfig.defaultPageCount,
-                Math.ceil(selectedProductConfig.defaultPageCount * 1.5)
-            )
-        );
-        console.log(`[Textbook Controller] Using effectiveMaxPageCount for AI prompt: ${effectiveMaxPageCount}`);
-
         const bookId = randomUUID();
         const currentDate = new Date().toISOString();
-        const bookSql = `INSERT INTO text_books (id, user_id, title, prompt_details, lulu_product_id, date_created, last_modified, total_chapters) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`;
-        await client.query(bookSql, [bookId, userId, title, JSON.stringify(promptDetails), luluProductId, currentDate, currentDate, totalChaptersForBook]);
 
-        const firstChapterText = await generateStoryFromApi({
-            ...promptDetails,
-            wordsPerPage: selectedProductConfig.wordsPerPage,
-            totalChapters: selectedProductConfig.totalChapters,
-            maxPageCount: effectiveMaxPageCount,
-            chapterNumber: 1,
-            isFinalChapter: totalChaptersForBook === 1
+        let dynamicBugName = '';
+        const conflictGenres = ['adventure', 'fantasy', 'sci-fi', 'horror', 'mystery', 'thriller'];
+        
+        if (promptData.genre && conflictGenres.includes(promptData.genre.toLowerCase())) {
+            const bugReplacementPrompt = `
+You are a creative writer. Based on a story in the ${promptData.genre} genre about a character named "${promptData.mainCharacter.name}", generate a single, creative name or phrase that could be used to refer to a central mystery, a powerful item, or a mysterious antagonist.
+DO NOT use any markdown, conversational text, or explanations. Just provide the name.
+Examples:
+Fantasy: The Shadowed One
+Sci-Fi: The Cosmic Anomaly
+Horror: The Whispering Shade
+Your response:`.trim();
+            // Note: We should also update this hardcoded model name
+            const rawReplacementName = await callGeminiAPI(bugReplacementPrompt, 'gemini-2.5-flash-lite');
+            dynamicBugName = rawReplacementName.trim().replace(/^"|"$/g, '');
+            console.log(`[Textbook Controller] Dynamic bug name generated for ${promptData.genre} genre: ${dynamicBugName}`);
+        } else {
+            console.log(`[Textbook Controller] Skipping dynamic bug name generation for genre: ${promptData.genre}`);
+        }
+        
+        const newPromptData = { ...promptData, dynamicBugName };
+        
+        const bookSql = `INSERT INTO text_books (id, user_id, title, prompt_details, lulu_product_id, date_created, last_modified, total_chapters) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`;
+        await client.query(bookSql, [bookId, userId, newPromptData.bookTitle, JSON.stringify(newPromptData), luluProductId, currentDate, currentDate, totalChaptersForBook]);
+
+        console.log(`[Textbook Controller] Book record created. Submitting Chapter 1 generation job for book ${bookId}.`);
+        const jobData = { bookId, userId, chapterNumber: 1, guidance: '' };
+        await storyGenerationQueue.add('generateChapter', jobData, {
+            jobId: `book-${bookId}-chapter-1`
         });
-        const chapterSql = `INSERT INTO chapters (book_id, chapter_number, content, date_created) VALUES ($1, 1, $2, $3)`;
-        await client.query(chapterSql, [bookId, firstChapterText, currentDate]);
-        res.status(201).json({
-            message: 'Project created and first chapter generated.',
+
+        await client.query('COMMIT');
+
+        res.status(202).json({
+            message: 'Project created successfully. The first chapter is being generated in the background.',
             bookId: bookId,
-            firstChapter: firstChapterText,
             totalChapters: totalChaptersForBook,
         });
     } catch (error) {
+        if (client) await client.query('ROLLBACK');
         console.error('Error creating text book:', error);
         res.status(500).json({ message: 'Failed to create text book project.' });
     } finally {
@@ -116,68 +141,96 @@ export const createTextBook = async (req, res) => {
 };
 
 export const generateNextChapter = async (req, res) => {
-    let client;
     const { bookId } = req.params;
     const userId = req.userId;
+    
+    const isLocked = await lockBook(bookId);
+    if (!isLocked) {
+        return res.status(409).json({ message: 'A chapter is already being generated. Please wait.' });
+    }
+
     try {
         const pool = await getDb();
-        client = await pool.connect();
+        const client = await pool.connect();
         const book = await getFullTextBook(bookId, userId, client);
-        if (!book) return res.status(404).json({ message: 'Book project not found.' });
+        client.release();
 
-        let parsedPromptDetails;
-        try {
-            parsedPromptDetails = JSON.parse(book.prompt_details);
-        } catch (parseError) {
-            console.error(`[Textbook Controller] Error parsing prompt_details for book ${book.id}:`, parseError);
-            return res.status(500).json({ message: 'Failed to parse book prompt details.' });
+        if (!book) {
+            await unlockBook(bookId);
+            return res.status(404).json({ message: 'Book project not found.' });
         }
 
-        const selectedProductConfig = LULU_PRODUCT_CONFIGURATIONS.find(p => p.id === book.lulu_product_id);
-        if (!selectedProductConfig) {
-            return res.status(400).json({ message: 'Could not find product configuration for this book.' });
+        const nextChapterNumber = book.chapters.length + 1;
+        const totalChaptersForBook = book.total_chapters;
+
+        if (nextChapterNumber > totalChaptersForBook) {
+            await unlockBook(bookId);
+            return res.status(400).json({ message: 'All chapters for this book have already been generated.' });
         }
-        const chapters = book.chapters;
-        const previousChaptersText = chapters.map(c => c.content).join('\n\n---\n\n');
-        const nextChapterNumber = chapters.length + 1;
-        const isFinalChapter = nextChapterNumber >= book.total_chapters;
 
-        const effectiveMaxPageCount = Math.min(
-            selectedProductConfig.maxPageCount,
-            Math.max(
-                selectedProductConfig.defaultPageCount,
-                Math.ceil(selectedProductConfig.defaultPageCount * 1.5)
-            )
-        );
-        console.log(`[Textbook Controller] Using effectiveMaxPageCount for AI prompt: ${effectiveMaxPageCount}`);
-
-        const finalPromptDetails = {
-            ...parsedPromptDetails,
-            wordsPerPage: selectedProductConfig.wordsPerPage,
-            totalChapters: selectedProductConfig.totalChapters,
-            maxPageCount: effectiveMaxPageCount
-        };
-        const newChapterText = await generateStoryFromApi({
-            ...finalPromptDetails,
-            previousChaptersText: previousChaptersText,
-            chapterNumber: nextChapterNumber,
-            isFinalChapter: isFinalChapter,
+        const jobData = { bookId, userId, chapterNumber: nextChapterNumber, guidance: '' };
+        await storyGenerationQueue.add('generateChapter', jobData, {
+            jobId: `book-${bookId}-chapter-${nextChapterNumber}`
         });
-        const currentDate = new Date().toISOString();
-        const chapterSql = `INSERT INTO chapters (book_id, chapter_number, content, date_created) VALUES ($1, $2, $3, $4)`;
-        await client.query(chapterSql, [bookId, nextChapterNumber, newChapterText, currentDate]);
-        await client.query(`UPDATE text_books SET last_modified = $1 WHERE id = $2`, [currentDate, bookId]);
-        res.status(201).json({
-            message: `Chapter ${nextChapterNumber} generated.`,
-            newChapter: newChapterText,
+
+        res.status(202).json({
+            message: `Chapter ${nextChapterNumber} generation job submitted.`,
             chapterNumber: nextChapterNumber,
-            isStoryComplete: isFinalChapter,
         });
     } catch (error) {
-        console.error(`Error generating chapter for book ${bookId}:`, error);
-        res.status(500).json({ message: 'Failed to generate next chapter.' });
-    } finally {
-        if (client) client.release();
+        console.error(`Error submitting chapter generation job for book ${bookId}:`, error);
+        await unlockBook(bookId);
+        res.status(500).json({ message: 'Failed to submit next chapter generation job.' });
+    }
+};
+
+export const regenerateChapter = async (req, res) => {
+    const { bookId, chapterNumber: chapterNumberStr } = req.params;
+    const { guidance } = req.body;
+    const userId = req.userId;
+    const chapterNumber = parseInt(chapterNumberStr);
+    
+    const isLocked = await lockBook(bookId);
+    if (!isLocked) {
+        return res.status(409).json({ message: 'A chapter is already being generated. Please wait.' });
+    }
+
+    try {
+        const pool = await getDb();
+        const client = await pool.connect();
+        const book = await getFullTextBook(bookId, userId, client);
+        client.release();
+
+        if (!book) {
+            await unlockBook(bookId);
+            return res.status(404).json({ message: 'Book project not found.' });
+        }
+
+        const latestChapterNumber = book.chapters.length;
+        if (chapterNumber !== latestChapterNumber) {
+            await unlockBook(bookId);
+            return res.status(400).json({ message: 'You can only regenerate the most recent chapter.' });
+        }
+
+        const jobData = {
+            bookId,
+            userId,
+            chapterNumber,
+            guidance,
+        };
+        
+        await storyGenerationQueue.add('regenerateChapter', jobData, {
+            jobId: `book-${bookId}-chapter-${chapterNumber}-regen-${Date.now()}`
+        });
+
+        res.status(202).json({
+            message: `Chapter ${chapterNumber} regeneration job submitted.`,
+            chapterNumber: chapterNumber,
+        });
+    } catch (error) {
+        console.error(`Error submitting chapter regeneration job for book ${bookId}:`, error);
+        await unlockBook(bookId);
+        res.status(500).json({ message: 'Failed to submit chapter regeneration job.' });
     }
 };
 
@@ -188,26 +241,27 @@ export const getTextBooks = async (req, res) => {
         const pool = await getDb();
         client = await pool.connect();
         const booksResult = await client.query(`
-SELECT tb.id, tb.title, tb.last_modified, tb.lulu_product_id, tb.is_public, tb.cover_image_url, tb.total_chapters, tb.prompt_details
+SELECT tb.id, tb.title, tb.last_modified, tb.lulu_product_id, tb.is_public, tb.cover_image_url, tb.total_chapters, tb.prompt_details, tb.user_cover_image_url
 FROM text_books tb
 WHERE tb.user_id = $1
 ORDER BY tb.last_modified DESC`, [userId]);
         const books = booksResult.rows;
-        if (!printOptionsCache) {
-            printOptionsCache = await getPrintOptions();
-        }
-        const booksWithData = books.map(book => {
-            const productConfig = printOptionsCache.find(p => p.id === book.lulu_product_id);
+
+        const booksWithChapters = await Promise.all(books.map(async (book) => {
+            const chaptersResult = await client.query(`SELECT chapter_number FROM chapters WHERE book_id = $1`, [book.id]);
+            const productConfig = luluService.findProductConfiguration(book.lulu_product_id);
             return {
                 ...book,
+                chapters: chaptersResult.rows,
                 productName: productConfig ? productConfig.name : 'Unknown Book',
-                type: productConfig ? productConfig.type : 'textBook'
+                type: 'textBook'
             };
-        });
-        res.status(200).json(booksWithData);
+        }));
+        
+        res.status(200).json(booksWithChapters);
     } catch (error) {
         console.error('Error fetching text books:', error);
-        res.status(500).json({ message: 'Failed to fetch text book project.' });
+        res.status(500).json({ message: 'Failed to fetch text book projects.' });
     } finally {
         if (client) client.release();
     }
@@ -216,7 +270,6 @@ ORDER BY tb.last_modified DESC`, [userId]);
 export const getTextBookDetails = async (req, res) => {
     let client;
     const { bookId } = req.params;
-    const userId = req.userId;
     try {
         const pool = await getDb();
         client = await pool.connect();
@@ -232,289 +285,131 @@ export const getTextBookDetails = async (req, res) => {
     }
 };
 
+export const getPreviewPdf = async (req, res) => {
+    const { bookId } = req.params;
+    const userId = req.userId;
+    let client;
+    let tempPdfPath = null;
+    try {
+        const pool = await getDb();
+        client = await pool.connect();
+        const book = await getFullTextBook(bookId, userId, client);
+        if (!book) {
+            return res.status(404).json({ message: 'Book not found.' });
+        }
+        const selectedProductConfig = luluService.findProductConfiguration(book.lulu_product_id);
+        if (!selectedProductConfig) {
+            return res.status(400).json({ message: 'Product configuration for this book not found.' });
+        }
+        console.log(`[Preview PDF] Generating preview for book: ${book.title}`);
+        const { path } = await pdfService.generateAndSaveTextBookPdf(book, selectedProductConfig);
+        tempPdfPath = path;
+        const publicId = `preview_textbook_${bookId}_${Date.now()}`;
+        const previewUrl = await fileHostService.uploadPreviewFile(tempPdfPath, publicId);
+        res.status(200).json({ previewUrl });
+    } catch (error) {
+        console.error(`[Preview PDF ERROR] ${error.message}`, { stack: error.stack });
+        res.status(500).json({ message: 'Failed to generate PDF preview.' });
+    } finally {
+        if (client) client.release();
+        if (tempPdfPath) {
+            fs.unlink(tempPdfPath).catch(e => console.error(`[Cleanup] Error deleting temp preview PDF: ${e.message}`));
+        }
+    }
+};
+
 export const createCheckoutSessionForTextBook = async (req, res) => {
     const { bookId } = req.params;
     const { shippingAddress, selectedShippingLevel, quoteToken } = req.body;
     let client;
     let tempInteriorPdfPath = null;
     let tempCoverPdfPath = null;
-
-    const trimmedAddress = {
-        name: shippingAddress.name ? shippingAddress.name.trim() : '',
-        street1: shippingAddress.street1 ? shippingAddress.street1.trim() : '',
-        street2: shippingAddress.street2 ? shippingAddress.street2.trim() : '',
-        city: shippingAddress.city ? shippingAddress.city.trim() : '',
-        state_code: shippingAddress.state_code ? shippingAddress.state_code.trim() : '',
-        postcode: shippingAddress.postcode ? shippingAddress.postcode.trim() : '',
-        country_code: shippingAddress.country_code ? shippingAddress.country_code.trim().toUpperCase() : '',
-        phone_number: shippingAddress.phone_number ? shippingAddress.phone_number.trim() : '',
-        email: shippingAddress.email ? shippingAddress.email.trim() : '',
-    };
-
-    if (!trimmedAddress.name || !trimmedAddress.street1 || !trimmedAddress.city ||
-        !trimmedAddress.postcode || !trimmedAddress.country_code ||
-        !trimmedAddress.phone_number || !trimmedAddress.email || !selectedShippingLevel || !quoteToken) {
-        console.error("Missing required checkout fields or invalid request:", { trimmedAddress, selectedShippingLevel, quoteTokenPresent: !!quoteToken });
-        const missingFields = [];
-        if (!trimmedAddress.name) missingFields.push('name');
-        if (!trimmedAddress.street1) missingFields.push('street1');
-        if (!trimmedAddress.city) missingFields.push('city');
-        if (!trimmedAddress.postcode) missingFields.push('postcode');
-        if (!trimmedAddress.country_code) missingFields.push('country_code');
-        if (!trimmedAddress.phone_number) missingFields.push('phone_number');
-        if (!trimmedAddress.email) missingFields.push('email');
-        if (!selectedShippingLevel) missingFields.push('selectedShippingLevel');
-        if (!quoteToken) missingFields.push('quoteToken');
-
-        return res.status(400).json({
-            message: `Checkout request incomplete. Missing: ${missingFields.join(', ')}.`,
-            detailedError: 'Please ensure all shipping details and selected shipping option are provided.'
-        });
+    if (!shippingAddress || !selectedShippingLevel || !quoteToken) {
+        return res.status(400).json({ message: "Missing shipping address, selected shipping level, or quote token." });
     }
-
-    if (!VALID_ISO_COUNTRY_CODES.has(trimmedAddress.country_code)) {
-        return res.status(400).json({ message: `Invalid country code: ${trimmedAddress.country_code}. Please use a valid ISO Alpha-2 code.` });
-    }
-
-    console.log(`[Checkout] Initiating checkout for book ${bookId} to country: ${trimmedAddress.country_code} with shipping level: ${selectedShippingLevel}`);
-
     try {
         let decodedQuote;
         try {
             decodedQuote = jsonwebtoken.verify(quoteToken, JWT_QUOTE_SECRET);
-            console.log('[Checkout] Quote token verified successfully.');
         } catch (tokenError) {
-            console.error('[Checkout ERROR] Quote token verification failed:', tokenError.message);
+            console.error('[Checkout] Quote token verification failed:', tokenError.message);
             return res.status(403).json({ message: 'Invalid or expired shipping quote. Please get a new quote.' });
         }
-
-        if (decodedQuote.bookId !== bookId || decodedQuote.bookType !== 'textBook' || decodedQuote.pageCount === undefined || decodedQuote.luluSku === undefined) {
-            console.error('[Checkout ERROR] Quote token content mismatch:', { requestBookId: bookId, decoded: decodedQuote });
+        if (decodedQuote.bookId !== bookId || decodedQuote.bookType !== 'textBook') {
             return res.status(400).json({ message: 'Shipping quote details do not match the selected book.' });
         }
-        if (decodedQuote.shippingAddress.country_code !== trimmedAddress.country_code ||
-            decodedQuote.shippingAddress.postcode !== trimmedAddress.postcode) {
-            console.warn('[Checkout WARNING] Quote token address mismatch (country/postcode). Proceeding but noted:', { decodedAddress: decodedQuote.shippingAddress, currentAddress: trimmedAddress });
+        const selectedOption = decodedQuote.shippingOptions.find(opt => opt.level === selectedShippingLevel);
+        if (!selectedOption) {
+            console.error(`[Checkout TB ERROR] The selected shipping level '${selectedShippingLevel}' was not found in the quote token options.`);
+            return res.status(400).json({ message: `The selected shipping option is not valid for this quote. Please refresh and try again.` });
         }
-
+        const basePriceAUD = decodedQuote.basePrice;
+        const shippingCostAUD = selectedOption.cost;
+        const luluTotalCostAUD = basePriceAUD + shippingCostAUD;
+        const finalPriceAUD = luluTotalCostAUD + PROFIT_MARGIN_AUD;
+        const finalPriceInCents = Math.round(finalPriceAUD * 100);
+        console.log(`[Checkout TB] Price calculated from quote token: Base=${basePriceAUD}, Shipping=${shippingCostAUD}, Final=${finalPriceAUD}`);
         const pool = await getDb();
         client = await pool.connect();
-
         const book = await getFullTextBook(bookId, req.userId, client);
         if (!book) return res.status(404).json({ message: 'Text book not found.' });
-
-        const selectedProductConfig = LULU_PRODUCT_CONFIGURATIONS.find(p => p.id === book.lulu_product_id);
-        if (!selectedProductConfig) return res.status(400).json({ message: 'Invalid product ID.' });
-
-        console.log(`[Checkout] Re-generating PDFs for book ${bookId} for final order...`);
-        const { path: interiorPath, pageCount: trueContentPageCount } = await generateAndSaveTextBookPdf(book, selectedProductConfig);
+        const selectedProductConfig = luluService.findProductConfiguration(book.lulu_product_id);
+        if (!selectedProductConfig) {
+            return res.status(400).json({ message: 'Invalid product ID.' });
+        }
+        console.log('[Checkout TB] Generating and validating print files...');
+        const { pageCount: actualFinalPageCount, path: interiorPath } = await pdfService.generateAndSaveTextBookPdf(book, selectedProductConfig);
         tempInteriorPdfPath = interiorPath;
-        console.log(`[Checkout] Content PDF re-generation complete. True content page count is ${trueContentPageCount}.`);
-
-        let actualFinalPageCount = trueContentPageCount;
-        let isPageCountFallback = false;
-
-        if (trueContentPageCount === null) {
-            console.warn(`[Checkout] True content page count was null. Falling back to product's defaultPageCount: ${selectedProductConfig.defaultPageCount}`);
-            actualFinalPageCount = selectedProductConfig.defaultPageCount;
-            isPageCountFallback = true;
+        const interiorPdfUrl = await fileHostService.uploadPrintFile(tempInteriorPdfPath, `interior_${bookId}_${Date.now()}`);
+        const coverDimensions = await luluService.getCoverDimensions(selectedProductConfig.luluSku, actualFinalPageCount);
+        const { path: coverPath } = await pdfService.generateTextbookCoverPdf(book, selectedProductConfig, coverDimensions);
+        tempCoverPdfPath = coverPath;
+        const coverPdfUrl = await fileHostService.uploadPrintFile(tempCoverPdfPath, `cover_${bookId}_${Date.now()}`);
+        const interiorValidation = await luluService.validateInteriorFile(interiorPdfUrl, selectedProductConfig.luluSku);
+        const coverValidation = await luluService.validateCoverFile(coverPdfUrl, selectedProductConfig.luluSku, actualFinalPageCount);
+        if (!['VALIDATED', 'NORMALIZED'].includes(interiorValidation.status) || !['VALIDATED', 'NORMALIZED'].includes(coverValidation.status)) {
+            const validationErrors = [
+                ...(interiorValidation.errors || []),
+                ...(coverValidation.errors || [])
+            ];
+            console.error('[Checkout TB ERROR] Lulu file validation failed:', validationErrors);
+            return res.status(400).json({
+                message: 'One or more of your files failed Lulu’s validation.',
+                detailedError: 'Please check your book content for issues and try again.',
+                validationErrors: validationErrors
+            });
         }
-
-        const finalPaddedPageCount = await finalizePdfPageCount(tempInteriorPdfPath, selectedProductConfig, actualFinalPageCount);
-        if (finalPaddedPageCount === null) {
-            console.error(`[Checkout] Failed to finalize PDF page count (padding/evenness).`);
-            return res.status(500).json({ message: 'Failed to finalize book PDF for printing.' });
-        }
-        actualFinalPageCount = finalPaddedPageCount;
-        console.log(`[Checkout] PDF finalization complete. Final padded page count is ${actualFinalPageCount}.`);
-
-        if (actualFinalPageCount > selectedProductConfig.maxPageCount) {
-            const errorMessage = `This book has ${actualFinalPageCount} pages, which exceeds the maximum allowed for this format (${selectedProductConfig.maxPageCount} pages).`;
-            console.error("[Checkout] Failed: Page count exceeded max limit.", { bookId, finalPageCount: actualFinalPageCount, product: selectedProductConfig.id });
-            return res.status(400).json({ message: errorMessage });
-        }
-        if (actualFinalPageCount < selectedProductConfig.minPageCount) {
-            const errorMessage = `Generated book page count (${actualFinalPageCount}) is below the minimum required for this format (${selectedProductConfig.minPageCount}).`;
-            console.error("[Checkout] ERROR: Page count still below minimum.", { bookId, finalPageCount: actualFinalPageCount, product: selectedProductConfig.id });
-            return res.status(400).json({ message: errorMessage });
-        }
-
-        const interiorPdfUrl = await uploadPdfFileToCloudinary(tempInteriorPdfPath, `inkwell-ai/user_${req.userId}/books`, `book_${bookId}_interior`);
-
-        const luluSku = selectedProductConfig.luluSku;
-        const coverDimensions = await getCoverDimensionsFromApi(luluSku, actualFinalPageCount);
-        tempCoverPdfPath = await generateCoverPdf(book, selectedProductConfig, coverDimensions);
-        const coverPdfUrl = await uploadPdfFileToCloudinary(tempCoverPdfPath, `inkwell-ai/user_${req.userId}/covers`, `book_${bookId}_cover`);
-        console.log(`[Checkout] PDFs uploaded to Cloudinary.`);
-
-        console.log("[Checkout] Fetching print costs from Lulu with selected shipping level...");
-        const printCostLineItems = [{
-            pod_package_id: luluSku,
-            page_count: actualFinalFinalPageCount,
-            quantity: 1
-        }];
-
-        const luluShippingAddressForCost = {
-            name: trimmedAddress.name,
-            street1: trimmedAddress.street1,
-            street2: trimmedAddress.street2,
-            city: trimmedAddress.city,
-            state_code: trimmedAddress.state_code || '',
-            postcode: trimmedAddress.postcode,
-            country_code: trimmedAddress.country_code,
-            phone_number: trimmedAddress.phone_number,
-            email: trimmedAddress.email,
-        };
-
-        let luluCostsResponse;
-        let luluShippingCostUSD;
-        const isFallback = selectedShippingLevel === FALLBACK_SHIPPING_OPTION.level;
-        const PROFIT_MARGIN_USD = selectedProductConfig.basePrice * 0.5;
-
-        if (isFallback) {
-            console.log(`[Checkout] Using fallback shipping rate. Probing Lulu for print and fulfillment costs with a valid shipping level.`);
-            const validLuluLevelForProbe = 'MAIL';
-            try {
-                luluCostsResponse = await getPrintJobCosts(printCostLineItems, luluShippingAddressForCost, validLuluLevelForProbe);
-                luluShippingCostUSD = FALLBACK_SHIPPING_OPTION.costUsd;
-            } catch (luluError) {
-                console.error(`[Checkout] Error getting Lulu print/fulfillment cost during fallback: ${luluError.message}. Using dummy print/fulfillment costs.`);
-                luluCostsResponse = {
-                    lineItemCosts: [{ total_cost_incl_tax: (selectedProductConfig.basePrice / AUD_TO_USD_EXCHANGE_RATE) * 0.7 }],
-                    fulfillmentCost: { total_cost_incl_tax: 0 }
-                };
-                luluShippingCostUSD = FALLBACK_SHIPPING_OPTION.costUsd;
-            }
-        } else {
-            try {
-                luluCostsResponse = await getPrintJobCosts(printCostLineItems, luluShippingAddressForCost, selectedShippingLevel);
-                const selectedShippingOption = luluCostsResponse.shippingOptions && Array.isArray(luluCostsResponse.shippingOptions)
-                    ? luluCostsResponse.shippingOptions.find(opt => opt.level === selectedShippingLevel)
-                    : null;
-
-                if (!selectedShippingOption) {
-                    console.warn(`Selected shipping level '${selectedShippingLevel}' not confirmed by Lulu for final calculation. Attempting to get print/fulfillment cost with 'MAIL' level.`);
-                    try {
-                        const fallbackLuluCostsResponse = await getPrintJobCosts(printCostLineItems, luluShippingAddressForCost, 'MAIL');
-                        luluCostsResponse.lineItemCosts = fallbackLuluCostsResponse.lineItemCosts;
-                        luluCostsResponse.fulfillmentCost = fallbackLuluCostsResponse.fulfillmentCost;
-                        luluShippingCostUSD = 0;
-                    } catch (fallbackError) {
-                        console.error(`Failed to get print/fulfillment costs even with 'MAIL' fallback: ${fallbackError.message}`);
-                        throw new Error(`Failed to confirm selected shipping level and could not get fallback print/fulfillment costs.`);
-                    }
-                } else {
-                    const luluShippingCostAUD = parseFloat(selectedShippingOption.total_cost_incl_tax);
-                    luluShippingCostUSD = parseFloat((luluShippingCostAUD * AUD_TO_USD_EXCHANGE_RATE).toFixed(4));
-                }
-            } catch (luluError) {
-                console.error(`[Checkout] Error fetching print costs from Lulu: ${luluError.message}. Error details:`, luluError.response?.data);
-                throw luluError;
-            }
-        }
-
-        if (!luluCostsResponse?.lineItemCosts?.[0]?.total_cost_incl_tax) {
-            console.error("[Checkout] Lulu API response missing expected structure:", luluCostsResponse);
-            throw new Error("Failed to retrieve valid item print cost from Lulu API.");
-        }
-        const luluPrintCostAUD = parseFloat(luluCostsResponse.lineItemCosts[0].total_cost_incl_tax);
-        if (isNaN(luluPrintCostAUD) || luluPrintCostAUD <= 0) {
-            console.error("[Checkout] Failed to parse or received invalid (non-positive) item print cost from Lulu:", luluCostsResponse);
-            throw new Error("Failed to retrieve valid item print cost from Lulu API or cost was non-positive.");
-        }
-        console.log(`[Checkout] Lulu Print Cost (AUD): $${luluPrintCostAUD.toFixed(4)}`);
-
-        const luluFulfillmentCostAUD = parseFloat(luluCostsResponse.fulfillmentCost?.total_cost_incl_tax || 0);
-        console.log(`[Checkout] Lulu Fulfillment Cost (AUD): $${luluFulfillmentCostAUD.toFixed(4)}`);
-
-        const luluPrintCostUSD = parseFloat((luluPrintCostAUD * AUD_TO_USD_EXCHANGE_RATE).toFixed(4));
-        const luluFulfillmentCostUSD = parseFloat((luluFulfillmentCostAUD * AUD_TO_USD_EXCHANGE_RATE).toFixed(4));
-        
-        const finalPriceDollars = parseFloat((selectedProductConfig.basePrice + luluShippingCostUSD + luluFulfillmentCostUSD).toFixed(4));
-        const finalPriceInCents = Math.round(finalPriceDollars * 100);
-
-        console.log(`[Checkout] Final Pricing Breakdown (Textbook):`);
-        console.log(`    - Product Retail Price: $${selectedProductConfig.basePrice.toFixed(2)} USD`);
-        console.log(`    - Lulu Print Cost: $${luluPrintCostUSD.toFixed(2)} USD (from $${luluPrintCostAUD.toFixed(2)} AUD)`);
-        console.log(`    - Dynamic Shipping Cost (${selectedShippingLevel}): $${luluShippingCostUSD.toFixed(2)} USD`);
-        console.log(`    - Fulfillment Cost: $${luluFulfillmentCostUSD.toFixed(2)} USD (from $${luluFulfillmentCostAUD.toFixed(2)} AUD)`);
-        console.log(`    -----------------------------------------`);
-        console.log(`    - Total Price for Stripe: $${finalPriceDollars.toFixed(2)} USD (${finalPriceInCents} cents)`);
-
+        console.log('[Checkout TB] ✅ Both interior and cover files validated successfully!');
         const orderId = randomUUID();
         const insertOrderSql = `
             INSERT INTO orders (
                 id, user_id, book_id, book_type, book_title, lulu_product_id, status,
-                total_price_usd, currency, interior_pdf_url, cover_pdf_url, created_at, actual_page_count, is_fallback,
-                lulu_print_cost_usd, lulu_shipping_cost_usd, profit_usd,
-                shipping_level_selected, lulu_fulfillment_cost_usd,
-                stripe_session_id, lulu_order_id, lulu_job_id, lulu_job_status, order_date, updated_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)`;
-
+                total_price, currency, actual_page_count, shipping_level_selected,
+                interior_pdf_url, cover_pdf_url, order_date, updated_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7, 'AUD', $8, $9, $10, $11, $12, $13)`;
         await client.query(insertOrderSql, [
-            orderId,
-            req.userId,
-            bookId,
-            'textBook',
-            book.title,
-            luluSku,
-            'pending',
-            parseFloat(finalPriceDollars.toFixed(2)),
-            'USD',
-            interiorPdfUrl,
-            coverPdfUrl,
-            new Date().toISOString(),
-            actualFinalPageCount,
-            isFallback,
-            luluPrintCostUSD,
-            luluShippingCostUSD,
-            PROFIT_MARGIN_USD,
-            selectedShippingLevel,
-            luluFulfillmentCostUSD,
-            null,
-            null,
-            null,
-            null,
-            new Date().toISOString(),
-            new Date().toISOString()
+            orderId, req.userId, bookId, 'textBook', book.title, selectedProductConfig.luluSku,
+            parseFloat(finalPriceAUD.toFixed(2)), actualFinalPageCount,
+            selectedShippingLevel, interiorPdfUrl, coverPdfUrl, new Date(), new Date()
         ]);
-        console.log(`[Checkout] Created pending order record ${orderId}.`);
-
-        const finalPriceInCentsForStripe = Math.round(finalPriceDollars * 100);
-
-        const session = await createStripeCheckoutSession(
+        const session = await stripeService.createStripeCheckoutSession(
             {
                 name: book.title,
-                description: `Inkwell AI Custom Book - ${selectedProductConfig.name} (${selectedShippingLevel} shipping)`,
-                priceInCents: finalPriceInCentsForStripe
+                description: `Custom Text Book - ${selectedProductConfig.name}`,
+                priceInCents: finalPriceInCents
             },
-            trimmedAddress,
-            req.userId, orderId, bookId, 'textBook'
+            shippingAddress, req.userId, orderId, bookId, 'textBook'
         );
-
         await client.query('UPDATE orders SET stripe_session_id = $1 WHERE id = $2', [session.id, orderId]);
-
-        res.status(200).json({ url: session.url });
-
+        res.status(200).json({ url: session.url, sessionId: session.id });
     } catch (error) {
-        console.error(`[Checkout] Failed to create checkout session for textbook: ${error.stack}`);
-        let detailedError = 'An unexpected error occurred during checkout.';
-        if (error.response && error.response.data && error.response.data.shipping_address?.detail?.errors) {
-            const errorDetails = error.response.data.shipping_address.detail.errors.map(err => err.message || err.field).join('; ');
-            detailedError = `Shipping address validation failed with publishing partner: ${errorDetails}.`;
-        } else if (error.message.includes('Lulu')) {
-            detailedError = error.message;
-            if (error.response && error.response.data) {
-                detailedError += ` (Lulu response: ${JSON.stringify(error.response.data)})`;
-            }
-        } else if (error.message.includes('Quote token')) {
-            detailedError = error.message;
-        }
+        console.error("[Checkout TB ERROR]", error);
+        const detailedError = error.response?.data ? JSON.stringify(error.response.data) : error.message;
         res.status(500).json({ message: 'Failed to create checkout session.', detailedError });
     } finally {
         if (client) client.release();
-        if (tempInteriorPdfPath) { try { await fs.unlink(tempInteriorPdfPath); } catch (e) { console.error(`[Cleanup] Error deleting temp interior PDF file: ${tempInteriorPdfPath} Error: ${e.message}`); } }
-        if (tempCoverPdfPath) { try { await fs.unlink(tempCoverPdfPath); } catch (e) { console.error(`[Cleanup] Error deleting temp cover PDF file: ${tempCoverPdfPath} Error: ${e.message}`); } }
+        if (tempInteriorPdfPath) { try { await fs.unlink(tempInteriorPdfPath); } catch (e) { console.error(`[Cleanup] Error deleting temp interior PDF: ${e.message}`); } }
+        if (tempCoverPdfPath) { try { await fs.unlink(tempCoverPdfPath); } catch (e) { console.error(`[Cleanup] Error deleting temp cover PDF: ${e.message}`); } }
     }
 };
 
@@ -529,6 +424,7 @@ export const deleteTextBook = async (req, res) => {
         const bookResult = await client.query(`SELECT id FROM text_books WHERE id = $1 AND user_id = $2`, [bookId, userId]);
         const book = bookResult.rows[0];
         if (!book) {
+            await client.query('ROLLBACK');
             return res.status(404).json({ message: 'Project not found or you are not authorized to delete it.' });
         }
         await client.query(`DELETE FROM chapters WHERE book_id = $1`, [bookId]);

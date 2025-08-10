@@ -1,6 +1,4 @@
-// backend/server.js
 import 'dotenv/config';
-import projectRoutes from './src/api/project.routes.js';
 import express from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
@@ -10,7 +8,13 @@ import { dirname } from 'path';
 import admin from 'firebase-admin';
 import morgan from 'morgan';
 import dns from 'dns/promises';
+
+// --- MODIFICATION: Import the new initializeDb function ---
+import { initializeDb } from './src/db/database.js';
 import { setupDatabase } from './src/db/setupDatabase.js';
+
+// Import all your route handlers
+import projectRoutes from './src/api/project.routes.js';
 import { stripeWebhook } from './src/controllers/stripe.controller.js';
 import { createTestCheckout } from './src/controllers/test.controller.js';
 import shippingRoutes from './src/api/shipping.routes.js';
@@ -26,9 +30,6 @@ import feedRoutes from './src/api/feed.routes.js';
 import storyRoutes from './src/api/story.routes.js';
 import productRoutes from './src/api/product.routes.js';
 import paypalRoutes from './src/api/paypal.routes.js';
-import { handleWebhook } from './src/controllers/order.controller.js';
-
-// NEW: Import the contact form routes
 import contactRoutes from './src/api/contact.routes.js';
 
 async function checkDnsResolution() {
@@ -49,11 +50,18 @@ async function checkDnsResolution() {
 }
 
 const startServer = async () => {
+    // --- MODIFICATION: Initialize the database connection first! ---
+    // This ensures the database pool is ready before any other part of the app tries to use it.
+    await initializeDb();
+    
+    // The rest of the startup sequence can now run safely.
     await checkDnsResolution();
     await setupDatabase();
+
     const __filename = fileURLToPath(import.meta.url);
     const __dirname = dirname(__filename);
     let serviceAccount;
+
     if (process.env.FIREBASE_SERVICE_ACCOUNT_CONFIG) {
         try {
             serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_CONFIG);
@@ -66,12 +74,15 @@ const startServer = async () => {
         console.error('Error: FIREBASE_SERVICE_ACCOUNT_CONFIG environment variable is not set!');
         process.exit(1);
     }
+
     admin.initializeApp({
         credential: admin.credential.cert(serviceAccount)
     });
     console.log('✅ Firebase initialized for project:', serviceAccount.project_id);
+
     const app = express();
     const PORT = process.env.PORT || 5001;
+
     const allowedOrigins = [
         process.env.CORS_ORIGIN || 'http://localhost:5173',
         'https://inkwell-ai-mvp-frontend.onrender.com',
@@ -80,29 +91,33 @@ const startServer = async () => {
     ];
     const corsOptions = {
         origin: function (origin, callback) {
-            if (!origin) return callback(null, true);
-            if (allowedOrigins.indexOf(origin) === -1) {
+            if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+                callback(null, true);
+            } else {
                 const msg = `The CORS policy for this site does not allow access from the specified Origin: ${origin}`;
-                return callback(new Error(msg), false);
+                callback(new Error(msg), false);
             }
-            return callback(null, true);
         },
         credentials: true
     };
     app.use(cors(corsOptions));
-    app.options('*', cors(corsOptions)); // Enable pre-flight for all routes
+    app.options('*', cors(corsOptions));
     console.log("DEBUG: CORS middleware applied with preflight handling.");
-    app.use('/api/projects', projectRoutes);
+
     app.use(morgan('dev'));
-    // Stripe webhook needs to be registered before express.json()
-    app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), stripeWebhook);
+
+    const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
+    app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), (req, res) => {
+        stripeWebhook(req, res, endpointSecret);
+    });
+    
     app.use(express.json());
     app.use(express.urlencoded({ extended: true }));
     app.use(cookieParser());
     app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
-    // Other webhooks
-    app.post('/api/orders/webhook', express.raw({ type: 'application/json' }), handleWebhook);
+
     // API Routes
+    app.use('/api/projects', projectRoutes);
     app.get('/api/test/create-checkout', createTestCheckout);
     app.use('/api/story', storyRoutes);
     app.use('/api/products', productRoutes);
@@ -117,10 +132,9 @@ const startServer = async () => {
     app.use('/api/feed', feedRoutes);
     app.use('/api/v1/analytics', analyticsRoutes);
     app.use('/api/shipping', shippingRoutes);
-
-    // NEW: Use the contact form routes
     app.use('/api/contact', contactRoutes);
 
+    // Health and status checks
     app.get('/health-check-version', (req, res) => {
       res.json({ 
         message: 'live backend sanity check', 
@@ -131,6 +145,8 @@ const startServer = async () => {
     app.get('/', (req, res) => {
         res.send('Inkwell AI Backend is running successfully!');
     });
+
+    // Error handling
     app.use((req, res, next) => {
         res.status(404).json({ message: 'Not Found' });
     });
@@ -138,6 +154,7 @@ const startServer = async () => {
         console.error('Unhandled error:', err);
         res.status(500).json({ message: 'Internal Server Error', error: err.message });
     });
+
     app.listen(PORT, () => {
         console.log(`✅ Server is running on http://localhost:${PORT}`);
     });

@@ -1,8 +1,6 @@
+// backend/src/controllers/order.controller.js
 import { getDb } from '../db/database.js';
-import Stripe from 'stripe';
-import { LULU_PRODUCT_CONFIGURATIONS, getPrintOptions, createLuluPrintJob, getPrintJobStatus } from '../services/lulu.service.js';
-
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+import { getPrintOptions, getPrintJobStatus } from '../services/lulu.service.js';
 
 let printOptionsCache = null;
 
@@ -16,7 +14,6 @@ const getProductConfig = async (configId) => {
     }
     return config;
 };
-
 
 const calculateOrderAmount = async (items) => {
     let total = 0;
@@ -81,105 +78,6 @@ export const createCheckoutSession = async (req, res) => {
     }
 };
 
-export const handleWebhook = async (req, res) => {
-    let client;
-    const sig = req.headers['stripe-signature'];
-    let event;
-
-    try {
-        event = stripe.webhooks.constructEvent(req.rawBody, sig, process.env.STRIPE_WEBHOOK_SECRET);
-    } catch (err) {
-        console.error(`Stripe Webhook Error: ${err.message}`);
-        return res.status(400).send(`Webhook Error: ${err.message}`);
-    }
-
-    try {
-        const pool = await getDb();
-        client = await pool.connect();
-
-        switch (event.type) {
-            case 'checkout.session.completed':
-                const session = event.data.object;
-                console.log(`Stripe checkout.session.completed event received for session: ${session.id}`);
-
-                const { userId, orderId } = session.metadata;
-                const customerEmail = session.customer_details ? session.customer_details.email : null;
-
-                try {
-                    await client.query('UPDATE orders SET status = $1, stripe_customer_email = $2, payment_status = $3 WHERE id = $4 AND user_id = $5',
-                        ['completed', customerEmail, 'paid', orderId, userId]);
-                    console.log(`Order ${orderId} marked as completed in DB.`);
-
-                    const orderDetailsResult = await client.query('SELECT interior_pdf_url, cover_pdf_url, actual_page_count, lulu_product_id, book_id, user_id FROM orders WHERE id = $1', [orderId]);
-                    const orderDetails = orderDetailsResult.rows[0];
-
-                    if (orderDetails && orderDetails.interior_pdf_url && orderDetails.cover_pdf_url && orderDetails.actual_page_count && orderDetails.lulu_product_id) {
-                        const fullStripeSession = await stripe.checkout.sessions.retrieve(session.id, {
-                            expand: ['shipping_details', 'customer_details'],
-                        });
-                        const shippingInfo = {
-                            name: fullStripeSession.shipping_details.name,
-                            street1: fullStripeSession.shipping_details.address.line1,
-                            city: fullStripeSession.shipping_details.address.city,
-                            postcode: fullStripeSession.shipping_details.address.postal_code,
-                            country_code: fullStripeSession.shipping_details.address.country,
-                            state_code: fullStripeSession.shipping_details.address.state,
-                            email: fullStripeSession.customer_details.email,
-                            phone_number: fullStripeSession.customer_details.phone || '000-000-0000',
-                        };
-
-                        try {
-                            const printJobResult = await createLuluPrintJob(
-                                orderDetails.lulu_product_id,
-                                orderDetails.actual_page_count,
-                                orderDetails.interior_pdf_url,
-                                orderDetails.cover_pdf_url,
-                                orderId,
-                                userId,
-                                shippingInfo
-                            );
-                            await client.query('UPDATE orders SET lulu_job_id = $1, lulu_job_status = $2 WHERE id = $3',
-                                [printJobResult.id, printJobResult.status, orderId]);
-                            console.log(`Lulu print job created for order ${orderId}:`, printJobResult.id);
-                        } catch (luluError) {
-                            console.error(`Error creating Lulu print job for order ${orderId}:`, luluError);
-                        }
-                    } else {
-                        console.log(`Order ${orderId} does not contain all necessary data for Lulu print job (missing PDFs, page count, or SKU).`);
-                    }
-
-                } catch (dbError) {
-                    console.error(`Database update/fetch error for session ${session.id}:`, dbError);
-                    return res.status(500).send('Database update/fetch failed');
-                }
-                break;
-            case 'payment_intent.succeeded':
-                console.log(`PaymentIntent ${event.data.object.id} succeeded!`);
-                break;
-            case 'payment_intent.payment_failed':
-                console.log(`PaymentIntent ${event.data.object.id} failed.`);
-                const failedPaymentIntentId = event.data.object.id;
-                try {
-                    await client.query('UPDATE orders SET status = $1, payment_status = $2 WHERE stripe_payment_intent_id = $3',
-                        ['failed', 'failed', failedPaymentIntentId]);
-                    console.log(`Order associated with payment intent ${failedPaymentIntentId} marked as failed.`);
-                } catch (dbError) {
-                    console.error(`Database update error for failed payment intent ${failedPaymentIntentId}:`, dbError);
-                }
-                break;
-            default:
-                console.log(`Unhandled event type ${event.type}`);
-        }
-
-        res.status(200).json({ received: true });
-    } catch (error) {
-        console.error("Error in webhook handler:", error);
-        res.status(500).json({ message: "Server error in webhook handler." });
-    } finally {
-        if (client) client.release();
-    }
-};
-
 export const getMyOrders = async (req, res) => {
     let client;
     const userId = req.userId;
@@ -190,7 +88,6 @@ export const getMyOrders = async (req, res) => {
     try {
         const pool = await getDb();
         client = await pool.connect();
-        // --- MODIFIED: Changed 'date_created' to 'updated_at' based on the database error hint ---
         const ordersResult = await client.query('SELECT * FROM orders WHERE user_id = $1 ORDER BY updated_at DESC', [userId]);
         const orders = ordersResult.rows;
         res.status(200).json(orders);
