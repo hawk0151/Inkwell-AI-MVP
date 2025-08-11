@@ -34,7 +34,8 @@ const ProductDescription = ({ product }) => {
         case 'ROYAL_HARDCOVER_6.39x9.46':
             return (
                 <>
-                    Approx. 100 pages <br />
+                    {/* TEXT CHANGE: Updated page count */}
+                    Approx. 60-70 pages <br /> 
                     <strong className="text-slate-300">Hardcover Collector's Edition</strong>
                     {doubleSidedPrint}
                 </>
@@ -61,19 +62,26 @@ const cardVariants = {
     }
 };
 
-const ProductCard = ({ product, onSelect, isSelected }) => {
+// UPDATE: Component now accepts onHover, isHovered, and isDefaultSelected props
+const ProductCard = ({ product, onSelect, onHover, isHovered, isDefaultSelected }) => {
     const IconComponent = getProductIcon(product.id);
     const isBestSeller = product.id === 'A4NOVEL_PB_8.52x11.94';
 
-    const isVisuallySelected = isBestSeller || isSelected;
-    
+    // UPDATE: New logic for applying outline styles
+    const outlineClass = isHovered
+        ? 'border-blue-300 shadow-xl shadow-blue-500/50' // Hovered state: glowing border
+        : isDefaultSelected
+        ? 'border-blue-300' // Default selected state: solid border
+        : 'border-slate-700'; // No selection: standard border
+
     return (
         <motion.div
             variants={cardVariants}
             whileHover={{ y: -8, scale: 1.03, boxShadow: "0px 15px 30px rgba(0, 0, 0, 0.3)" }}
             whileTap={{ scale: 0.98 }}
             onClick={() => onSelect(product)}
-            className={`bg-slate-800 border-4 ${isVisuallySelected ? 'border-blue-300 shadow-xl shadow-blue-500/50' : 'border-slate-700'} p-8 rounded-xl cursor-pointer 
+            onMouseEnter={onHover} // UPDATE: Added onMouseEnter handler
+            className={`bg-slate-800 border-2 ${outlineClass} p-8 rounded-xl cursor-pointer 
                          flex flex-col items-center text-center overflow-hidden relative transition-all duration-300`}
         >
             {isBestSeller && (
@@ -99,12 +107,10 @@ const ProductCard = ({ product, onSelect, isSelected }) => {
             <p className="text-5xl font-bold text-blue-400 my-4">
                 ${product.price}
             </p>
-            {/* --- MODIFICATION START --- */}
             <div className={`text-white font-bold py-3 px-8 rounded-lg mt-4 transition-transform duration-200 shadow-lg
                              bg-blue-600 group-hover:bg-blue-500`}>
                 Start Writing
             </div>
-            {/* --- MODIFICATION END --- */}
         </motion.div>
     );
 };

@@ -3,6 +3,7 @@ import { v2 as cloudinary } from 'cloudinary';
 import { randomUUID } from 'crypto';
 import FormData from 'form-data';
 import sharp from 'sharp';
+import { Readable } from 'stream';
 
 cloudinary.config({
     cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -11,24 +12,14 @@ cloudinary.config({
     secure: true
 });
 
-const createPreviewVersion = async (inputBuffer) => {
-    console.log('[Image Service] Creating preview version (1024x1024 JPEG)...');
+const createWebAndPrintVersion = async (inputBuffer) => {
+    console.log('[Image Service] Creating a single, optimized image (2048x2048 JPEG)...');
     return sharp(inputBuffer)
-        .resize(1024, 1024)
-        .jpeg({ quality: 85 })
+        .resize(2048, 2048) // A good size for both web and print
+        .jpeg({ quality: 90 })
         .toBuffer();
 };
 
-const createPrintVersion = async (inputBuffer) => {
-    console.log('[Image Service] Creating print version (3072x3072 PNG)...');
-    return sharp(inputBuffer)
-        .resize(3072, 3072)
-        .png()
-        .toBuffer();
-};
-
-
-// --- MODIFICATION START: This function is updated with the new prompt architecture ---
 export const generateImageFromApi = async (prompt, style) => {
     const apiKey = process.env.STABILITY_API_KEY;
     if (!apiKey) {
@@ -36,19 +27,13 @@ export const generateImageFromApi = async (prompt, style) => {
     }
     const apiUrl = `https://api.stability.ai/v2beta/stable-image/generate/core`;
 
-    // 1. The Core Subject & Style (from user input)
-    const corePrompt = `${prompt}, in the style of a ${style}`;
-
-    // 2. The Quality Boosters (our expert instructions)
-    const qualityBoosters = "masterpiece, best quality, high detail, sharp focus, professional, atmospheric, dramatic lighting";
-
-    // 3. The final Positive Prompt
-    const fullPrompt = `${corePrompt}, ${qualityBoosters}`;
-
-    // 4. The final Negative Prompt (for safety and quality)
-    const negativePrompt = "blurry, fuzzy, ugly, disfigured, deformed, low quality, noisy, jpeg artifacts, text, words, watermark, signature, artist name, nudity, nsfw, sexual, lewd, hateful, racist, sexist, offensive, gore, violence, disturbing";
+    const corePrompt = prompt;
+    const compositionInstructions = "centered subject, simple background, centered composition";
+    const storybookBoosters = `in the style of a ${style} children's book illustration, whimsical and playful, charming, vibrant colors, clean lines, soft lighting, high detail`;
+    const fullPrompt = `${corePrompt}, ${compositionInstructions}, ${storybookBoosters}`;
+    const negativePrompt = "photorealistic, hyperrealistic, realistic, 3d, dark, scary, creepy, ugly, disfigured, deformed, blurry, noisy, jpeg artifacts, text, words, watermark, signature, artist name, nudity, nsfw, sexual, lewd, hateful";
     
-    console.log(`[Stability AI Generation] Generating image with enhanced prompt...`);
+    console.log(`[Stability AI Generation] Generating image with storybook-enhanced prompt...`);
     
     try {
         const formData = new FormData();
@@ -56,7 +41,6 @@ export const generateImageFromApi = async (prompt, style) => {
         formData.append('negative_prompt', negativePrompt);
         formData.append('output_format', 'png');
         formData.append('aspect_ratio', '1:1');
-        // We let Stability AI choose the best dimensions for the model, guided by aspect ratio.
         
         const response = await axios.post(
             apiUrl,
@@ -79,26 +63,20 @@ export const generateImageFromApi = async (prompt, style) => {
         throw new Error(`An error occurred while generating the image.`);
     }
 };
-// --- MODIFICATION END ---
 
 export const processAndUploadImageVersions = async (prompt, style, userId, bookId, pageNumber) => {
     const masterImageBuffer = await generateImageFromApi(prompt, style);
 
-    const [previewBuffer, printBuffer] = await Promise.all([
-        createPreviewVersion(masterImageBuffer),
-        createPrintVersion(masterImageBuffer)
-    ]);
+    // FIX: Generate a single, optimized version instead of two separate ones.
+    const optimizedImageBuffer = await createWebAndPrintVersion(masterImageBuffer);
+    const optimizedImageName = `page_${pageNumber}`;
 
-    const previewFolder = `inkwell-ai/user_${userId}/books/${bookId}/previews`;
     const printFolder = `inkwell-ai/user_${userId}/books/${bookId}/print`;
 
-    const [previewUrl, printUrl] = await Promise.all([
-        uploadImageToCloudinary(previewBuffer, previewFolder, `page_${pageNumber}_preview`),
-        uploadImageToCloudinary(printBuffer, printFolder, `page_${pageNumber}_print`)
-    ]);
+    const imageUrl = await uploadImageToCloudinary(optimizedImageBuffer, printFolder, optimizedImageName);
 
-    console.log(`[Image Service] ✅ Preview and Print versions uploaded for page ${pageNumber}.`);
-    return { previewUrl, printUrl };
+    console.log(`[Image Service] ✅ Optimized image uploaded for page ${pageNumber}.`);
+    return { previewUrl: imageUrl, printUrl: imageUrl };
 };
 
 export const uploadImageToCloudinary = (fileBuffer, folder, publicIdPrefix) => {

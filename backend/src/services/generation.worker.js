@@ -1,64 +1,64 @@
-// backend/src/services/generation.worker.js
-
 import 'dotenv/config';
 import { Worker } from 'bullmq';
-import { generateChapterWithPlan } from './generation/chapter.js';
-import { unlockBook } from '../utils/lock.util.js';
 import { initializeDb } from '../db/database.js';
+import * as imageService from './image.service.js'; // Import the image service
 
+// Redis connection details
 const redisConnection = {
     host: process.env.REDIS_HOST,
     port: parseInt(process.env.REDIS_PORT),
     password: process.env.REDIS_PASSWORD || null
 };
 
+// This is the main job processing function
 const processGenerationJob = async (job) => {
-    const { bookId, userId, chapterNumber, guidance } = job.data;
-    console.log(`[Worker] Received job '${job.name}' for book ${bookId}, chapter ${chapterNumber}.`);
+    console.log(`[Worker] Received job '${job.name}' #${job.id}`);
 
+    // --- Job Router ---
+    // This checks the name of the job and calls the correct function
     try {
-        await generateChapterWithPlan(bookId, userId, chapterNumber, guidance);
+        if (job.name === 'generate-page-image') {
+            const { bookId, userId, pageNumber, prompt, style } = job.data;
+            await imageService.processAndUploadImageVersions(prompt, style, userId, bookId, pageNumber);
+        } else {
+            // You can add other job types here in the future
+            console.warn(`[Worker] Unknown job name: ${job.name}`);
+        }
     } catch (error) {
-        console.error(`[Worker] Job '${job.name}' for book ${bookId} FAILED.`, error);
-        await unlockBook(bookId);
+        console.error(`[Worker] Job '${job.name}' for book ${job.data.bookId} FAILED.`);
+        // We re-throw the error so BullMQ knows the job failed and can retry it
         throw error;
     }
 };
 
-// --- MODIFICATION: Restructure as a self-executing async function (IIFE) ---
-// This is a standard pattern for a service entry point.
+// Main worker startup logic
 (async () => {
     try {
-        // 1. Initialize services required by the worker.
         console.log('[Worker] Initializing services...');
         await initializeDb();
         
-        // 2. Create the BullMQ worker instance.
-        const worker = new Worker('storyGenerationQueue', processGenerationJob, {
+        // **FIX**: The worker now listens to the correct queue: 'image-generation'
+        const worker = new Worker('image-generation', processGenerationJob, {
             connection: redisConnection,
-            concurrency: 5 
+            concurrency: 5 // Process up to 5 jobs at the same time
         });
 
-        // Add event listeners for logging and monitoring.
         worker.on('completed', (job) => {
-          console.log(`✅ [Worker] Job '${job.name}' #${job.id} for book ${job.data.bookId} has completed.`);
+          console.log(`✅ [Worker] Job '${job.name}' #${job.id} has completed.`);
         });
 
         worker.on('failed', (job, err) => {
-          console.error(`❌ [Worker] Job '${job.name}' #${job.id} for book ${job.data.bookId} failed with error: ${err.message}`);
+          console.error(`❌ [Worker] Job '${job.name}' #${job.id} failed with error: ${err.message}`);
         });
 
-        // 3. Add graceful shutdown logic. This also keeps the process alive.
         const gracefulShutdown = async () => {
             console.log('\n[Worker] Shutting down gracefully...');
             await worker.close();
-            console.log('[Worker] BullMQ worker closed.');
             process.exit(0);
         };
         
-        // Listen for termination signals
-        process.on('SIGINT', gracefulShutdown); // Catches Ctrl+C
-        process.on('SIGTERM', gracefulShutdown); // Catches standard termination signals
+        process.on('SIGINT', gracefulShutdown);
+        process.on('SIGTERM', gracefulShutdown);
 
         console.log('✅ BullMQ worker is running and listening for jobs. Press Ctrl+C to exit.');
 

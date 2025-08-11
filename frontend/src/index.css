@@ -54,3 +54,20 @@
   scrollbar-width: thin; /* "auto" (default), "thin" */
   scrollbar-color: #475569 #334155; /* thumb and track color */
 }
+/* Add this to the bottom of your main CSS file (e.g., src/index.css) */
+@keyframes orbit-1 {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+@keyframes orbit-2 {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+@keyframes orbit-3 {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+@keyframes orbit-4 {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}

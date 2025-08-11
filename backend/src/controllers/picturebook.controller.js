@@ -1,4 +1,3 @@
-// backend/src/controllers/picturebook.controller.js
 import { getDb } from '../db/database.js';
 import { randomUUID } from 'crypto';
 import * as pdfService from '../services/pdf.service.js';
@@ -9,19 +8,22 @@ import * as fileHostService from '../services/fileHost.service.js';
 import jsonwebtoken from 'jsonwebtoken';
 import { JWT_QUOTE_SECRET } from '../config/jwt.config.js';
 import fs from 'fs/promises';
+import { generationQueue } from '../queues/generation.queue.js'; // Import the job queue
 
 const PROFIT_MARGIN_AUD = 15.00;
 const REQUIRED_CONTENT_PAGES = 20;
 
 async function getFullPictureBook(bookId, userId, client) {
-    const bookResult = await client.query(`SELECT * FROM picture_books WHERE id = $1 AND user_id = $2`, [bookId, userId]);
+    const bookResult = await client.query(`SELECT *, user_cover_image_url FROM picture_books WHERE id = $1 AND user_id = $2`, [bookId, userId]);
     const book = bookResult.rows[0];
     if (!book) return null;
-    const eventsSql = `SELECT id, book_id, page_number, event_date, story_text, image_url, image_style, uploaded_image_url, image_url_preview, image_url_print, overlay_text, is_bold_story_text, last_modified FROM timeline_events WHERE book_id = $1 ORDER BY page_number ASC`;
+    const eventsSql = `SELECT id, book_id, page_number, story_text, image_style, image_url_print FROM timeline_events WHERE book_id = $1 ORDER BY page_number ASC`;
     const timelineResult = await client.query(eventsSql, [bookId]);
     book.timeline = timelineResult.rows;
     return book;
 }
+
+// ... (all existing functions from createPictureBook to generatePreviewPdf remain unchanged) ...
 
 export const createPictureBook = async (req, res) => {
     let client;
@@ -83,7 +85,7 @@ export const getPictureBooks = async (req, res) => {
         client = await pool.connect();
         const userId = req.userId;
         const sql = `
-            SELECT pb.id, pb.title, pb.last_modified, pb.is_public, pb.cover_image_url, pb.lulu_product_id
+            SELECT pb.id, pb.title, pb.last_modified, pb.is_public, pb.user_cover_image_url, pb.lulu_product_id
             FROM picture_books pb
             WHERE pb.user_id = $1
             ORDER BY pb.last_modified DESC`;
@@ -103,6 +105,39 @@ export const getPictureBooks = async (req, res) => {
     } catch (err) {
         console.error("Error fetching picture book projects:", err.message);
         res.status(500).json({ message: 'Failed to fetch projects.' });
+    } finally {
+        if (client) client.release();
+    }
+};
+
+export const uploadCoverImage = async (req, res) => {
+    const { bookId } = req.params;
+    const userId = req.userId;
+    let client;
+
+    if (!req.file) {
+        return res.status(400).json({ message: 'No image file provided.' });
+    }
+
+    try {
+        const pool = await getDb();
+        client = await pool.connect();
+
+        const bookResult = await client.query(`SELECT id FROM picture_books WHERE id = $1 AND user_id = $2`, [bookId, userId]);
+        if (bookResult.rows.length === 0) {
+            return res.status(404).json({ message: 'Project not found or you do not have permission to edit it.' });
+        }
+
+        const folder = `inkwell-ai/user_${userId}/covers`;
+        const imageUrl = await fileHostService.uploadImageBuffer(req.file.buffer, folder);
+
+        await client.query(`UPDATE picture_books SET user_cover_image_url = $1, last_modified = $2 WHERE id = $3`, [imageUrl, new Date().toISOString(), bookId]);
+
+        res.status(200).json({ message: 'Cover image uploaded successfully!', imageUrl });
+
+    } catch (err) {
+        console.error("Error uploading cover image:", err.message);
+        res.status(500).json({ message: 'Failed to upload cover image.' });
     } finally {
         if (client) client.release();
     }
@@ -175,10 +210,10 @@ export const generateEventImage = async (req, res) => {
         const updateSql = `
             UPDATE timeline_events 
             SET image_url_preview = $1, image_url_print = $2, 
-                image_url = $1, uploaded_image_url = $1
-            WHERE book_id = $3 AND page_number = $4
+                image_url = $3, uploaded_image_url = NULL, image_style = $4
+            WHERE book_id = $5 AND page_number = $6
         `;
-        const result = await client.query(updateSql, [previewUrl, printUrl, bookId, pageNumber]);
+        const result = await client.query(updateSql, [previewUrl, printUrl, previewUrl, style, bookId, pageNumber]);
 
         if (result.rowCount === 0) {
             throw new Error(`Page number ${pageNumber} not found for book ${bookId}.`);
@@ -197,6 +232,7 @@ export const generatePreviewPdf = async (req, res) => {
     const { bookId } = req.params;
     const userId = req.userId;
     let client;
+    let tempPdfPath = null;
     try {
         const pool = await getDb();
         client = await pool.connect();
@@ -206,7 +242,8 @@ export const generatePreviewPdf = async (req, res) => {
         const productConfig = luluService.findProductConfiguration(book.lulu_product_id);
         if (!productConfig) throw new Error(`Product config not found for ${book.lulu_product_id}.`);
 
-        const { path: tempPdfPath } = await pdfService.generateAndSavePictureBookPdf(book, productConfig);
+        const { path } = await pdfService.generateAndSavePictureBookPdf(book, productConfig);
+        tempPdfPath = path;
         
         const publicId = `preview_${bookId}_${Date.now()}`;
         const previewUrl = await fileHostService.uploadPreviewFile(tempPdfPath, publicId);
@@ -217,6 +254,9 @@ export const generatePreviewPdf = async (req, res) => {
         res.status(500).json({ message: 'Failed to generate preview PDF.' });
     } finally {
         if (client) client.release();
+        if (tempPdfPath) {
+            try { await fs.unlink(tempPdfPath); } catch (e) { console.error(`[Cleanup] Error deleting temp preview PDF: ${e.message}`); }
+        }
     }
 };
 
@@ -250,33 +290,26 @@ export const createBookCheckoutSession = async (req, res) => {
         }
 
         const productConfig = luluService.findProductConfiguration(book.lulu_product_id);
-
-        // --- GENERATE AND VALIDATE PRINT FILES ---
         
-        // 1. Generate interior print PDF and finalize page count
         const { path: interiorPdfPath, pageCount: finalPageCount } = await pdfService.generateAndSavePictureBookPdf(book, productConfig);
         tempInteriorPdfPath = interiorPdfPath;
         
-        // 2. Generate cover print PDF using the finalized page count
         const coverDimensions = await luluService.getCoverDimensions(productConfig.luluSku, finalPageCount, 'mm');
         const { path: coverPdfPath } = await pdfService.generateCoverPdf(book, productConfig, coverDimensions);
         tempCoverPdfPath = coverPdfPath;
 
-        // 3. Upload both PDFs to a temporary host
         console.log('[Checkout PB] Uploading print files for validation...');
         const [interiorUrl, coverUrl] = await Promise.all([
             fileHostService.uploadPrintFile(interiorPdfPath, `interior_${bookId}_${Date.now()}`),
             fileHostService.uploadPrintFile(coverPdfPath, `cover_${bookId}_${Date.now()}`)
         ]);
 
-        // 4. Validate both files with Lulu's API
         console.log('[Checkout PB] Submitting files for Lulu validation...');
         const [interiorValidation, coverValidation] = await Promise.all([
             luluService.validateInteriorFile(interiorUrl, productConfig.luluSku),
             luluService.validateCoverFile(coverUrl, productConfig.luluSku, finalPageCount)
         ]);
 
-        // 5. Check validation results before proceeding
         if (interiorValidation.status !== 'VALIDATED' && interiorValidation.status !== 'NORMALIZED' || coverValidation.status !== 'VALIDATED' && coverValidation.status !== 'NORMALIZED') {
             const validationErrors = [
                 ...(interiorValidation.errors || []),
@@ -292,11 +325,6 @@ export const createBookCheckoutSession = async (req, res) => {
         
         console.log('[Checkout PB] ✅ Both interior and cover files validated successfully!');
         
-        // --- END OF VALIDATION LOGIC ---
-
-        // FIX: The failing `getPrintJobCosts` function has been removed.
-        // We will now get the cost from the `productConfig` and the `shippingOptions` API call,
-        // both of which are working.
         const { shippingOptions } = await luluService.getLuluShippingOptionsAndCosts(
             productConfig.luluSku,
             finalPageCount,
@@ -308,7 +336,6 @@ export const createBookCheckoutSession = async (req, res) => {
             return res.status(400).json({ message: "Selected shipping option not found." });
         }
 
-        // Calculate the final price using the book's base price and the selected shipping cost.
         const luluTotalCostAUD = productConfig.basePrice + parseFloat(selectedOption.cost);
         const finalPriceAUD = luluTotalCostAUD + PROFIT_MARGIN_AUD;
         const finalPriceInCents = Math.round(finalPriceAUD * 100);
@@ -348,7 +375,6 @@ export const createBookCheckoutSession = async (req, res) => {
         res.status(500).json({ message: 'Failed to create checkout session.', detailedError });
     } finally {
         if (client) client.release();
-        // Clean up temporary files regardless of success or failure
         if (tempInteriorPdfPath) {
             try { await fs.unlink(tempInteriorPdfPath); } catch (e) { console.error(`[Cleanup] Error deleting temp interior PDF: ${e.message}`); }
         }
@@ -433,6 +459,61 @@ export const togglePictureBookPrivacy = async (req, res) => {
     } catch (err) {
         console.error("Error toggling book privacy:", err.message);
         res.status(500).json({ message: 'Failed to update project status.' });
+    } finally {
+        if (client) client.release();
+    }
+};
+
+// --- NEW FUNCTION TO PREPARE BOOK FOR PRINTING ---
+export const prepareBookForPrint = async (req, res) => {
+    const { bookId } = req.params;
+    const userId = req.userId;
+    let client;
+
+    try {
+        const pool = await getDb();
+        client = await pool.connect();
+
+        // Get all pages for the book to check their status
+        const book = await getFullPictureBook(bookId, userId, client);
+        if (!book) {
+            return res.status(404).json({ message: 'Project not found.' });
+        }
+
+        // Find pages that need a print image generated
+        const pagesToGenerate = book.timeline.filter(event => 
+            !event.image_url_print && // It doesn't already have a print image
+            event.story_text           // And it has a prompt (story_text) to generate from
+        );
+
+        if (pagesToGenerate.length === 0) {
+            return res.status(200).json({ message: 'All pages are already prepared for printing.' });
+        }
+
+        // Add a job to the background queue for each page
+        const jobPromises = pagesToGenerate.map(event => {
+            const jobData = {
+                bookId: book.id,
+                userId: userId,
+                pageNumber: event.page_number,
+                prompt: event.story_text,
+                style: event.image_style || 'watercolor' // Use a default style if none is set
+            };
+            console.log(`[Controller] Queuing job for page ${event.page_number}`);
+            return generationQueue.add('generate-page-image', jobData);
+        });
+
+        await Promise.all(jobPromises);
+
+        // Respond immediately to the user
+        res.status(202).json({ 
+            message: `Image generation started in the background for ${pagesToGenerate.length} pages.`,
+            pagesQueued: pagesToGenerate.length
+        });
+
+    } catch (error) {
+        console.error('[Controller] Error preparing book for print:', error);
+        res.status(500).json({ message: 'Failed to start print preparation process.' });
     } finally {
         if (client) client.release();
     }

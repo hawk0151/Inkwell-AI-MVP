@@ -3,59 +3,62 @@ import defaultTheme from 'tailwindcss/defaultTheme'
 
 /** @type {import('tailwindcss').Config} */
 export default {
-  content: [
-    './index.html',
-    './src/**/*.{js,ts,jsx,tsx}',
-  ],
-  theme: {
-    extend: {
-      colors: {
-        // === Premium "Midnight Indigo" Palette ===
-        'indigo-primary': '#6366F1',
-        'teal-secondary': '#14B8A6',
-        'slate-disabled': '#334155',
-        'border-dark': '#2E2E3A',
-        'silver-text': '#E2E8F0',
-        'lilac-accent': '#C4B5FD',
-        'warning-gold': '#FBBF24',
-        'success-green': '#34D399',
-        'background-dark': '#0D0D12',
-        'background-deep': '#1A1B2F',
-        'surface-glass': 'rgba(255,255,255,0.02)'
-      },
-      fontFamily: {
-        sans: ['Inter', ...defaultTheme.fontFamily.sans],
-        // THIS IS THE FIX: Changed to 'Lora' to match the font we imported
-        serif: ['Lora', ...defaultTheme.fontFamily.serif],
-      },
-      boxShadow: {
-        'glow-indigo': '0 0 15px rgba(99, 102, 241, 0.5)',
-        'soft': '0 4px 12px rgba(0, 0, 0, 0.1)',
-        'glass': '0 8px 32px rgba(0, 0, 0, 0.37)',
-      },
-      backgroundImage: {
-        'gradient-dark': 'linear-gradient(to bottom right, #0D0D12, #1A1B2F, #2D2A55)',
-        'gradient-header': 'linear-gradient(to right, #121217, #1E1E2E)',
-        'gradient-button': 'linear-gradient(to right, #6366F1, #14B8A6)',
-      },
-      borderRadius: {
-        'xl': '1rem',
-        '2xl': '1.5rem',
-      },
-      // ADDED: Custom keyframes and animation for the rolling text effect
-      animation: {
-        'marquee': 'marquee 10s linear infinite',
-      },
-      keyframes: {
-        marquee: {
-          '0%': { transform: 'translateX(100%)' },
-          '100%': { transform: 'translateX(-100%)' },
-        }
-      }
-    },
-  },
-  plugins: [
-    require('@tailwindcss/typography'),
-    require('tailwindcss-animate'),
-  ],
+  content: [
+    './index.html',
+    './src/**/*.{js,ts,jsx,tsx}',
+  ],
+  theme: {
+    extend: {
+      // THIS IS THE FIX: The two 'animation' blocks have been merged into one.
+      animation: {
+        'orbit-1': 'orbit-1 10s linear infinite',
+        'orbit-2': 'orbit-2 18s linear infinite',
+        'orbit-3': 'orbit-3 25s linear infinite',
+        'orbit-4': 'orbit-4 35s linear infinite',
+        'marquee': 'marquee 10s linear infinite',
+      },
+      colors: {
+        // === Premium "Midnight Indigo" Palette ===
+        'indigo-primary': '#6366F1',
+        'teal-secondary': '#14B8A6',
+        'slate-disabled': '#334155',
+        'border-dark': '#2E2E3A',
+        'silver-text': '#E2E8F0',
+        'lilac-accent': '#C4B5FD',
+        'warning-gold': '#FBBF24',
+        'success-green': '#34D399',
+        'background-dark': '#0D0D12',
+        'background-deep': '#1A1B2F',
+        'surface-glass': 'rgba(255,255,255,0.02)'
+      },
+      fontFamily: {
+        sans: ['Inter', ...defaultTheme.fontFamily.sans],
+        serif: ['Lora', ...defaultTheme.fontFamily.serif],
+      },
+      boxShadow: {
+        'glow-indigo': '0 0 15px rgba(99, 102, 241, 0.5)',
+        'soft': '0 4px 12px rgba(0, 0, 0, 0.1)',
+        'glass': '0 8px 32px rgba(0, 0, 0, 0.37)',
+      },
+      backgroundImage: {
+        'gradient-dark': 'linear-gradient(to bottom right, #0D0D12, #1A1B2F, #2D2A55)',
+        'gradient-header': 'linear-gradient(to right, #121217, #1E1E2E)',
+        'gradient-button': 'linear-gradient(to right, #6366F1, #14B8A6)',
+      },
+      borderRadius: {
+        'xl': '1rem',
+        '2xl': '1.5rem',
+      },
+      keyframes: {
+        marquee: {
+          '0%': { transform: 'translateX(100%)' },
+          '100%': { transform: 'translateX(-100%)' },
+        }
+      }
+    },
+  },
+  plugins: [
+    require('@tailwindcss/typography'),
+    require('tailwindcss-animate'),
+  ],
 }

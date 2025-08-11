@@ -1,5 +1,3 @@
-// backend/src/controllers/textbook.controller.js
-
 /**
  * @fileoverview Controller functions for textbook projects.
  */
@@ -28,6 +26,11 @@ export const uploadTextbookCover = async (req, res) => {
         return res.status(400).json({ message: 'No image file provided.' });
     }
     
+    const MAX_FILE_SIZE_MB = 9;
+    if (req.file.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
+        return res.status(413).json({ message: `File size cannot exceed ${MAX_FILE_SIZE_MB}MB.` });
+    }
+
     let client;
     try {
         const folder = `inkwell-ai/user_${userId}/textbook_covers`;
@@ -59,8 +62,79 @@ export const uploadTextbookCover = async (req, res) => {
     }
 };
 
+export const deleteTextbookCover = async (req, res) => {
+    const { bookId } = req.params;
+    const userId = req.userId;
+    let client;
+
+    try {
+        const pool = await getDb();
+        client = await pool.connect();
+
+        const updateQuery = `
+            UPDATE text_books
+            SET user_cover_image_url = NULL, last_modified = CURRENT_TIMESTAMP
+            WHERE id = $1 AND user_id = $2
+        `;
+        const result = await client.query(updateQuery, [bookId, userId]);
+
+        if (result.rowCount === 0) {
+            return res.status(404).json({ message: 'Book not found or you do not have permission to edit it.' });
+        }
+
+        res.status(200).json({ message: 'Custom cover deleted successfully.' });
+    } catch (error) {
+        console.error(`Error deleting cover for textbook ${bookId}:`, error);
+        res.status(500).json({ message: 'Failed to delete custom cover image.' });
+    } finally {
+        if (client) {
+            client.release();
+        }
+    }
+};
+
+// NEW FUNCTION: `saveBackCoverBlurb`
+export const saveBackCoverBlurb = async (req, res) => {
+    const { bookId } = req.params;
+    const { blurb } = req.body;
+    const userId = req.userId;
+
+    // Line 98-101: Add basic validation for the blurb
+    if (typeof blurb !== 'string') {
+        return res.status(400).json({ message: 'Blurb must be a string.' });
+    }
+    const sanitizedBlurb = blurb.trim().substring(0, 200);
+
+    let client;
+    try {
+        const pool = await getDb();
+        client = await pool.connect();
+
+        const updateQuery = `
+            UPDATE text_books
+            SET back_cover_blurb = $1, last_modified = CURRENT_TIMESTAMP
+            WHERE id = $2 AND user_id = $3
+        `;
+        const result = await client.query(updateQuery, [sanitizedBlurb, bookId, userId]);
+
+        if (result.rowCount === 0) {
+            return res.status(404).json({ message: 'Book not found or you do not have permission to edit it.' });
+        }
+
+        res.status(200).json({ message: 'Back cover blurb saved successfully.', blurb: sanitizedBlurb });
+    } catch (error) {
+        console.error(`Error saving back cover blurb for book ${bookId}:`, error);
+        res.status(500).json({ message: 'Failed to save back cover blurb.' });
+    } finally {
+        if (client) {
+            client.release();
+        }
+    }
+};
+
 async function getFullTextBook(bookId, userId, client) {
-    const bookResult = await client.query(`SELECT * FROM text_books WHERE id = $1 AND user_id = $2`, [bookId, userId]);
+    // MODIFIED: Fetch the new back_cover_blurb column
+    const bookResult = await client.query(`SELECT *, back_cover_blurb FROM text_books WHERE id = $1 AND user_id = $2`, [bookId, userId]);
     const book = bookResult.rows[0];
     if (!book) return null;
 
@@ -273,8 +347,14 @@ export const getTextBookDetails = async (req, res) => {
     try {
         const pool = await getDb();
         client = await pool.connect();
-        const book = await getFullTextBook(bookId, req.userId, client);
+        // MODIFIED: Fetch the new back_cover_blurb column
+        const bookResult = await client.query(`SELECT tb.*, tb.back_cover_blurb FROM text_books tb WHERE tb.id = $1 AND tb.user_id = $2`, [bookId, req.userId]);
+        const book = bookResult.rows[0];
         if (!book) return res.status(404).json({ message: 'Book project not found.' });
+
+        const chaptersResult = await client.query(`SELECT * FROM chapters WHERE book_id = $1 ORDER BY chapter_number ASC`, [bookId]);
+        book.chapters = chaptersResult.rows;
+
         res.status(200).json({ book, chapters: book.chapters });
     }
     catch (error) {

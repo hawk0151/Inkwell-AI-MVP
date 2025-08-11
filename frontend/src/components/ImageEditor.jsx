@@ -1,157 +1,163 @@
-// frontend/src/components/ImageEditor.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import apiClient from '../services/apiClient';
-import { LoadingSpinner, Alert } from './common';
+import { LoadingSpinner } from './common';
+import { PhotoIcon } from '@heroicons/react/24/solid';
+import { motion } from 'framer-motion';
+import toast from 'react-hot-toast';
 
-function ImageEditor({ currentEvent, onImageUpdate }) {
+function ImageEditor({ bookId, currentEvent, onImageUpdate, timeline }) {
     const [prompt, setPrompt] = useState('');
-    const [style, setStyle] = useState('Watercolor');
-    const [isGenerating, setIsGenerating] = useState(false);
-    const [isUploading, setIsUploading] = useState(false);
-    const [error, setError] = useState(null);
+    const [style, setStyle] = useState('watercolor');
+    const [isLoading, setIsLoading] = useState(false);
     const [selectedFile, setSelectedFile] = useState(null);
-    const [displayedImageUrl, setDisplayedImageUrl] = useState(null);
+    const [isUploading, setIsUploading] = useState(false);
 
-    useEffect(() => {
-        setPrompt(''); 
-        setSelectedFile(null); 
-        setError(null); 
-        const currentImage = currentEvent.uploaded_image_url || currentEvent.image_url;
-        setDisplayedImageUrl(currentImage); 
-    }, [currentEvent.page_number, currentEvent.uploaded_image_url, currentEvent.image_url]);
+    // FIX: Restore the overlayText state
+    const [overlayText, setOverlayText] = useState(currentEvent?.overlay_text || '');
 
-    const artStyles = ['Watercolor', 'Cartoon', 'Photorealistic', 'Fantasy', 'Vintage'];
+    // When the page (currentEvent) changes, update the overlay text input
+    React.useEffect(() => {
+        setOverlayText(currentEvent?.overlay_text || '');
+    }, [currentEvent]);
 
-    const handleGenerate = async () => {
+    const handleGenerateImage = async () => {
         if (!prompt) {
-            setError("Please enter a prompt for the image.");
+            toast.error("Please enter a prompt for the image.");
             return;
         }
-        setIsGenerating(true);
-        setError(null);
-        setSelectedFile(null);
-        setDisplayedImageUrl(null);
-        
+        setIsLoading(true);
+        const toastId = toast.loading('Generating your image...');
         try {
-            const response = await apiClient.post('/images/generate', { prompt, style });
-            const newImageUrl = response.data.imageUrl;
-            onImageUpdate(currentEvent.page_number - 1, 'image_url', newImageUrl);
-            onImageUpdate(currentEvent.page_number - 1, 'image_style', style);
-            setDisplayedImageUrl(newImageUrl); 
-        } catch (err) {
-            setError("Failed to generate image. Please try again.");
-            setDisplayedImageUrl(currentEvent.uploaded_image_url || currentEvent.image_url); 
+            const response = await apiClient.post(`/picture-books/${bookId}/events/${currentEvent.page_number}/generate-image`, {
+                prompt,
+                style
+            });
+            onImageUpdate(timeline.indexOf(currentEvent), 'image_url_preview', response.data.previewUrl);
+            onImageUpdate(timeline.indexOf(currentEvent), 'image_url_print', response.data.printUrl);
+            toast.success('Image generated successfully!', { id: toastId });
+        } catch (error) {
+            console.error('Error generating image:', error);
+            toast.error(error.response?.data?.message || 'Failed to generate image.', { id: toastId });
         } finally {
-            setIsGenerating(false);
+            setIsLoading(false);
         }
     };
 
-    const handleFileChange = (e) => {
-        const file = e.target.files[0];
-        if (!file) {
+    const handleFileSelect = (event) => {
+        const file = event.target.files[0];
+        if (file && file.size > 2 * 1024 * 1024) { // 2MB limit
+            toast.error("File size cannot exceed 2MB.");
             setSelectedFile(null);
             return;
         }
-
-        // --- WORKAROUND CHANGE: Add client-side file size validation ---
-        const MAX_FILE_SIZE_MB = 2;
-        const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
-
-        if (file.size > MAX_FILE_SIZE_BYTES) {
-            setError(`File size cannot exceed ${MAX_FILE_SIZE_MB}MB. Please choose a smaller file.`);
-            e.target.value = null; // Clear the file input
-            return;
-        }
-
         setSelectedFile(file);
-        setError(null);
-        const reader = new FileReader();
-        reader.onloadend = () => {
-            setDisplayedImageUrl(reader.result); 
-        };
-        reader.readAsDataURL(file);
-
-        onImageUpdate(currentEvent.page_number - 1, 'image_url', null);
-        onImageUpdate(currentEvent.page_number - 1, 'image_style', null);
     };
 
-    const handleUpload = async () => {
+    const handleUploadImage = async () => {
         if (!selectedFile) {
-            setError("Please select a file to upload.");
+            toast.error("Please choose a file to upload.");
             return;
         }
         setIsUploading(true);
-        setError(null);
-        setDisplayedImageUrl(null);
-
+        const toastId = toast.loading('Uploading your image...');
         const formData = new FormData();
         formData.append('image', selectedFile);
-
         try {
-            const response = await apiClient.post('/images/upload', formData, {
-                headers: { 'Content-Type': 'multipart/form-data' },
+            const response = await apiClient.post(`/events/${currentEvent.id}/upload-image`, formData, {
+                headers: { 'Content-Type': 'multipart/form-data' }
             });
-            const newImageUrl = response.data.imageUrl;
-            onImageUpdate(currentEvent.page_number - 1, 'uploaded_image_url', newImageUrl);
-            setDisplayedImageUrl(newImageUrl);
-            setSelectedFile(null);
-        } catch (err) {
-            // Check if the server sent a specific error message (like file size)
-            const errorMessage = err.response?.data?.message || "Failed to upload image. Please try again.";
-            setError(errorMessage);
-            setDisplayedImageUrl(currentEvent.uploaded_image_url || currentEvent.image_url); 
+            onImageUpdate(timeline.indexOf(currentEvent), 'uploaded_image_url', response.data.imageUrl);
+            toast.success('Image uploaded successfully!', { id: toastId });
+            setSelectedFile(null); // Clear file input
+        } catch (error) {
+            console.error('Error uploading image:', error);
+            toast.error(error.response?.data?.message || 'Failed to upload image.', { id: toastId });
         } finally {
             setIsUploading(false);
         }
     };
 
-    return (
-        <div className="bg-slate-800 p-6 rounded-lg shadow-xl space-y-6 text-white border border-slate-700">
-            {error && <Alert type="error" message={error} onClose={() => setError(null)} />}
+    const imageUrl = currentEvent?.image_url_preview || currentEvent?.uploaded_image_url || currentEvent?.image_url;
 
-            <div className="relative w-full h-80 bg-slate-700 rounded-md overflow-hidden flex items-center justify-center">
-                {displayedImageUrl ? (
-                    <img src={displayedImageUrl} alt={`Page ${currentEvent.page_number}`} className="w-full h-full object-cover"/>
+    return (
+        <motion.div
+            key={currentEvent?.page_number}
+            initial={{ opacity: 0, x: -50 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.5 }}
+            className="bg-slate-800/50 backdrop-blur-md p-6 rounded-2xl shadow-lg border border-slate-700"
+        >
+            <div className="aspect-square w-full rounded-lg bg-slate-700/50 mb-6 flex items-center justify-center overflow-hidden">
+                {imageUrl ? (
+                    <img src={imageUrl} alt={`Page ${currentEvent.page_number}`} className="w-full h-full object-contain" />
                 ) : (
-                    <div className="text-slate-400">
-                        {isGenerating || isUploading ? <LoadingSpinner text={isGenerating ? "Generating art..." : "Uploading image..."} /> : <p>No image yet.</p>}
+                    <div className="text-center text-slate-500">
+                        <PhotoIcon className="h-24 w-24 mx-auto" />
+                        <p>No image yet.</p>
                     </div>
                 )}
             </div>
 
-            <div className="space-y-4">
-                <h4 className="font-semibold text-lg">Generate AI Image:</h4>
+            {/* --- RESTORED OVERLAY TEXT INPUT --- */}
+            <div className="mb-6">
+                <label htmlFor="overlayText" className="block text-sm font-medium text-slate-300 mb-2">Overlay Text (Optional)</label>
+                <input
+                    id="overlayText"
+                    type="text"
+                    placeholder="e.g., Once upon a time..."
+                    value={overlayText}
+                    onChange={(e) => {
+                        setOverlayText(e.target.value);
+                        onImageUpdate(timeline.indexOf(currentEvent), 'overlay_text', e.target.value);
+                    }}
+                    className="w-full px-4 py-3 rounded-lg bg-slate-700 border border-slate-600 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+            </div>
+            {/* --- END OF RESTORED CODE --- */}
+
+            <div>
+                <h4 className="text-lg font-semibold text-gray-200 mb-2">Generate AI Image:</h4>
                 <textarea
                     value={prompt}
                     onChange={(e) => setPrompt(e.target.value)}
                     placeholder="e.g., A brave knight facing a wise old dragon..."
-                    className="mt-1 block w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-md h-24"
+                    className="w-full p-2 border border-slate-600 rounded-md bg-slate-700 text-white min-h-[80px]"
                 />
-                <select value={style} onChange={(e) => setStyle(e.target.value)} className="mt-1 block w-full p-2 bg-slate-700 border border-slate-600 rounded-md">
-                    {artStyles.map(s => <option key={s} value={s}>{s}</option>)}
-                </select>
-                <button onClick={handleGenerate} disabled={isGenerating || isUploading} className="w-full bg-blue-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-blue-700 disabled:bg-blue-300">
-                    {isGenerating ? 'Creating...' : 'Generate Image'}
-                </button>
+                <div className="flex items-center gap-4 mt-2">
+                    <select
+                        value={style}
+                        onChange={(e) => setStyle(e.target.value)}
+                        className="flex-grow p-2 border border-slate-600 rounded-md bg-slate-700 text-white"
+                    >
+                        <option value="watercolor">Watercolor</option>
+                        <option value="fantasy">Fantasy</option>
+                        <option value="photo">Photo</option>
+                        <option value="anime">Anime</option>
+                    </select>
+                    <button onClick={handleGenerateImage} disabled={isLoading} className="bg-indigo-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-indigo-500 transition-colors disabled:bg-slate-500">
+                        {isLoading ? <LoadingSpinner /> : 'Generate Image'}
+                    </button>
+                </div>
             </div>
 
-            <div className="space-y-4 border-t border-slate-700 pt-6 mt-6">
-                <h4 className="font-semibold text-lg">Upload Your Own Image:</h4>
-                <input
-                    type="file"
-                    accept="image/*"
-                    onChange={handleFileChange}
-                    className="mt-1 block w-full text-sm text-slate-300 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:font-semibold file:bg-violet-700 file:text-white hover:file:bg-violet-600"
-                />
-                {/* --- WORKAROUND CHANGE: Updated help text --- */}
-                <p className="text-xs text-slate-400 mt-1">
-                    Max file size: 2MB.
-                </p>
-                <button onClick={handleUpload} disabled={isGenerating || isUploading || !selectedFile} className="w-full bg-green-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-green-700 disabled:bg-green-300">
-                    {isUploading ? 'Uploading...' : 'Upload Image'}
-                </button>
+            <div className="my-6 border-t border-slate-700"></div>
+
+            <div>
+                <h4 className="text-lg font-semibold text-gray-200 mb-2">Upload Your Own Image:</h4>
+                <div className="flex items-center gap-4">
+                    <input
+                        type="file"
+                        onChange={handleFileSelect}
+                        accept="image/png, image/jpeg"
+                        className="w-full text-sm text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-slate-600 file:text-white hover:file:bg-slate-500"
+                    />
+                    <button onClick={handleUploadImage} disabled={isUploading || !selectedFile} className="bg-teal-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-teal-500 transition-colors disabled:bg-slate-500">
+                        {isUploading ? <LoadingSpinner /> : 'Upload Image'}
+                    </button>
+                </div>
+                <p className="text-xs text-slate-500 mt-1">Max file size: 2MB.</p>
             </div>
-        </div>
+        </motion.div>
     );
 }
 

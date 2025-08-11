@@ -1,4 +1,3 @@
-// backend/src/db/setupDatabase.js
 import { getDb } from './database.js';
 
 const addColumnIfNotExists = async (dbConnection, tableName, columnName, columnDefinition) => {
@@ -26,7 +25,8 @@ const addColumnIfNotExists = async (dbConnection, tableName, columnName, columnD
 
 const createUsersTable = `CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, email TEXT UNIQUE, username TEXT UNIQUE, role TEXT NOT NULL DEFAULT 'user', date_created TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, avatar_url TEXT);`;
 const createPictureBooksTable = `CREATE TABLE IF NOT EXISTS picture_books (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, title TEXT NOT NULL, last_modified TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, is_public BOOLEAN DEFAULT FALSE, like_count INTEGER DEFAULT 0, comment_count INTEGER DEFAULT 0, cover_image_url TEXT, date_created TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, interior_pdf_url TEXT, cover_pdf_url TEXT, lulu_product_id TEXT);`;
-const createTextBooksTable = `CREATE TABLE IF NOT EXISTS text_books (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, title TEXT NOT NULL, last_modified TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, is_public BOOLEAN DEFAULT FALSE, like_count INTEGER DEFAULT 0, comment_count INTEGER DEFAULT 0, cover_image_url TEXT, prompt_details TEXT, lulu_product_id TEXT, interior_pdf_url TEXT, cover_pdf_url TEXT, date_created TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, total_chapters INTEGER DEFAULT 0);`;
+// MODIFIED: Added back_cover_blurb column to the text_books table definition
+const createTextBooksTable = `CREATE TABLE IF NOT EXISTS text_books (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, title TEXT NOT NULL, last_modified TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, is_public BOOLEAN DEFAULT FALSE, like_count INTEGER DEFAULT 0, comment_count INTEGER DEFAULT 0, cover_image_url TEXT, prompt_details TEXT, lulu_product_id TEXT, interior_pdf_url TEXT, cover_pdf_url TEXT, date_created TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, total_chapters INTEGER DEFAULT 0, user_cover_image_url TEXT, back_cover_blurb TEXT);`;
 const createChaptersTable = `CREATE TABLE IF NOT EXISTS chapters (id SERIAL PRIMARY KEY, book_id TEXT NOT NULL, chapter_number INTEGER NOT NULL, content TEXT, date_created TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (book_id) REFERENCES text_books(id) ON DELETE CASCADE);`;
 
 const createTimelineEventsTable = `CREATE TABLE IF NOT EXISTS timeline_events (id SERIAL PRIMARY KEY, book_id TEXT NOT NULL, page_number INTEGER NOT NULL, event_date TEXT, description TEXT, image_url TEXT, image_style TEXT, uploaded_image_url TEXT, overlay_text TEXT, last_modified TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, UNIQUE(book_id, page_number), FOREIGN KEY(book_id) REFERENCES picture_books(id) ON DELETE CASCADE);`;
@@ -84,6 +84,8 @@ export const setupDatabase = async () => {
             console.log("Checking and adding missing columns (PostgreSQL)...");
             await addColumnIfNotExists(client, 'users', 'avatar_url', 'TEXT');
             await addColumnIfNotExists(client, 'text_books', 'total_chapters', 'INTEGER DEFAULT 0');
+            await addColumnIfNotExists(client, 'text_books', 'user_cover_image_url', 'TEXT'); // RE-ADDED: ensure this column exists from the last change
+            await addColumnIfNotExists(client, 'text_books', 'back_cover_blurb', 'TEXT'); // NEW: Add back_cover_blurb column
             await addColumnIfNotExists(client, 'picture_books', 'lulu_product_id', 'TEXT');
             await addColumnIfNotExists(client, 'timeline_events', 'overlay_text', 'TEXT');
             await addColumnIfNotExists(client, 'timeline_events', 'last_modified', 'TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP');
