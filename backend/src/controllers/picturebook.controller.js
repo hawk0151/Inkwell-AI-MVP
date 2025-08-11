@@ -8,7 +8,7 @@ import * as fileHostService from '../services/fileHost.service.js';
 import jsonwebtoken from 'jsonwebtoken';
 import { JWT_QUOTE_SECRET } from '../config/jwt.config.js';
 import fs from 'fs/promises';
-import { generationQueue } from '../queues/generation.queue.js'; // Import the job queue
+import { generationQueue } from '../queues/generation.queue.js';
 
 const PROFIT_MARGIN_AUD = 15.00;
 const REQUIRED_CONTENT_PAGES = 20;
@@ -17,13 +17,11 @@ async function getFullPictureBook(bookId, userId, client) {
     const bookResult = await client.query(`SELECT *, user_cover_image_url FROM picture_books WHERE id = $1 AND user_id = $2`, [bookId, userId]);
     const book = bookResult.rows[0];
     if (!book) return null;
-    const eventsSql = `SELECT id, book_id, page_number, story_text, image_style, image_url_print FROM timeline_events WHERE book_id = $1 ORDER BY page_number ASC`;
+    const eventsSql = `SELECT id, book_id, page_number, story_text, image_style, image_url_print, uploaded_image_url, image_url, image_url_preview, overlay_text, is_bold_story_text, last_modified FROM timeline_events WHERE book_id = $1 ORDER BY page_number ASC`;
     const timelineResult = await client.query(eventsSql, [bookId]);
     book.timeline = timelineResult.rows;
     return book;
 }
-
-// ... (all existing functions from createPictureBook to generatePreviewPdf remain unchanged) ...
 
 export const createPictureBook = async (req, res) => {
     let client;
@@ -164,26 +162,46 @@ export const saveTimelineEvents = async (req, res) => {
             return res.status(404).json({ message: 'Project not found or you do not have permission.' });
         }
         
-        await client.query(`DELETE FROM timeline_events WHERE book_id = $1`, [bookId]);
-
         if (events.length > 0) {
-            const insertSql = `
+            const upsertSql = `
                 INSERT INTO timeline_events (
                     book_id, page_number, event_date, story_text, image_url, 
                     image_style, uploaded_image_url, overlay_text, is_bold_story_text,
                     image_url_preview, image_url_print
                 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                ON CONFLICT (book_id, page_number) 
+                DO UPDATE SET 
+                    event_date = EXCLUDED.event_date,
+                    story_text = EXCLUDED.story_text,
+                    image_url = EXCLUDED.image_url,
+                    image_style = EXCLUDED.image_style,
+                    uploaded_image_url = EXCLUDED.uploaded_image_url,
+                    overlay_text = EXCLUDED.overlay_text,
+                    is_bold_story_text = EXCLUDED.is_bold_story_text,
+                    image_url_preview = EXCLUDED.image_url_preview,
+                    image_url_print = EXCLUDED.image_url_print;
             `;
+            
             for (let i = 0; i < events.length; i++) {
                 const event = events[i];
-                await client.query(insertSql, [
-                    bookId, i + 1, event.event_date || null,
-                    event.story_text || null, event.image_url || null, event.image_style || null,
-                    event.uploaded_image_url || null, event.overlay_text || null, event.is_bold_story_text || false,
-                    event.image_url_preview || null, event.image_url_print || null
+                await client.query(upsertSql, [
+                    bookId, 
+                    i + 1,
+                    event.event_date || null,
+                    event.story_text || null, 
+                    event.image_url || null, 
+                    event.image_style || null,
+                    event.uploaded_image_url || null, 
+                    event.overlay_text || null, 
+                    event.is_bold_story_text || false,
+                    event.image_url_preview || null, 
+                    event.image_url_print || null
                 ]);
             }
         }
+        
+        const maxPageNumber = events.length;
+        await client.query(`DELETE FROM timeline_events WHERE book_id = $1 AND page_number > $2`, [bookId, maxPageNumber]);
 
         await client.query(`UPDATE picture_books SET last_modified = $1 WHERE id = $2`, [new Date().toISOString(), bookId]);
         await client.query('COMMIT');
@@ -295,13 +313,23 @@ export const createBookCheckoutSession = async (req, res) => {
         tempInteriorPdfPath = interiorPdfPath;
         
         const coverDimensions = await luluService.getCoverDimensions(productConfig.luluSku, finalPageCount, 'mm');
-        const { path: coverPdfPath } = await pdfService.generateCoverPdf(book, productConfig, coverDimensions);
+        
+        let coverPdfPath;
+        if (productConfig.productType === 'novel') {
+            console.log('[Checkout PB] Generating textbook-style cover...');
+            const { path } = await pdfService.generateTextbookCoverPdf(book, productConfig, coverDimensions);
+            coverPdfPath = path;
+        } else {
+            console.log('[Checkout PB] Generating picture book-style cover...');
+            const { path } = await pdfService.generateCoverPdf(book, productConfig, coverDimensions);
+            coverPdfPath = path;
+        }
         tempCoverPdfPath = coverPdfPath;
 
         console.log('[Checkout PB] Uploading print files for validation...');
         const [interiorUrl, coverUrl] = await Promise.all([
             fileHostService.uploadPrintFile(interiorPdfPath, `interior_${bookId}_${Date.now()}`),
-            fileHostService.uploadPrintFile(coverPdfPath, `cover_${bookId}_${Date.now()}`)
+            fileHostService.uploadPrintFile(tempCoverPdfPath, `cover_${bookId}_${Date.now()}`)
         ]);
 
         console.log('[Checkout PB] Submitting files for Lulu validation...');
@@ -464,7 +492,6 @@ export const togglePictureBookPrivacy = async (req, res) => {
     }
 };
 
-// --- NEW FUNCTION TO PREPARE BOOK FOR PRINTING ---
 export const prepareBookForPrint = async (req, res) => {
     const { bookId } = req.params;
     const userId = req.userId;
@@ -474,30 +501,27 @@ export const prepareBookForPrint = async (req, res) => {
         const pool = await getDb();
         client = await pool.connect();
 
-        // Get all pages for the book to check their status
         const book = await getFullPictureBook(bookId, userId, client);
         if (!book) {
             return res.status(404).json({ message: 'Project not found.' });
         }
 
-        // Find pages that need a print image generated
         const pagesToGenerate = book.timeline.filter(event => 
-            !event.image_url_print && // It doesn't already have a print image
-            event.story_text           // And it has a prompt (story_text) to generate from
+            !event.image_url_print && 
+            event.story_text
         );
 
         if (pagesToGenerate.length === 0) {
             return res.status(200).json({ message: 'All pages are already prepared for printing.' });
         }
 
-        // Add a job to the background queue for each page
         const jobPromises = pagesToGenerate.map(event => {
             const jobData = {
                 bookId: book.id,
                 userId: userId,
                 pageNumber: event.page_number,
                 prompt: event.story_text,
-                style: event.image_style || 'watercolor' // Use a default style if none is set
+                style: event.image_style || 'watercolor'
             };
             console.log(`[Controller] Queuing job for page ${event.page_number}`);
             return generationQueue.add('generate-page-image', jobData);
@@ -505,7 +529,6 @@ export const prepareBookForPrint = async (req, res) => {
 
         await Promise.all(jobPromises);
 
-        // Respond immediately to the user
         res.status(202).json({ 
             message: `Image generation started in the background for ${pagesToGenerate.length} pages.`,
             pagesQueued: pagesToGenerate.length
@@ -514,6 +537,52 @@ export const prepareBookForPrint = async (req, res) => {
     } catch (error) {
         console.error('[Controller] Error preparing book for print:', error);
         res.status(500).json({ message: 'Failed to start print preparation process.' });
+    } finally {
+        if (client) client.release();
+    }
+};
+
+export const uploadEventImage = async (req, res) => {
+         console.log('--- WE ARE INSIDE THE UPLOAD EVENT IMAGE FUNCTION ---'); 
+    const { eventId } = req.params;
+    const userId = req.userId;
+    let client;
+
+    if (!req.file) {
+        return res.status(400).json({ message: 'No image file provided.' });
+    }
+
+    try {
+        const pool = await getDb();
+        client = await pool.connect();
+
+        const eventResult = await client.query(`
+            SELECT te.id, te.book_id, pb.user_id 
+            FROM timeline_events te
+            JOIN picture_books pb ON te.book_id = pb.id
+            WHERE te.id = $1 AND pb.user_id = $2
+        `, [eventId, userId]);
+
+        if (eventResult.rows.length === 0) {
+            return res.status(404).json({ message: 'Page not found or you do not have permission to edit it.' });
+        }
+        
+        const { book_id } = eventResult.rows[0];
+
+        const folder = `inkwell-ai/user_${userId}/books/${book_id}/uploads`;
+        const imageUrl = await fileHostService.uploadImageBuffer(req.file.buffer, folder);
+
+        await client.query(`
+            UPDATE timeline_events 
+            SET uploaded_image_url = $1, image_url = NULL, image_url_preview = NULL, image_url_print = NULL
+            WHERE id = $2
+        `, [imageUrl, eventId]);
+
+        res.status(200).json({ message: 'Image uploaded successfully!', imageUrl });
+
+    } catch (err) {
+        console.error("Error uploading event image:", err.message);
+        res.status(500).json({ message: 'Failed to upload image.' });
     } finally {
         if (client) client.release();
     }

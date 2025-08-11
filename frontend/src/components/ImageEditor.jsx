@@ -5,17 +5,14 @@ import { PhotoIcon } from '@heroicons/react/24/solid';
 import { motion } from 'framer-motion';
 import toast from 'react-hot-toast';
 
-function ImageEditor({ bookId, currentEvent, onImageUpdate, timeline }) {
+function ImageEditor({ bookId, currentEvent, onImageUpdate, onSave, timeline }) {
     const [prompt, setPrompt] = useState('');
     const [style, setStyle] = useState('watercolor');
     const [isLoading, setIsLoading] = useState(false);
     const [selectedFile, setSelectedFile] = useState(null);
     const [isUploading, setIsUploading] = useState(false);
-
-    // FIX: Restore the overlayText state
     const [overlayText, setOverlayText] = useState(currentEvent?.overlay_text || '');
 
-    // When the page (currentEvent) changes, update the overlay text input
     React.useEffect(() => {
         setOverlayText(currentEvent?.overlay_text || '');
     }, [currentEvent]);
@@ -28,6 +25,8 @@ function ImageEditor({ bookId, currentEvent, onImageUpdate, timeline }) {
         setIsLoading(true);
         const toastId = toast.loading('Generating your image...');
         try {
+            await onSave(timeline);
+
             const response = await apiClient.post(`/picture-books/${bookId}/events/${currentEvent.page_number}/generate-image`, {
                 prompt,
                 style
@@ -45,7 +44,7 @@ function ImageEditor({ bookId, currentEvent, onImageUpdate, timeline }) {
 
     const handleFileSelect = (event) => {
         const file = event.target.files[0];
-        if (file && file.size > 2 * 1024 * 1024) { // 2MB limit
+        if (file && file.size > 2 * 1024 * 1024) {
             toast.error("File size cannot exceed 2MB.");
             setSelectedFile(null);
             return;
@@ -58,17 +57,31 @@ function ImageEditor({ bookId, currentEvent, onImageUpdate, timeline }) {
             toast.error("Please choose a file to upload.");
             return;
         }
+        
         setIsUploading(true);
-        const toastId = toast.loading('Uploading your image...');
-        const formData = new FormData();
-        formData.append('image', selectedFile);
+        const toastId = toast.loading('Saving and uploading...');
+        
         try {
+            await onSave(timeline);
+
+            if (!currentEvent.id) {
+                toast.error("Could not save the new page. Please wait a moment and try again.", { id: toastId });
+                setIsUploading(false);
+                return;
+            }
+
+            toast.loading('Uploading your image...', { id: toastId });
+            const formData = new FormData();
+            formData.append('image', selectedFile);
+
+            // **THE FIX IS HERE**: Removed the extra '/api' from the start of the URL
             const response = await apiClient.post(`/events/${currentEvent.id}/upload-image`, formData, {
                 headers: { 'Content-Type': 'multipart/form-data' }
             });
+
             onImageUpdate(timeline.indexOf(currentEvent), 'uploaded_image_url', response.data.imageUrl);
             toast.success('Image uploaded successfully!', { id: toastId });
-            setSelectedFile(null); // Clear file input
+            setSelectedFile(null);
         } catch (error) {
             console.error('Error uploading image:', error);
             toast.error(error.response?.data?.message || 'Failed to upload image.', { id: toastId });
@@ -98,7 +111,6 @@ function ImageEditor({ bookId, currentEvent, onImageUpdate, timeline }) {
                 )}
             </div>
 
-            {/* --- RESTORED OVERLAY TEXT INPUT --- */}
             <div className="mb-6">
                 <label htmlFor="overlayText" className="block text-sm font-medium text-slate-300 mb-2">Overlay Text (Optional)</label>
                 <input
@@ -113,7 +125,6 @@ function ImageEditor({ bookId, currentEvent, onImageUpdate, timeline }) {
                     className="w-full px-4 py-3 rounded-lg bg-slate-700 border border-slate-600 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 />
             </div>
-            {/* --- END OF RESTORED CODE --- */}
 
             <div>
                 <h4 className="text-lg font-semibold text-gray-200 mb-2">Generate AI Image:</h4>

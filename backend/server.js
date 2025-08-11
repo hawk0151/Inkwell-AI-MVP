@@ -9,7 +9,6 @@ import admin from 'firebase-admin';
 import morgan from 'morgan';
 import dns from 'dns/promises';
 
-// --- MODIFICATION: Import the new initializeDb function ---
 import { initializeDb } from './src/db/database.js';
 import { setupDatabase } from './src/db/setupDatabase.js';
 
@@ -50,11 +49,8 @@ async function checkDnsResolution() {
 }
 
 const startServer = async () => {
-    // --- MODIFICATION: Initialize the database connection first! ---
-    // This ensures the database pool is ready before any other part of the app tries to use it.
     await initializeDb();
     
-    // The rest of the startup sequence can now run safely.
     await checkDnsResolution();
     await setupDatabase();
 
@@ -82,13 +78,18 @@ const startServer = async () => {
 
     const app = express();
     const PORT = process.env.PORT || 5001;
-
+    
     const allowedOrigins = [
-        process.env.CORS_ORIGIN || 'http://localhost:5173',
-        'https://inkwell-ai-mvp-frontend.onrender.com',
-        'https://inkwell.net.au',
-        'https://www.inkwell.net.au'
+        ...new Set([
+            process.env.CORS_ORIGIN,
+            'http://localhost:5173',
+            'http://127.0.0.1:5173',
+            'https://inkwell-ai-mvp-frontend.onrender.com',
+            'https://inkwell.net.au',
+            'https://www.inkwell.net.au'
+        ].filter(Boolean))
     ];
+
     const corsOptions = {
         origin: function (origin, callback) {
             if (!origin || allowedOrigins.indexOf(origin) !== -1) {
@@ -102,7 +103,7 @@ const startServer = async () => {
     };
     app.use(cors(corsOptions));
     app.options('*', cors(corsOptions));
-    console.log("DEBUG: CORS middleware applied with preflight handling.");
+    console.log("DEBUG: CORS middleware applied with preflight handling for origins:", allowedOrigins);
 
     app.use(morgan('dev'));
 
@@ -124,6 +125,7 @@ const startServer = async () => {
     app.use('/api/orders', orderRoutes);
     app.use('/api/paypal', paypalRoutes);
     app.use('/api/picture-books', pictureBookRoutes);
+    app.use('/api/events', pictureBookRoutes); // This line is required to fix the error
     app.use('/api/text-books', textBookRoutes);
     app.use('/api/images', imageRoutes);
     app.use('/api/v1/user', userRoutes);
@@ -148,6 +150,7 @@ const startServer = async () => {
 
     // Error handling
     app.use((req, res, next) => {
+        console.log(`[404 Handler] Route not found for: ${req.method} ${req.originalUrl}`);
         res.status(404).json({ message: 'Not Found' });
     });
     app.use((err, req, res, next) => {
