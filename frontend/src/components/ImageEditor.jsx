@@ -74,8 +74,8 @@ function ImageEditor({ bookId, currentEvent, onImageUpdate, onSave, timeline }) 
             const formData = new FormData();
             formData.append('image', selectedFile);
 
-            // **THE FIX IS HERE**: Removed the extra '/api' from the start of the URL
-            const response = await apiClient.post(`/events/${currentEvent.id}/upload-image`, formData, {
+            // This is the updated line. We now use the correct endpoint.
+            const response = await apiClient.post(`/picture-books/events/${currentEvent.id}/upload-image`, formData, {
                 headers: { 'Content-Type': 'multipart/form-data' }
             });
 

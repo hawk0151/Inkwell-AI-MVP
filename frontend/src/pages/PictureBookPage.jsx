@@ -305,14 +305,19 @@ function PictureBookPage() {
                     </motion.div>
 
                     <div className="flex-grow flex flex-col lg:flex-row gap-8">
-                        <div className="lg:w-2/3 w-full">
+                        {/* On desktop, the main editor content is on the left (2/3 width) and the settings
+                            are on the right (1/3 width).
+                            On mobile, we'll stack them. We're using order-2 and order-1 to place the ImageEditor first,
+                            followed by the Book Settings.
+                        */}
+                        <div className="lg:w-2/3 w-full lg:order-1 order-2">
                             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
                                 <CoverPreview coverImageUrl={book?.user_cover_image_url} title={title} author={author} />
                             </motion.div>
                             <ImageEditor bookId={bookId} currentEvent={currentEvent} onImageUpdate={handleFieldChange} onSave={saveAllTimelineEvents} timeline={timeline} />
                         </div>
 
-                        <div className="lg:w-1/3 w-full lg:sticky lg:top-8 h-fit">
+                        <div className="lg:w-1/3 w-full lg:sticky lg:top-8 h-fit lg:order-2 order-1">
                             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.1 }} className="bg-slate-800/50 p-6 rounded-2xl shadow-lg border border-slate-700">
                                 <h3 className="text-2xl font-bold text-center border-b border-slate-700 pb-4 mb-6">Book Settings</h3>
                                 
