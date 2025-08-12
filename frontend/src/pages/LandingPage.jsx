@@ -348,6 +348,16 @@ function LandingPage() {
     };
 
     const headlineText = "Bring Your Story to";
+    // This is the new animation variant for the 'Life' word
+    const headlineWordLife = {
+        hidden: { opacity: 0, scale: 0.8 },
+        visible: {
+            opacity: 1, 
+            scale: 1, 
+            transition: { duration: 1.0, delay: 1.4, ease: [0.2, 0.65, 0.3, 0.9] }
+        },
+    };
+
     const headlineContainer = { 
         visible: { transition: { staggerChildren: 0.1 } } 
     };
@@ -370,7 +380,7 @@ function LandingPage() {
         <div className="bg-slate-900 bg-[radial-gradient(ellipse_80%_80%_at_50%_-20%,rgba(120,119,198,0.3),rgba(255,255,255,0))] text-white">
             
             <div className="min-h-screen text-center p-4 pt-48 pb-24">
-                <div>
+                <div className="flex flex-col items-center">
                     <motion.h1 
                         className="text-5xl sm:text-7xl lg:text-8xl font-extrabold font-serif bg-clip-text text-transparent bg-gradient-to-r from-slate-200 to-blue-300 leading-snug lg:leading-normal"
                         variants={headlineContainer}
@@ -382,7 +392,7 @@ function LandingPage() {
                                 {word}&nbsp;
                             </motion.span>
                         ))}
-                        <motion.span variants={headlineWord} className="inline-block text-teal-400">Life.</motion.span>
+                        <motion.span variants={headlineWordLife} className="inline-block text-teal-400">Life.</motion.span>
                     </motion.h1>
                     <motion.p 
                         className="mt-6 max-w-2xl mx-auto text-lg md:text-xl text-slate-300"
