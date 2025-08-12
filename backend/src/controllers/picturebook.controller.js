@@ -8,7 +8,7 @@ import * as fileHostService from '../services/fileHost.service.js';
 import jsonwebtoken from 'jsonwebtoken';
 import { JWT_QUOTE_SECRET } from '../config/jwt.config.js';
 import fs from 'fs/promises';
-import { generationQueue } from '../queues/generation.queue.js';
+import { generationQueue } from '..//services/queue.service.js';
 
 const PROFIT_MARGIN_AUD = 15.00;
 const REQUIRED_CONTENT_PAGES = 20;
