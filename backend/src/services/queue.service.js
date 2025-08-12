@@ -7,10 +7,8 @@
 
 import { Queue } from 'bullmq';
 
-// --- MODIFICATION: The connection object has been removed. ---
-// We now connect directly using the REDIS_URL from your environment variables,
+// This connects directly using the REDIS_URL from your environment variables,
 // which is the correct method for connecting to Upstash.
-
 export const storyGenerationQueue = new Queue('storyGenerationQueue', {
   connection: process.env.REDIS_URL,
 });
