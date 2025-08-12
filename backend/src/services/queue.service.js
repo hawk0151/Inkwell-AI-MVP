@@ -1,13 +1,14 @@
+// backend/src/services/queue.service.js
 import { Queue } from 'bullmq';
 import IORedis from 'ioredis';
 
-// Create a Redis connection from URL (Upstash requires TLS)
-const redisConnection = new IORedis(process.env.REDIS_URL, {
-  tls: {} // Enables SSL/TLS
+// Pass the required option directly to the IORedis constructor.
+const connection = new IORedis(process.env.REDIS_URL, {
+    maxRetriesPerRequest: null
 });
 
 export const storyGenerationQueue = new Queue('storyGenerationQueue', {
-  connection: redisConnection
+  connection: connection,
 });
 
 console.log('✅ BullMQ queue service initialized.');
