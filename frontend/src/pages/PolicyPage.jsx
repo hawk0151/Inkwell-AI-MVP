@@ -129,7 +129,7 @@ const policyContent = {
                 <h2>5. International Shipping</h2>
                 <p>We offer international shipping through our fulfillment partner. Please be aware that you may be responsible for any customs fees, taxes, or duties imposed by your country.</p>
                 <h2>6. Lost or Damaged Packages</h2>
-                <p>If your package is lost or arrives damaged, please contact us at **[Your Support Email]** with your order number and a description of the issue. We will work with our fulfillment partner to find a solution.</p>
+                <p>If your package is lost or arrives damaged, please contact us at **[support@inkwell.net.au]** with your order number and a description of the issue. We will work with our fulfillment partner to find a solution.</p>
             </>
         ),
     },
@@ -157,7 +157,7 @@ const policyContent = {
                 <h2>3. How to Request a Refund</h2>
                 <p>To request a refund for a faulty or damaged physical product, you must:</p>
                 <ul>
-                    <li>Contact us at **[Your Support Email]** within 30 days of receiving your order.</li>
+                    <li>Contact us at **[support@inkwell.net.au]** within 30 days of receiving your order.</li>
                     <li>Provide your order number and clear photos of the defect.</li>
                 </ul>
                 <p>We will then assess your claim and work with our fulfillment partner to provide a replacement or a refund if the claim is valid.</p>
