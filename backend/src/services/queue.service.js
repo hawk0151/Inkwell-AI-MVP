@@ -10,7 +10,7 @@ const connection = new IORedis(process.env.REDIS_URL, {
 });
 
 export const storyGenerationQueue = new Queue('storyGenerationQueue', {
-  connection: connection,
+    connection: connection,
 });
 
 console.log('✅ BullMQ queue service initialized.');
