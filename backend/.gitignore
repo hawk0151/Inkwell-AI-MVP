@@ -17,3 +17,5 @@ yarn-error.log*
 # Remove this line if you are reading the JSON string from FIREBASE_SERVICE_ACCOUNT_CONFIG env var
 # Otherwise, ensure serviceAccountKey.json is *not* committed
 serviceAccountKey.json
+serviceAccountKey.json
+serviceAccountKey.json
