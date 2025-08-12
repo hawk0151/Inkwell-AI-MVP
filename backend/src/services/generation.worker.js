@@ -4,7 +4,7 @@ import { generateChapterWithPlan } from './generation/chapter.js';
 import { unlockBook } from '../utils/lock.util.js';
 import { initializeDb } from '../db/database.js';
 // --- MODIFICATION: Import the single, shared Redis connection ---
-import { redisConnection } from '../config/redis.connection.js';
+import { redisConnection } from '../config/redisClient.js.js';
 
 const processGenerationJob = async (job) => {
     const { bookId, userId, chapterNumber, guidance } = job.data;

@@ -1,11 +1,14 @@
 import { Queue } from 'bullmq';
-// --- MODIFICATION: Import the single, shared Redis connection ---
-import { redisConnection } from '../config/redis.connection.js';
+import { getRedisClient } from '../config/redisClient.js';
 
-// This queue is specifically for story chapters
+const connection = getRedisClient();
+
 export const storyGenerationQueue = new Queue('storyGenerationQueue', {
-    // --- MODIFICATION: Use the imported shared connection ---
-    connection: redisConnection,
+    connection: connection,
 });
 
-console.log('✅ BullMQ story generation queue initialized.');
+export const imageGenerationQueue = new Queue('imageGenerationQueue', {
+    connection: connection,
+});
+
+console.log('✅ BullMQ queues initialized.');

@@ -1,6 +1,6 @@
 // backend/src/config/redis.connection.js
 import IORedis from 'ioredis';
-
+console.log('DEBUG REDIS_URL:', JSON.stringify(process.env.REDIS_URL));
 const redisUrl = process.env.REDIS_URL;
 
 if (!redisUrl) {

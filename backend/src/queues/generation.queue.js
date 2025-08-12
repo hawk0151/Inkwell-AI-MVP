@@ -1,6 +1,6 @@
 import { Queue } from 'bullmq';
 // --- MODIFICATION: Import the single, shared Redis connection ---
-import { redisConnection } from '../config/redis.connection.js';
+import { redisConnection } from '../config/redisClient.js.js';
 
 // This queue is specifically for picture book images
 export const imageGenerationQueue = new Queue('imageGenerationQueue', {
