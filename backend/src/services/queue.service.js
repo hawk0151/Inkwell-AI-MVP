@@ -1,7 +1,7 @@
 import { Queue } from 'bullmq';
-import { getRedisClient } from '../config/redisClient.js';
+import { redisConnection } from '../config/redisClient.js';
 
-const connection = getRedisClient();
+const connection = redisConnection;
 
 export const storyGenerationQueue = new Queue('storyGenerationQueue', {
     connection: connection,
