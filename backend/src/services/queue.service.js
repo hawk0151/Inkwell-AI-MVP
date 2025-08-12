@@ -1,16 +1,11 @@
-// backend/src/services/queue.service.js
 import { Queue } from 'bullmq';
-import IORedis from 'ioredis';
+// --- MODIFICATION: Import the single, shared Redis connection ---
+import { redisConnection } from '../config/redis.connection.js';
 
-const connection = new IORedis(process.env.REDIS_URL, {
-    maxRetriesPerRequest: null,
-    tls: {
-        rejectUnauthorized: false
-    }
-});
-
+// This queue is specifically for story chapters
 export const storyGenerationQueue = new Queue('storyGenerationQueue', {
-    connection: connection,
+    // --- MODIFICATION: Use the imported shared connection ---
+    connection: redisConnection,
 });
 
-console.log('✅ BullMQ queue service initialized.');
+console.log('✅ BullMQ story generation queue initialized.');

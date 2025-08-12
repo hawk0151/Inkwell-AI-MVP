@@ -1,17 +1,10 @@
-// backend/src/services/generation.worker.js
 import 'dotenv/config';
 import { Worker } from 'bullmq';
-import IORedis from 'ioredis';
 import { generateChapterWithPlan } from './generation/chapter.js';
 import { unlockBook } from '../utils/lock.util.js';
 import { initializeDb } from '../db/database.js';
-
-const connection = new IORedis(process.env.REDIS_URL, {
-    maxRetriesPerRequest: null,
-    tls: {
-        rejectUnauthorized: false
-    }
-});
+// --- MODIFICATION: Import the single, shared Redis connection ---
+import { redisConnection } from '../config/redis.connection.js';
 
 const processGenerationJob = async (job) => {
     const { bookId, userId, chapterNumber, guidance } = job.data;
@@ -31,7 +24,8 @@ const processGenerationJob = async (job) => {
         await initializeDb();
 
         const worker = new Worker('storyGenerationQueue', processGenerationJob, {
-            connection: connection,
+            // --- MODIFICATION: Use the imported shared connection ---
+            connection: redisConnection,
             concurrency: 5
         });
 
@@ -45,7 +39,8 @@ const processGenerationJob = async (job) => {
         const gracefulShutdown = async () => {
             console.log('\n[Worker] Shutting down gracefully...');
             await worker.close();
-            await connection.quit();
+            // --- MODIFICATION: Use the imported shared connection ---
+            await redisConnection.quit();
             console.log('[Worker] BullMQ worker closed.');
             process.exit(0);
         };
