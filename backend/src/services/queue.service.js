@@ -6,11 +6,19 @@
  */
 
 import { Queue } from 'bullmq';
+import IORedis from 'ioredis';
 
-// This connects directly using the REDIS_URL from your environment variables,
-// which is the correct method for connecting to Upstash.
+// --- MODIFICATION: Create a dedicated Redis connection instance ---
+// new IORedis() will correctly parse your full REDIS_URL from Upstash,
+// including the password, host, port, and TLS settings.
+const connection = new IORedis(process.env.REDIS_URL, {
+    // This option is important for some cloud providers to prevent hangs
+    maxRetriesPerRequest: null 
+});
+
+// Pass the pre-configured connection instance to the queue.
 export const storyGenerationQueue = new Queue('storyGenerationQueue', {
-  connection: process.env.REDIS_URL,
+  connection: connection,
 });
 
 console.log('✅ BullMQ queue service initialized.');

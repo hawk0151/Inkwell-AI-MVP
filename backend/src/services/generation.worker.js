@@ -2,12 +2,10 @@
 
 import 'dotenv/config';
 import { Worker } from 'bullmq';
+import IORedis from 'ioredis'; // --- MODIFICATION: Import ioredis ---
 import { generateChapterWithPlan } from './generation/chapter.js';
 import { unlockBook } from '../utils/lock.util.js';
 import { initializeDb } from '../db/database.js';
-
-// --- MODIFICATION: The redisConnection object has been removed. ---
-// We will now pass the REDIS_URL string directly to the Worker constructor.
 
 const processGenerationJob = async (job) => {
     const { bookId, userId, chapterNumber, guidance } = job.data;
@@ -27,10 +25,14 @@ const processGenerationJob = async (job) => {
         console.log('[Worker] Initializing services...');
         await initializeDb();
         
-        // --- MODIFICATION: The connection now uses the REDIS_URL directly ---
-        // This is the correct way to connect to Upstash.
+        // --- MODIFICATION: Create a dedicated Redis connection instance ---
+        const connection = new IORedis(process.env.REDIS_URL, {
+            maxRetriesPerRequest: null 
+        });
+
+        // --- MODIFICATION: Pass the pre-configured connection instance to the worker ---
         const worker = new Worker('storyGenerationQueue', processGenerationJob, {
-            connection: process.env.REDIS_URL,
+            connection: connection,
             concurrency: 5 
         });
 
