@@ -1,59 +1,51 @@
+// backend/src/services/generation.worker.js
+
 import 'dotenv/config';
 import { Worker } from 'bullmq';
+import { generateChapterWithPlan } from './generation/chapter.js';
+import { unlockBook } from '../utils/lock.util.js';
 import { initializeDb } from '../db/database.js';
-import * as imageService from './image.service.js'; // Import the image service
 
-// Redis connection details
-const redisConnection = {
-    host: process.env.REDIS_HOST,
-    port: parseInt(process.env.REDIS_PORT),
-    password: process.env.REDIS_PASSWORD || null
-};
+// --- MODIFICATION: The redisConnection object has been removed. ---
+// We will now pass the REDIS_URL string directly to the Worker constructor.
 
-// This is the main job processing function
 const processGenerationJob = async (job) => {
-    console.log(`[Worker] Received job '${job.name}' #${job.id}`);
+    const { bookId, userId, chapterNumber, guidance } = job.data;
+    console.log(`[Worker] Received job '${job.name}' for book ${bookId}, chapter ${chapterNumber}.`);
 
-    // --- Job Router ---
-    // This checks the name of the job and calls the correct function
     try {
-        if (job.name === 'generate-page-image') {
-            const { bookId, userId, pageNumber, prompt, style } = job.data;
-            await imageService.processAndUploadImageVersions(prompt, style, userId, bookId, pageNumber);
-        } else {
-            // You can add other job types here in the future
-            console.warn(`[Worker] Unknown job name: ${job.name}`);
-        }
+        await generateChapterWithPlan(bookId, userId, chapterNumber, guidance);
     } catch (error) {
-        console.error(`[Worker] Job '${job.name}' for book ${job.data.bookId} FAILED.`);
-        // We re-throw the error so BullMQ knows the job failed and can retry it
+        console.error(`[Worker] Job '${job.name}' for book ${bookId} FAILED.`, error);
+        await unlockBook(bookId);
         throw error;
     }
 };
 
-// Main worker startup logic
 (async () => {
     try {
         console.log('[Worker] Initializing services...');
         await initializeDb();
         
-        // **FIX**: The worker now listens to the correct queue: 'image-generation'
-        const worker = new Worker('image-generation', processGenerationJob, {
-            connection: redisConnection,
-            concurrency: 5 // Process up to 5 jobs at the same time
+        // --- MODIFICATION: The connection now uses the REDIS_URL directly ---
+        // This is the correct way to connect to Upstash.
+        const worker = new Worker('storyGenerationQueue', processGenerationJob, {
+            connection: process.env.REDIS_URL,
+            concurrency: 5 
         });
 
         worker.on('completed', (job) => {
-          console.log(`✅ [Worker] Job '${job.name}' #${job.id} has completed.`);
+          console.log(`✅ [Worker] Job '${job.name}' #${job.id} for book ${job.data.bookId} has completed.`);
         });
 
         worker.on('failed', (job, err) => {
-          console.error(`❌ [Worker] Job '${job.name}' #${job.id} failed with error: ${err.message}`);
+          console.error(`❌ [Worker] Job '${job.name}' #${job.id} for book ${job.data.bookId} failed with error: ${err.message}`);
         });
 
         const gracefulShutdown = async () => {
             console.log('\n[Worker] Shutting down gracefully...');
             await worker.close();
+            console.log('[Worker] BullMQ worker closed.');
             process.exit(0);
         };
         
