@@ -2,13 +2,18 @@
 import { Queue } from 'bullmq';
 import IORedis from 'ioredis';
 
-// Pass the required option directly to the IORedis constructor.
+if (!process.env.REDIS_URL) {
+  console.error('❌ REDIS_URL environment variable is NOT set!');
+  process.exit(1);
+}
+
 const connection = new IORedis(process.env.REDIS_URL, {
-    maxRetriesPerRequest: null
+  maxRetriesPerRequest: null,
+  tls: {} // Upstash requires TLS
 });
 
 export const storyGenerationQueue = new Queue('storyGenerationQueue', {
-  connection: connection,
+  connection
 });
 
 console.log('✅ BullMQ queue service initialized.');
