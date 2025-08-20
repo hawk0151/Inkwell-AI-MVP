@@ -1,129 +1,129 @@
+// FIX: Load environment variables to prevent the worker process from crashing on startup.
 import 'dotenv/config';
+
 import { Worker } from 'bullmq';
+// FIX: Import initializeDb along with getDb.
 import { getDb, initializeDb } from '../db/database.js';
-import * as imageService from '../services/image.service.js';
 import { redisConnection } from '../config/redisClient.js';
+import * as imageService from './image.service.js';
 
-const BATCH_SIZE = 4; // Process 4 pages at a time
-const DELAY_BETWEEN_BATCHES = 2000; // 2 seconds delay
-
-/**
- * Main processor for the image generation queue.
- * This function handles a single job to generate all 20 pages for a picture book.
- * @param {object} job - The job object from BullMQ.
- */
-const processImageGenerationJob = async (job) => {
-    const { bookId } = job.data;
-    console.log(`[Worker] Received job '${job.name}' for picture book ${bookId}.`);
+// This is the processor for a SINGLE page generation job, as created by the controller's flow.
+const processSinglePageJob = async (job) => {
+    const { bookId, userId, pageNumber, prompt, style } = job.data;
+    console.log(`[Worker] Processing job ${job.id}: Image for book ${bookId}, page ${pageNumber}.`);
     
-    let dbClient;
+    let client;
     try {
+        // This will now work because initializeDb() has been called.
         const pool = await getDb();
-        dbClient = await pool.connect();
-
-        // 1. Fetch all necessary book data
-        const bookResult = await dbClient.query(
-            `SELECT story_bible, character_reference, book_status FROM picture_books WHERE id = $1`,
-            [bookId]
-        );
+        client = await pool.connect();
+        
+        const bookResult = await client.query(`SELECT character_reference, story_bible FROM picture_books WHERE id = $1 AND user_id = $2`, [bookId, userId]);
+        
+        if (bookResult.rows.length === 0) {
+            throw new Error(`Book not found (ID: ${bookId}) for user ${userId}.`);
+        }
         const book = bookResult.rows[0];
 
-        // 2. Validate the data before starting the generation
-        if (!book) throw new Error(`Book with ID ${bookId} not found.`);
-        if (book.book_status !== 'generating') throw new Error(`Book ${bookId} is not in 'generating' state.`);
-        if (!book.story_bible?.storyPlan || book.story_bible.storyPlan.length === 0) {
-            throw new Error(`Book ${bookId} does not have a valid story plan.`);
-        }
         if (!book.character_reference?.url) {
-            throw new Error(`Book ${bookId} does not have a selected character reference.`);
+            throw new Error(`Character reference image is missing for book ${bookId}.`);
         }
 
-        const storyPlan = book.story_bible.storyPlan;
-        const characterReferenceUrl = book.character_reference.url;
-        const artStyle = book.story_bible.art.style;
-
-        // 3. Process pages in batches
-        for (let i = 0; i < storyPlan.length; i += BATCH_SIZE) {
-            const batch = storyPlan.slice(i, i + BATCH_SIZE);
-            console.log(`[Worker] Processing batch for pages ${batch.map(p => p.pageNumber).join(', ')}...`);
-
-            const batchPromises = batch.map(page => 
-                // This is the call to the new image service function we will create next
-                imageService.generateImageFromReference({
-                    referenceImageUrl: characterReferenceUrl,
-                    prompt: page.imagePrompt,
-                    style: artStyle,
-                    bookId: bookId,
-                    pageNumber: page.pageNumber,
-                }).then(generatedUrls => {
-                    // Update the timeline_events table with the new image URLs
-                    return dbClient.query(
-                        `UPDATE timeline_events SET image_url_preview = $1, image_url_print = $2 WHERE book_id = $3 AND page_number = $4`,
-                        [generatedUrls.previewUrl, generatedUrls.printUrl, bookId, page.pageNumber]
-                    );
-                })
-            );
-
-            await Promise.all(batchPromises);
-            console.log(`[Worker] ✅ Batch completed for pages ${batch.map(p => p.pageNumber).join(', ')}.`);
-
-            // Add a delay between batches to respect potential rate limits
-            if (i + BATCH_SIZE < storyPlan.length) {
-                await new Promise(resolve => setTimeout(resolve, DELAY_BETWEEN_BATCHES));
-            }
-        }
+        const imageServiceOptions = {
+            referenceImageUrl: book.character_reference.url,
+            prompt,
+            style,
+            bookId,
+            pageNumber,
+            characterFeatures: book.story_bible?.character?.description,
+            mood: book.story_bible?.tone,
+        };
         
-        // 4. Mark the book as complete
-        await dbClient.query(`UPDATE picture_books SET book_status = 'completed', last_modified = $1 WHERE id = $2`, [new Date(), bookId]);
-        console.log(`[Worker] 🎉 All pages generated for book ${bookId}. Status updated to 'completed'.`);
+        const { previewUrl, printUrl } = await imageService.generateImageFromReference(imageServiceOptions);
+
+        const updateSql = `
+            UPDATE timeline_events 
+            SET image_url = $1, image_url_preview = $2, image_url_print = $3, uploaded_image_url = NULL
+            WHERE book_id = $4 AND page_number = $5
+        `;
+        await client.query(updateSql, [previewUrl, previewUrl, printUrl, bookId, pageNumber]);
 
     } catch (error) {
-        console.error(`[Worker] Job for book ${bookId} FAILED.`, error);
-        // If an error occurs, mark the book as failed and store metadata
-        if (dbClient) {
-            const meta = { error: error.message, failedAt: new Date() };
-            await dbClient.query(`UPDATE picture_books SET book_status = 'failed', generation_meta = $1 WHERE id = $2`, [meta, bookId]);
-        }
+        console.error(`[Worker] FAILED job ${job.id} for page ${pageNumber}:`, error.message);
         throw error; // Re-throw to make BullMQ mark the job as failed
     } finally {
-        if (dbClient) dbClient.release();
+        if (client) client.release();
     }
 };
 
-/**
- * IIFE to initialize and start the worker.
- */
-(async () => {
+// This function wraps the worker setup in an async function to allow for proper initialization.
+const startWorker = async () => {
     try {
         console.log('[Worker] Initializing services...');
+        // FIX: Initialize the database connection before starting the worker.
         await initializeDb();
+        console.log('[Worker] ✅ Database initialized successfully.');
 
-        // The worker now listens to the 'imageGenerationQueue'
-        const worker = new Worker('imageGenerationQueue', processImageGenerationJob, {
+        const imageGenerationWorker = new Worker('imageGenerationQueue', processSinglePageJob, { 
             connection: redisConnection,
-            concurrency: 2 // Lower concurrency for intense, long-running image jobs
+            concurrency: 5
         });
 
-        worker.on('completed', (job) => {
-            console.log(`✅ [Worker] Job '${job.name}' #${job.id} for book ${job.data.bookId} has completed.`);
-        });
-        worker.on('failed', (job, err) => {
-            console.error(`❌ [Worker] Job '${job.name}' #${job.id} for book ${job.data.bookId} failed: ${err.message}`);
+        imageGenerationWorker.on('completed', async (job) => {
+            if (job.name === 'generate-page-image' || job.name === 'generate-single-page-image') {
+                console.log(`[Worker] ✅ Completed job ${job.id} for book ${job.data.bookId}, page ${job.data.pageNumber}.`);
+            }
+            
+            if (job.name === 'prepare-for-print-flow' || job.name === 'generate-all-images-flow') {
+                const { bookId, finalStatus } = job.data;
+                console.log(`[Flow] ✅ Flow '${job.name}' for book ${bookId} completed successfully.`);
+
+                let client;
+                try {
+                    const pool = await getDb();
+                    client = await pool.connect();
+                    await client.query(
+                        `UPDATE picture_books SET book_status = $1, last_modified = NOW() WHERE id = $2`,
+                        [finalStatus || 'complete', bookId]
+                    );
+                    console.log(`[Flow] ✅ Updated book ${bookId} status to '${finalStatus}'.`);
+                } catch (err) {
+                    console.error(`[Flow] ❌ DB Error after completing flow for book ${bookId}:`, err);
+                } finally {
+                    if (client) client.release();
+                }
+            }
         });
 
-        const gracefulShutdown = async () => {
-            console.log('\n[Worker] Shutting down gracefully...');
-            await worker.close();
-            await redisConnection.quit();
-            console.log('[Worker] BullMQ worker closed.');
-            process.exit(0);
-        };
-        process.on('SIGINT', gracefulShutdown);
-        process.on('SIGTERM', gracefulShutdown);
+        imageGenerationWorker.on('failed', async (job, err) => {
+            console.error(`[Worker] ❌ Failed job ${job.id} for book ${job.data.bookId} page ${job.data.pageNumber} with error: ${err.message}`);
+            
+            if (job.name === 'prepare-for-print-flow' || job.name === 'generate-all-images-flow') {
+                const { bookId } = job.data;
+                console.error(`[Flow] ❌ Flow '${job.name}' for book ${bookId} failed. Error: ${err.message}`);
+
+                let client;
+                try {
+                    const pool = await getDb();
+                    client = await pool.connect();
+                    await client.query(
+                        `UPDATE picture_books SET book_status = 'error', last_modified = NOW() WHERE id = $1`,
+                        [bookId]
+                    );
+                    console.log(`[Flow] ❌ Updated book ${bookId} status to 'error'.`);
+                } catch (dbErr) {
+                    console.error(`[Flow] ❌ DB Error after failing flow for book ${bookId}:`, dbErr);
+                } finally {
+                    if (client) client.release();
+                }
+            }
+        });
 
         console.log('✅ BullMQ Image Generation worker is running and listening for jobs.');
     } catch (error) {
         console.error('❌ [Worker] Failed to start worker process:', error);
         process.exit(1);
     }
-})();
+};
+
+startWorker();

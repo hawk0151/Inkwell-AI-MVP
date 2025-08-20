@@ -8,13 +8,10 @@ if (!redisUrl) {
     process.exit(1);
 }
 
-// Explicitly set TLS options for secure connections.
-// The `tls` object is now always present, telling the client to use TLS.
+// MODIFIED: The tls object has been removed.
+// ioredis will automatically enable and configure TLS when the redisUrl starts with "rediss://".
 const redisOptions = {
     maxRetriesPerRequest: null,
-    tls: {
-        rejectUnauthorized: false
-    }
 };
 
 // This is our single, centralized Redis connection instance.
@@ -26,7 +23,7 @@ redisConnection.on('connect', () => {
 
 redisConnection.on('error', (err) => {
     // We can ignore timeout errors during initial connection attempts with local Redis
-    if (err.code === 'ETIMEDOUT' && redisUrl.includes('localhost')) {
+    if (err.code === 'ETIMEDT' && redisUrl.includes('localhost')) {
         return;
     }
     console.error('❌ Redis connection error:', err);

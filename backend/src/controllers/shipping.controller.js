@@ -1,6 +1,7 @@
 // backend/src/controllers/shipping.controller.js
 import { getDb } from '../db/database.js';
 import { findProductConfiguration, getLuluShippingOptionsAndCosts } from '../services/lulu.service.js';
+// FIX: The import itself is correct. The problem is how the functions are used.
 import { generateAndSaveTextBookPdf, finalizePdfPageCount, calculatePictureBookPageCount } from '../services/pdf.service.js';
 import jsonwebtoken from 'jsonwebtoken';
 import fs from 'fs/promises';
@@ -11,12 +12,23 @@ const QUOTE_TOKEN_EXPIRY_MINUTES = 10;
 const FALLBACK_SHIPPING_OPTION = {
     level: 'FALLBACK_STANDARD',
     name: 'Standard Shipping (Fallback)',
-    cost: 20.00, // Generic 'cost' key for consistency
+    cost: 20.00,
     estimatedDeliveryDate: '7-21 business days',
     isFallback: true
 };
 
 const VALID_ISO_COUNTRY_CODES = new Set(['AF', 'AX', 'AL', 'DZ', 'AS', 'AD', 'AO', 'AI', 'AQ', 'AG', 'AR', 'AM', 'AW', 'AU', 'AT', 'AZ', 'BS', 'BH', 'BD', 'BB', 'BY', 'BE', 'BZ', 'BJ', 'BM', 'BT', 'BO', 'BQ', 'BA', 'BW', 'BV', 'BR', 'IO', 'BN', 'BG', 'BF', 'BI', 'CV', 'KH', 'CM', 'CA', 'KY', 'CF', 'TD', 'CL', 'CN', 'CX', 'CC', 'CO', 'KM', 'CD', 'CG', 'CK', 'CR', 'CI', 'HR', 'CU', 'CW', 'CY', 'CZ', 'DK', 'DJ', 'DM', 'DO', 'EC', 'EG', 'SV', 'GQ', 'ER', 'EE', 'SZ', 'ET', 'FK', 'FO', 'FJ', 'FI', 'FR', 'GF', 'PF', 'TF', 'GA', 'GM', 'GE', 'DE', 'GH', 'GI', 'GR', 'GL', 'GD', 'GP', 'GU', 'GT', 'GG', 'GN', 'GW', 'GY', 'HT', 'HM', 'VA', 'HN', 'HK', 'HU', 'IS', 'IN', 'ID', 'IR', 'IQ', 'IE', 'IM', 'IL', 'IT', 'JM', 'JP', 'JE', 'JO', 'KZ', 'KE', 'KI', 'KP', 'KR', 'KW', 'KG', 'LA', 'LV', 'LB', 'LS', 'LR', 'LY', 'LI', 'LT', 'LU', 'MO', 'MG', 'MW', 'MY', 'MV', 'ML', 'MT', 'MH', 'MQ', 'MR', 'MU', 'YT', 'MX', 'FM', 'MD', 'MC', 'MN', 'ME', 'MS', 'MA', 'MZ', 'MM', 'NA', 'NR', 'NP', 'NL', 'NC', 'NZ', 'NI', 'NE', 'NG', 'NU', 'NF', 'MP', 'NO', 'OM', 'PK', 'PW', 'PS', 'PA', 'PG', 'PY', 'PE', 'PH', 'PN', 'PL', 'PT', 'PR', 'QA', 'MK', 'RO', 'RU', 'RW', 'RE', 'SA', 'SN', 'RS', 'SC', 'SL', 'SG', 'SX', 'SK', 'SI', 'SB', 'SO', 'ZA', 'GS', 'SS', 'ES', 'LK', 'SD', 'SR', 'SJ', 'SE', 'CH', 'SY', 'TW', 'TJ', 'TZ', 'TH', 'TL', 'TG', 'TK', 'TO', 'TT', 'TN', 'TR', 'TM', 'TC', 'TV', 'UG', 'UA', 'AE', 'GB', 'US', 'UM', 'UY', 'UZ', 'VU', 'VE', 'VN', 'VG', 'VI', 'WF', 'EH', 'YE', 'ZM', 'ZW']);
+
+// FIX: Create a shared page count estimator to avoid duplicate code
+const calculateEstimatedTextBookPages = (book, productConfig) => {
+    if (!book.chapters || book.chapters.length === 0) {
+        return productConfig.minPageCount;
+    }
+    const totalWords = book.chapters.reduce((sum, chap) => sum + (chap.content ? chap.content.split(' ').length : 0), 0);
+    const contentPages = Math.ceil(totalWords / (productConfig.wordsPerPage || 250));
+    return 1 + contentPages; // Add 1 for the title page
+};
+
 
 async function getFullTextBook(bookId, userId, client) {
     const bookResult = await client.query(`SELECT * FROM text_books WHERE id = $1 AND user_id = $2`, [bookId, userId]);
@@ -92,20 +104,24 @@ export const getShippingQuotes = async (req, res) => {
         if (bookType === 'pictureBook') {
             actualFinalPageCount = calculatePictureBookPageCount(book.timeline, selectedProductConfig);
         } else { // bookType === 'textBook'
-            console.log(`[Shipping Quotes] Textbook detected. Generating temporary PDF for page count...`);
-            const { path: interiorPath, pageCount: trueContentPageCount } = await generateAndSaveTextBookPdf(book, selectedProductConfig);
-            tempInteriorPdfPath = interiorPath;
-            let pageCountForFinalize = trueContentPageCount;
+            // =======================================================================
+            // == FIX: IMPLEMENTED CORRECT ESTIMATE -> VALIDATE -> GENERATE WORKFLOW ==
+            // =======================================================================
 
-            if (pageCountForFinalize === null) {
-                console.warn(`[Shipping Quotes] True content page count was null. Falling back to product's defaultPageCount: ${selectedProductConfig.defaultPageCount}`);
-                pageCountForFinalize = selectedProductConfig.defaultPageCount;
+            // 1. ESTIMATE page count before generation
+            const estimatedPages = calculateEstimatedTextBookPages(book, selectedProductConfig);
+
+            // 2. VALIDATE the estimate (optional for quotes, but good practice)
+            if (estimatedPages < selectedProductConfig.minPageCount || estimatedPages > selectedProductConfig.maxPageCount) {
+                return res.status(400).json({ 
+                    message: `This book's estimated length (${estimatedPages} pages) is outside the printable range of ${selectedProductConfig.minPageCount}-${selectedProductConfig.maxPageCount} pages for this format.`
+                });
             }
-            actualFinalPageCount = await finalizePdfPageCount(tempInteriorPdfPath, selectedProductConfig, pageCountForFinalize);
-            if (actualFinalPageCount === null) {
-                console.error(`[Shipping Quotes] Failed to finalize PDF page count.`);
-                return res.status(500).json({ message: 'Failed to prepare book for shipping cost calculation.' });
-            }
+
+            // 3. GENERATE the PDF using the required 3 arguments
+            const { path: interiorPath, pageCount } = await generateAndSaveTextBookPdf(book, selectedProductConfig, estimatedPages);
+            tempInteriorPdfPath = interiorPath;
+            actualFinalPageCount = pageCount; // The true page count is returned directly
         }
         
         console.log(`[Shipping Quotes] Using final page count for cost calc: ${actualFinalPageCount}.`);
@@ -129,15 +145,14 @@ export const getShippingQuotes = async (req, res) => {
         
         const baseProductPriceAUD = selectedProductConfig.basePrice;
 
-        // FIXED: Add the full shipping options and costs to the JWT payload
         const payload = {
             bookId,
             bookType,
             luluSku: selectedProductConfig.luluSku,
             pageCount: actualFinalPageCount,
             shippingAddress: trimmedAddress,
-            shippingOptions: finalShippingOptions, // Include the full options array
-            basePrice: baseProductPriceAUD, // Include the base price
+            shippingOptions: finalShippingOptions,
+            basePrice: baseProductPriceAUD,
             isFallback: finalShippingOptions[0].isFallback || false,
         };
         const quoteToken = jsonwebtoken.sign(payload, JWT_QUOTE_SECRET, { expiresIn: `${QUOTE_TOKEN_EXPIRY_MINUTES}m` });

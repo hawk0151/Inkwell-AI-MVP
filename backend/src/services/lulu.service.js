@@ -1,4 +1,3 @@
-// backend/src/services/lulu.service.js
 import axios from 'axios';
 import { Buffer } from 'buffer';
 import dns from 'dns/promises';
@@ -29,9 +28,10 @@ export const LULU_PRODUCT_CONFIGURATIONS = [
         minPageCount: 32,
         maxPageCount: 800,
         wordsPerPage: 250,
-        defaultWordsPerPage: 250,
-        totalChapters: 6,
-        wordTarget: { min: 800, max: 1200 }, // Standard word target
+        // --- CORRECTED ---
+        // Target: ~9,500 words. With a 1200 word/chapter max, we need 8 chapters.
+        totalChapters: 8,
+        wordTarget: { min: 1000, max: 1200 }, 
         category: 'novel',
         bleedMm: 3.175,
         safeMarginMm: 6.35,
@@ -48,28 +48,28 @@ export const LULU_PRODUCT_CONFIGURATIONS = [
         minPageCount: 32,
         maxPageCount: 800,
         wordsPerPage: 700,
-        defaultWordsPerPage: 700,
-        totalChapters: 10,
-        wordTarget: { min: 2400, max: 3600 }, // INCREASED word target
+        // Target: ~27,000 words. With a 1200 word/chapter max, we need 23 chapters.
+        totalChapters: 23,
+        wordTarget: { min: 1000, max: 1200 },
         category: 'novel',
         bleedMm: 3.175,
         safeMarginMm: 6.35,
         isDefault: false
     },
     {
-        id: 'ROYAL_HARDCOVER_6.39x9.46',
+        id: 'ROYAL_HARDCOVER_6.14x9.21',
         luluSku: '0614X0921BWSTDCW060UC444MXX',
-        name: '80-page Novel (6.39 x 9.46" Hardcover)',
+        name: 'Royal Novel (6.14 x 9.21" Hardcover)',
         type: 'textBook',
-        trimSize: '6.39x9.46',
+        trimSize: '6.14x9.21',
         basePrice: 59.99,
         defaultPageCount: 100,
         minPageCount: 24,
         maxPageCount: 800,
         wordsPerPage: 300,
-        defaultWordsPerPage: 300,
-        totalChapters: 10,
-        wordTarget: { min: 800, max: 1200 }, // Standard word target
+        // Target: ~18,000 words. With a 1200 word/chapter max, we need 15 chapters.
+        totalChapters: 15,
+        wordTarget: { min: 1000, max: 1200 },
         category: 'novel',
         bleedMm: 3.175,
         safeMarginMm: 6.35,

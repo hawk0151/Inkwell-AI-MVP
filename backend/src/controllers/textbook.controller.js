@@ -14,9 +14,32 @@ import jsonwebtoken from 'jsonwebtoken';
 import fs from 'fs/promises';
 import { lockBook, unlockBook } from '../utils/lock.util.js';
 import { validatePrompt } from '../utils/prompt.util.js';
-
+// Add this helper function after your imports
+const emitProgress = (req, bookId, progressData) => {
+    if (req.io) {
+        // Emit the event to a specific "room" named after the bookId.
+        req.io.to(bookId).emit('checkout_progress', progressData);
+        console.log(`[Socket.IO] Emitted progress to room ${bookId}: ${progressData.message}`);
+    }
+};
 const PROFIT_MARGIN_AUD = 15.00;
 const JWT_QUOTE_SECRET = process.env.JWT_QUOTE_SECRET || 'your_super_secret_jwt_quote_key_please_change_this_in_production';
+
+// --- Helper function for page count estimation ---
+const calculateEstimatedPages = (book, productConfig) => {
+    if (!book.chapters || book.chapters.length === 0) {
+        return productConfig.minPageCount; // Default to min if no content
+    }
+    const totalWords = book.chapters.reduce((sum, chap) => {
+        const words = chap.content ? chap.content.split(' ').length : 0;
+        return sum + words;
+    }, 0);
+    
+    // Add 1 page for the title page
+    const contentPages = Math.ceil(totalWords / (productConfig.wordsPerPage || 250));
+    return 1 + contentPages; 
+};
+
 
 export const uploadTextbookCover = async (req, res) => {
     const { bookId } = req.params;
@@ -93,17 +116,15 @@ export const deleteTextbookCover = async (req, res) => {
     }
 };
 
-// NEW FUNCTION: `saveBackCoverBlurb`
 export const saveBackCoverBlurb = async (req, res) => {
     const { bookId } = req.params;
     const { blurb } = req.body;
     const userId = req.userId;
 
-    // Line 98-101: Add basic validation for the blurb
     if (typeof blurb !== 'string') {
         return res.status(400).json({ message: 'Blurb must be a string.' });
     }
-    const sanitizedBlurb = blurb.trim().substring(0, 200);
+    const sanitizedBlurb = blurb.trim().substring(0, 2000); // Increased limit for blurb
 
     let client;
     try {
@@ -133,7 +154,6 @@ export const saveBackCoverBlurb = async (req, res) => {
 };
 
 async function getFullTextBook(bookId, userId, client) {
-    // MODIFIED: Fetch the new back_cover_blurb column
     const bookResult = await client.query(`SELECT *, back_cover_blurb FROM text_books WHERE id = $1 AND user_id = $2`, [bookId, userId]);
     const book = bookResult.rows[0];
     if (!book) return null;
@@ -179,8 +199,7 @@ Fantasy: The Shadowed One
 Sci-Fi: The Cosmic Anomaly
 Horror: The Whispering Shade
 Your response:`.trim();
-            // Note: We should also update this hardcoded model name
-            const rawReplacementName = await callGeminiAPI(bugReplacementPrompt, 'gemini-2.5-flash-lite');
+            const rawReplacementName = await callGeminiAPI(bugReplacementPrompt, 'gemini-1.5-flash-latest');
             dynamicBugName = rawReplacementName.trim().replace(/^"|"$/g, '');
             console.log(`[Textbook Controller] Dynamic bug name generated for ${promptData.genre} genre: ${dynamicBugName}`);
         } else {
@@ -347,7 +366,6 @@ export const getTextBookDetails = async (req, res) => {
     try {
         const pool = await getDb();
         client = await pool.connect();
-        // MODIFIED: Fetch the new back_cover_blurb column
         const bookResult = await client.query(`SELECT tb.*, tb.back_cover_blurb FROM text_books tb WHERE tb.id = $1 AND tb.user_id = $2`, [bookId, req.userId]);
         const book = bookResult.rows[0];
         if (!book) return res.status(404).json({ message: 'Book project not found.' });
@@ -381,12 +399,17 @@ export const getPreviewPdf = async (req, res) => {
         if (!selectedProductConfig) {
             return res.status(400).json({ message: 'Product configuration for this book not found.' });
         }
-        console.log(`[Preview PDF] Generating preview for book: ${book.title}`);
-        const { path } = await pdfService.generateAndSaveTextBookPdf(book, selectedProductConfig);
+
+        const estimatedPages = calculateEstimatedPages(book, selectedProductConfig);
+        console.log(`[Preview PDF] Generating preview for book: ${book.title} with estimated page count: ${estimatedPages}`);
+        
+        const { path } = await pdfService.generateAndSaveTextBookPdf(book, selectedProductConfig, estimatedPages);
+        
         tempPdfPath = path;
         const publicId = `preview_textbook_${bookId}_${Date.now()}`;
         const previewUrl = await fileHostService.uploadPreviewFile(tempPdfPath, publicId);
         res.status(200).json({ previewUrl });
+
     } catch (error) {
         console.error(`[Preview PDF ERROR] ${error.message}`, { stack: error.stack });
         res.status(500).json({ message: 'Failed to generate PDF preview.' });
@@ -398,15 +421,19 @@ export const getPreviewPdf = async (req, res) => {
     }
 };
 
+// Replace your existing createCheckoutSessionForTextBook function with this one
+
 export const createCheckoutSessionForTextBook = async (req, res) => {
     const { bookId } = req.params;
     const { shippingAddress, selectedShippingLevel, quoteToken } = req.body;
     let client;
     let tempInteriorPdfPath = null;
     let tempCoverPdfPath = null;
+
     if (!shippingAddress || !selectedShippingLevel || !quoteToken) {
         return res.status(400).json({ message: "Missing shipping address, selected shipping level, or quote token." });
     }
+
     try {
         let decodedQuote;
         try {
@@ -418,48 +445,69 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
         if (decodedQuote.bookId !== bookId || decodedQuote.bookType !== 'textBook') {
             return res.status(400).json({ message: 'Shipping quote details do not match the selected book.' });
         }
+
+        const pool = await getDb();
+        client = await pool.connect();
+        const book = await getFullTextBook(bookId, req.userId, client);
+        if (!book) return res.status(404).json({ message: 'Text book not found.' });
+        
+        const selectedProductConfig = luluService.findProductConfiguration(book.lulu_product_id);
+        if (!selectedProductConfig) {
+            return res.status(400).json({ message: 'Invalid product ID.' });
+        }
+
+        const estimatedPages = calculateEstimatedPages(book, selectedProductConfig);
+        if (estimatedPages < selectedProductConfig.minPageCount || estimatedPages > selectedProductConfig.maxPageCount) {
+            return res.status(400).json({ 
+                message: `This book cannot be printed because its length is outside the allowed range for the selected format.` 
+            });
+        }
+        
+        // FIX: Start emitting progress updates
+        emitProgress(req, bookId, { step: 1, totalSteps: 6, message: 'Generating your book pages...' });
+        const { pageCount: actualFinalPageCount, path: interiorPath } = await pdfService.generateAndSaveTextBookPdf(book, selectedProductConfig, estimatedPages);
+        tempInteriorPdfPath = interiorPath;
+        
+        emitProgress(req, bookId, { step: 2, totalSteps: 6, message: 'Creating your cover...' });
+        const coverDimensions = await luluService.getCoverDimensions(selectedProductConfig.luluSku, actualFinalPageCount);
+        const { path: coverPath } = await pdfService.generateTextbookCoverPdf(book, selectedProductConfig, coverDimensions);
+        tempCoverPdfPath = coverPath;
+
+        emitProgress(req, bookId, { step: 3, totalSteps: 6, message: 'Uploading files for printing...' });
+        const interiorPdfUrl = await fileHostService.uploadPrintFile(tempInteriorPdfPath, `interior_${bookId}_${Date.now()}`);
+        const coverPdfUrl = await fileHostService.uploadPrintFile(tempCoverPdfPath, `cover_${bookId}_${Date.now()}`);
+        
+        emitProgress(req, bookId, { step: 4, totalSteps: 6, message: 'Validating files with our printer...' });
+        const [interiorValidation, coverValidation] = await Promise.all([
+            luluService.validateInteriorFile(interiorPdfUrl, selectedProductConfig.luluSku),
+            luluService.validateCoverFile(coverPdfUrl, selectedProductConfig.luluSku, actualFinalPageCount)
+        ]);
+        
+        if (!['VALIDATED', 'NORMALIZED'].includes(interiorValidation.status) || !['VALIDATED', 'NORMALIZED'].includes(coverValidation.status)) {
+            const validationErrors = [...(interiorValidation.errors || []), ...(coverValidation.errors || [])];
+            console.error('[Checkout TB ERROR] Lulu file validation failed:', validationErrors);
+            emitProgress(req, bookId, { error: 'File validation failed. Please check your book content.' });
+            return res.status(400).json({
+                message: 'One or more of your files failed Lulu’s validation.',
+                detailedError: 'Please check your book content for issues and try again.',
+                validationErrors
+            });
+        }
+        
+        console.log('[Checkout TB] ✅ Both interior and cover files validated successfully!');
+        emitProgress(req, bookId, { step: 5, totalSteps: 6, message: 'Calculating final costs...' });
+        
         const selectedOption = decodedQuote.shippingOptions.find(opt => opt.level === selectedShippingLevel);
         if (!selectedOption) {
-            console.error(`[Checkout TB ERROR] The selected shipping level '${selectedShippingLevel}' was not found in the quote token options.`);
             return res.status(400).json({ message: `The selected shipping option is not valid for this quote. Please refresh and try again.` });
         }
+
         const basePriceAUD = decodedQuote.basePrice;
         const shippingCostAUD = selectedOption.cost;
         const luluTotalCostAUD = basePriceAUD + shippingCostAUD;
         const finalPriceAUD = luluTotalCostAUD + PROFIT_MARGIN_AUD;
         const finalPriceInCents = Math.round(finalPriceAUD * 100);
-        console.log(`[Checkout TB] Price calculated from quote token: Base=${basePriceAUD}, Shipping=${shippingCostAUD}, Final=${finalPriceAUD}`);
-        const pool = await getDb();
-        client = await pool.connect();
-        const book = await getFullTextBook(bookId, req.userId, client);
-        if (!book) return res.status(404).json({ message: 'Text book not found.' });
-        const selectedProductConfig = luluService.findProductConfiguration(book.lulu_product_id);
-        if (!selectedProductConfig) {
-            return res.status(400).json({ message: 'Invalid product ID.' });
-        }
-        console.log('[Checkout TB] Generating and validating print files...');
-        const { pageCount: actualFinalPageCount, path: interiorPath } = await pdfService.generateAndSaveTextBookPdf(book, selectedProductConfig);
-        tempInteriorPdfPath = interiorPath;
-        const interiorPdfUrl = await fileHostService.uploadPrintFile(tempInteriorPdfPath, `interior_${bookId}_${Date.now()}`);
-        const coverDimensions = await luluService.getCoverDimensions(selectedProductConfig.luluSku, actualFinalPageCount);
-        const { path: coverPath } = await pdfService.generateTextbookCoverPdf(book, selectedProductConfig, coverDimensions);
-        tempCoverPdfPath = coverPath;
-        const coverPdfUrl = await fileHostService.uploadPrintFile(tempCoverPdfPath, `cover_${bookId}_${Date.now()}`);
-        const interiorValidation = await luluService.validateInteriorFile(interiorPdfUrl, selectedProductConfig.luluSku);
-        const coverValidation = await luluService.validateCoverFile(coverPdfUrl, selectedProductConfig.luluSku, actualFinalPageCount);
-        if (!['VALIDATED', 'NORMALIZED'].includes(interiorValidation.status) || !['VALIDATED', 'NORMALIZED'].includes(coverValidation.status)) {
-            const validationErrors = [
-                ...(interiorValidation.errors || []),
-                ...(coverValidation.errors || [])
-            ];
-            console.error('[Checkout TB ERROR] Lulu file validation failed:', validationErrors);
-            return res.status(400).json({
-                message: 'One or more of your files failed Lulu’s validation.',
-                detailedError: 'Please check your book content for issues and try again.',
-                validationErrors: validationErrors
-            });
-        }
-        console.log('[Checkout TB] ✅ Both interior and cover files validated successfully!');
+
         const orderId = randomUUID();
         const insertOrderSql = `
             INSERT INTO orders (
@@ -472,6 +520,8 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
             parseFloat(finalPriceAUD.toFixed(2)), actualFinalPageCount,
             selectedShippingLevel, interiorPdfUrl, coverPdfUrl, new Date(), new Date()
         ]);
+        
+        emitProgress(req, bookId, { step: 6, totalSteps: 6, message: 'Redirecting to payment...' });
         const session = await stripeService.createStripeCheckoutSession(
             {
                 name: book.title,
@@ -480,11 +530,14 @@ export const createCheckoutSessionForTextBook = async (req, res) => {
             },
             shippingAddress, req.userId, orderId, bookId, 'textBook'
         );
+        
         await client.query('UPDATE orders SET stripe_session_id = $1 WHERE id = $2', [session.id, orderId]);
         res.status(200).json({ url: session.url, sessionId: session.id });
+
     } catch (error) {
         console.error("[Checkout TB ERROR]", error);
         const detailedError = error.response?.data ? JSON.stringify(error.response.data) : error.message;
+        emitProgress(req, bookId, { error: 'An unexpected error occurred. Please try again.' });
         res.status(500).json({ message: 'Failed to create checkout session.', detailedError });
     } finally {
         if (client) client.release();

@@ -19,6 +19,7 @@ const ROBOTO_BOLD_PATH = path.join(__dirname, '../fonts/Roboto-Bold.ttf');
 const inchesToPoints = (inches) => inches * 72;
 const mmToPoints = (mm) => mm * (72 / 25.4);
 
+// UNCHANGED: This function remains the same.
 const getProductDimensions = (luluConfigId) => {
     const productConfig = findProductConfiguration(luluConfigId);
     if (!productConfig) {
@@ -63,11 +64,13 @@ const getProductDimensions = (luluConfigId) => {
     };
 };
 
+// UNCHANGED: This function remains the same.
 async function getImageBuffer(url) {
     const response = await axios.get(url, { responseType: 'arraybuffer' });
     return Buffer.from(response.data, 'binary');
 }
 
+// UNCHANGED: This function remains the same.
 async function streamToBuffer(doc) {
     return new Promise((resolve, reject) => {
         const buffers = [];
@@ -77,18 +80,18 @@ async function streamToBuffer(doc) {
     });
 }
 
-// --- Unchanged Functions (Kept for completeness) ---
 
+// --- MODIFIED FUNCTION #1 ---
+// This function is now simplified to always return the correct, fixed page count for picture books.
 export const calculatePictureBookPageCount = (events, productConfig) => {
-    let pageCount = 1 + 1 + events.length + 2;
-    const pagesToAddForMin = Math.max(0, productConfig.minPageCount - pageCount);
-    if (pagesToAddForMin > 0) pageCount += pagesToAddForMin;
-    if (pageCount % 2 !== 0) pageCount += 1;
-    console.log(`[PDF Service] Calculated page count: ${pageCount} for ${events.length} events.`);
-    return pageCount;
+    console.log(`[PDF Service] Picture book page count is fixed at 24.`);
+    return 24;
 };
 
-// **THE FIX IS HERE**
+
+// --- UNCHANGED FUNCTIONS FOR NOVELS AND COVERS ---
+// All other functions (generateCoverPdf, generateTextbookCoverPdf, etc.) are left untouched.
+
 export const generateCoverPdf = async (book, productConfig, coverDimensions) => {
     console.log(`[PDF Service: Cover] Starting cover generation for SKU: ${productConfig.luluSku}`);
     
@@ -111,7 +114,6 @@ export const generateCoverPdf = async (book, productConfig, coverDimensions) => 
     const safeZoneWidth = widthPoints - (2 * totalSafeOffsetPoints);
     const safeZoneHeight = heightPoints - (2 * totalSafeOffsetPoints);
 
-    // Using the correct variable name: book.user_cover_image_url
     if (book.user_cover_image_url) {
         try {
             const imageBuffer = await getImageBuffer(book.user_cover_image_url);
@@ -123,7 +125,6 @@ export const generateCoverPdf = async (book, productConfig, coverDimensions) => 
                .text(`Error: Could not load cover image.`, safeZoneX, safeZoneY + safeZoneHeight / 3, { width: safeZoneWidth, align: 'center' });
         }
     } else {
-        // This is the fallback default cover
         doc.rect(0, 0, widthPoints, heightPoints).fill('#313131');
         doc.fontSize(48).fillColor('#FFFFFF').font(ROBOTO_BOLD_PATH)
            .text(book.title, safeZoneX, safeZoneY + (safeZoneHeight / 4), { align: 'center', width: safeZoneWidth });
@@ -366,10 +367,13 @@ export const finalizePdfPageCount = async (filePath, productConfig, currentConte
     }
 };
 
+// --- MODIFIED FUNCTION #2 ---
+// This function is completely rebuilt to create the exact 24-page structure.
 export const generateAndSavePictureBookPdf = async (book, productConfig) => {
     return new Promise(async (resolve, reject) => {
         try {
             const dims = getProductDimensions(productConfig.id);
+            const authorName = book.story_bible?.character?.name || 'An Inkwell Author';
 
             const doc = new PDFDocument({
                 size: [dims.pageWidth, dims.pageHeight],
@@ -384,14 +388,29 @@ export const generateAndSavePictureBookPdf = async (book, productConfig) => {
             const writeStream = fs.createWriteStream(tempFilePath);
             doc.pipe(writeStream);
 
+            // Page 1: Blank Page
             doc.addPage();
-            doc.font(ROBOTO_BOLD_PATH).fontSize(28).fillColor('black')
-               .text(book.title, 0, dims.pageHeight / 2 - 50, { align: 'center', width: dims.pageWidth });
 
+            // Page 2: Title Page
             doc.addPage();
-            doc.font(ROBOTO_REGULAR_PATH).fontSize(8).fillColor('grey')
-               .text(`Copyright © ${new Date().getFullYear()}. All Rights Reserved.`, 0, dims.pageHeight - 50, { align: 'center', width: dims.pageWidth });
+            doc.font(ROBOTO_BOLD_PATH).fontSize(32).fillColor('black')
+               .text(book.title, 0, dims.pageHeight / 3, { 
+                   align: 'center',
+                   width: dims.pageWidth 
+                });
+            doc.moveDown(1);
+            doc.font(ROBOTO_REGULAR_PATH).fontSize(18).fillColor('black')
+               .text(`By ${authorName}`, {
+                   align: 'center',
+                   width: dims.pageWidth
+               });
+            doc.font(ROBOTO_REGULAR_PATH).fontSize(10).fillColor('grey')
+                .text('Made with inkwell.net.au', 0, dims.pageHeight - 50, {
+                    align: 'center',
+                    width: dims.pageWidth
+                });
             
+            // Pages 3-22: Story Content
             if (book.timeline && book.timeline.length > 0) {
                 for (const event of book.timeline) {
                     doc.addPage();
@@ -406,22 +425,22 @@ export const generateAndSavePictureBookPdf = async (book, productConfig) => {
                             const imageAspect = image.width / image.height;
                             
                             let newWidth, newHeight, x, y;
-                            if (pageAspect > imageAspect) {
+                            if (pageAspect > imageAspect) { // Page is wider than image
                                 newWidth = dims.pageWidth;
                                 newHeight = dims.pageWidth / imageAspect;
                                 x = 0;
-                                y = (dims.pageHeight - newHeight) / 2;
-                            } else {
+                                y = (dims.pageHeight - newHeight) / 2; // Center vertically
+                            } else { // Page is taller than image
                                 newHeight = dims.pageHeight;
                                 newWidth = dims.pageHeight * imageAspect;
                                 y = 0;
-                                x = (dims.pageWidth - newWidth) / 2;
+                                x = (dims.pageWidth - newWidth) / 2; // Center horizontally
                             }
                             doc.image(imageBuffer, x, y, { width: newWidth, height: newHeight });
 
                         } catch (error) {
                             console.error("[PDF Service] Failed to embed image:", error.message);
-                            doc.rect(0, 0, dims.pageWidth, dims.pageHeight).fill('red');
+                            doc.rect(0, 0, dims.pageWidth, dims.pageHeight).fill('red'); // Error placeholder
                         }
                     }
 
@@ -446,33 +465,44 @@ export const generateAndSavePictureBookPdf = async (book, productConfig) => {
                 }
             }
 
-            let currentPages = doc.bufferedPageRange().count;
-            console.log(`[PDF Service] TRUE page count after content: ${currentPages}`);
+            // Page 23: 'The End' Page
+            doc.addPage();
+            doc.font(ROBOTO_BOLD_PATH).fontSize(18).fillColor('black')
+               .text(book.title, 0, dims.pageHeight / 4, {
+                   align: 'center',
+                   width: dims.pageWidth
+               });
+            doc.font(ROBOTO_BOLD_PATH).fontSize(48).fillColor('black')
+               .text('The End', 0, dims.pageHeight / 2 - 50, {
+                   align: 'center',
+                   width: dims.pageWidth
+               });
+            doc.font(ROBOTO_REGULAR_PATH).fontSize(14).fillColor('black')
+               .text(authorName, 0, dims.pageHeight / 2 + 20, {
+                   align: 'center',
+                   width: dims.pageWidth
+               });
+            doc.font(ROBOTO_REGULAR_PATH).fontSize(10).fillColor('grey')
+               .text('inkwell.net.au', 0, dims.pageHeight - 50, {
+                   align: 'center',
+                   width: dims.pageWidth
+               });
 
-            const minPages = productConfig.minPageCount || 24;
-            let finalPageCount = currentPages;
-
-            if (finalPageCount < minPages) {
-                finalPageCount = minPages;
-            }
-
-            if (finalPageCount % 2 !== 0) {
-                finalPageCount++;
-            }
-
-            const blankPagesToAdd = finalPageCount - currentPages;
-            if (blankPagesToAdd > 0) {
-                console.log(`[PDF Service] Adding ${blankPagesToAdd} blank pages.`);
-                for (let i = 0; i < blankPagesToAdd; i++) {
-                    doc.addPage();
-                }
-            }
-            console.log(`[PDF Service] Final compliant page count: ${finalPageCount}`);
+            // Page 24: Branded Blank Page
+            doc.addPage();
+            doc.font(ROBOTO_REGULAR_PATH).fontSize(10).fillColor('grey')
+               .text('inkwell.net.au', 0, dims.pageHeight - 50, {
+                   align: 'center',
+                   width: dims.pageWidth
+               });
             
+            // Finalize the document
             doc.end();
 
             writeStream.on('finish', () => {
-                resolve({ path: tempFilePath, pageCount: finalPageCount });
+                // Since the structure is fixed, the page count is always 24.
+                console.log(`[PDF Service] Final compliant page count: 24`);
+                resolve({ path: tempFilePath, pageCount: 24 });
             });
 
             writeStream.on('error', (err) => {

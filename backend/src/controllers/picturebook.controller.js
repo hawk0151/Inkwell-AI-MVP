@@ -1,5 +1,6 @@
 import { getDb } from '../db/database.js';
 import { randomUUID } from 'crypto';
+import { callGeminiAPI } from '../services/gemini.service.js'; 
 import * as pdfService from '../services/pdf.service.js';
 import * as luluService from '../services/lulu.service.js';
 import * as stripeService from '../services/stripe.service.js';
@@ -9,8 +10,15 @@ import * as geminiService from '../services/gemini.service.js';
 import jsonwebtoken from 'jsonwebtoken';
 import { JWT_QUOTE_SECRET } from '../config/jwt.config.js';
 import fs from 'fs/promises';
-import { imageGenerationQueue } from '../services/queue.service.js';
-
+import { imageGenerationQueue, flowProducer } from '../services/queue.service.js';
+// Add this helper function after your imports
+const emitProgress = (req, bookId, progressData) => {
+    if (req.io) {
+        // Emit the event to a specific "room" named after the bookId.
+        req.io.to(bookId).emit('checkout_progress', progressData);
+        console.log(`[Socket.IO] Emitted progress to room ${bookId}: ${progressData.message}`);
+    }
+};
 const PROFIT_MARGIN_AUD = 15.00;
 const REQUIRED_CONTENT_PAGES = 20;
 
@@ -30,7 +38,7 @@ async function getFullPictureBook(bookId, userId, client) {
 
     if (book.story_bible && book.story_bible.storyPlan) {
         book.timeline = timelineResult.rows.map(event => {
-            const planData = book.story_bible.storyPlan.find(p => p.pageNumber === event.page_number);
+            const planData = book.story_bible.storyPlan.find(p => p.page_number === event.page_number);
             return {
                 ...event,
                 image_prompt: event.prompt_metadata?.imagePrompt || (planData ? planData.imagePrompt : '')
@@ -138,6 +146,8 @@ export const saveStoryBible = async (req, res) => {
         const pool = await getDb();
         client = await pool.connect();
         await client.query('BEGIN');
+        
+        await client.query('LOCK TABLE timeline_events IN SHARE ROW EXCLUSIVE MODE');
 
         const bookResult = await client.query(`SELECT id FROM picture_books WHERE id = $1 AND user_id = $2`, [bookId, userId]);
         if (bookResult.rows.length === 0) {
@@ -158,12 +168,12 @@ export const saveStoryBible = async (req, res) => {
             await client.query('DELETE FROM timeline_events WHERE book_id = $1', [bookId]);
             
             const insertEventSql = `
-                INSERT INTO timeline_events (book_id, page_number, story_text, image_style, prompt_metadata)
-                VALUES ($1, $2, $3, $4, $5)
+                 INSERT INTO timeline_events (book_id, page_number, story_text, image_style, prompt_metadata)
+                 VALUES ($1, $2, $3, $4, $5)
             `;
             for (const page of storyBibleData.storyPlan) {
                 const metadata = { imagePrompt: page.imagePrompt };
-                await client.query(insertEventSql, [ bookId, page.pageNumber, page.storyText, storyBibleData.art?.style || 'watercolor', JSON.stringify(metadata) ]);
+                await client.query(insertEventSql, [ bookId, page.page_number, page.storyText, storyBibleData.art?.style || 'watercolor', JSON.stringify(metadata) ]);
             }
         }
 
@@ -178,10 +188,12 @@ export const saveStoryBible = async (req, res) => {
     }
 };
 
+// --- MODIFIED FUNCTION ---
+// Now generates 2 character references instead of 3.
 export const generateCharacterReferences = async (req, res) => {
     const { bookId } = req.params;
     const userId = req.userId;
-    const { description, artStyle } = req.body;
+    const { description, artStyle: style_preset } = req.body;
     let client;
 
     try {
@@ -196,18 +208,18 @@ export const generateCharacterReferences = async (req, res) => {
         if (book.book_status !== 'draft') return res.status(400).json({ message: 'Character references cannot be re-generated for this book.' });
         
         const characterDescription = description || book.story_bible.character.description;
-        const finalArtStyle = artStyle || book.story_bible.art.style;
+        const finalStylePreset = style_preset || book.story_bible.art.style;
         
         const referenceSheetPrompt = `A single, solo character concept for a children's book. Centered full-body view of one character only: ${characterDescription}. The character is in a neutral pose against a plain white background. Simple, clean, no other objects or people.`;
 
-        console.log(`[Controller] Generating 3 character reference options for book ${bookId}`);
+        console.log(`[Controller] Generating 2 character reference options for book ${bookId}`);
+        // FIX: Changed from 3 promises to 2 to save costs.
         const generationPromises = [
-            imageService.generateImageFromApi(referenceSheetPrompt, finalArtStyle),
-            imageService.generateImageFromApi(referenceSheetPrompt, finalArtStyle),
-            imageService.generateImageFromApi(referenceSheetPrompt, finalArtStyle)
+            imageService.generateImageFromApi(referenceSheetPrompt, finalStylePreset),
+            imageService.generateImageFromApi(referenceSheetPrompt, finalStylePreset)
         ];
         const imageBuffers = await Promise.all(generationPromises);
-        console.log(`[Controller] ✅ 3 raw images generated.`);
+        console.log(`[Controller] ✅ 2 raw images generated.`);
 
         const uploadFolder = `inkwell-ai/user_${userId}/books/${bookId}/references`;
         const uploadPromises = imageBuffers.map((buffer, index) => {
@@ -215,7 +227,7 @@ export const generateCharacterReferences = async (req, res) => {
             return imageService.uploadImageToCloudinary(buffer, uploadFolder, publicId);
         });
         const referenceImageUrls = await Promise.all(uploadPromises);
-        console.log(`[Controller] ✅ 3 images uploaded to Cloudinary.`);
+        console.log(`[Controller] ✅ 2 images uploaded to Cloudinary.`);
 
         res.status(200).json({ referenceImageUrls });
     } catch (err) {
@@ -258,6 +270,8 @@ export const selectCharacterReference = async (req, res) => {
     }
 };
 
+// --- MODIFIED FUNCTION ---
+// The master prompt is now significantly more detailed to improve consistency.
 export const generateStoryPlan = async (req, res) => {
     const { bookId } = req.params;
     let client;
@@ -267,7 +281,7 @@ export const generateStoryPlan = async (req, res) => {
         const pool = await getDb();
         client = await pool.connect();
         
-        const bookResult = await client.query(`SELECT story_bible, book_status FROM picture_books WHERE id = $1`, [bookId]);
+        const bookResult = await client.query(`SELECT story_bible FROM picture_books WHERE id = $1`, [bookId]);
         const book = bookResult.rows[0];
 
         if (!book) return res.status(404).json({ message: 'Project not found.' });
@@ -275,23 +289,27 @@ export const generateStoryPlan = async (req, res) => {
 
         const { coreConcept, character, therapeuticGoal, tone, art } = book.story_bible;
 
+        // FIX: Added extensive new rules to the master prompt.
         storyPlanPrompt = `
-You are an expert children's book author. Create a 20-page story plan based on these inputs.
+You are an expert children's book author and illustrator's assistant. Create a 20-page story plan based on these inputs.
 The output MUST be a valid JSON array of 20 objects and nothing else.
-**CRITICAL INSTRUCTIONS FOR EACH PAGE'S "imagePrompt":**
-- Each "imagePrompt" must be vivid, descriptive, and visually exciting.
-- Describe the character's specific ACTION and EMOTION.
-- Describe the SCENE and ENVIRONMENT with 2-3 key details.
-- Vary the framing (e.g., "close-up on the character's face," "wide shot of the bedroom").
-- Do NOT just repeat the story text. Create a prompt an illustrator can use.
+Each object in the array must have three keys: "page_number", "storyText", and "imagePrompt".
+
+**CRITICAL INSTRUCTIONS FOR EVERY "imagePrompt":**
+1.  **FULL DESCRIPTIONS, EVERY TIME:** For any character in the prompt, you MUST include their full core description (e.g., "Leo, a fluffy rabbit with big, expressive blue eyes"). You have no memory; repeat the description every single time to ensure consistency.
+2.  **CONTEXTUAL DETAILS:** You MUST enrich the character descriptions with details relevant to their ACTION, EMOTION, and LOCATION in that specific scene. This includes clothing, facial expressions, and interaction with objects. (e.g., "Mummy, a smiling white woman with her hair in a bun and a blue apron, kneels down...").
+3.  **VIVID SCENERY & FRAMING:** Describe the SCENE, ENVIRONMENT, and CAMERA SHOT (e.g., "close-up," "wide shot") with 2-3 key details. The prompt must be a complete brief for an illustrator.
+
 **EXAMPLE of a good "imagePrompt":**
-"A wide shot of a messy bedroom at night. The main character, a small bear, is peeking out from under a blue blanket, his eyes wide with fear. The only light comes from a soft night-light in the corner."
+"A wide shot of a messy bedroom at night. Leo, a small rabbit with fluffy white fur, is peeking out from under a blue blanket, his expressive blue eyes wide with fear. The only light comes from a soft whale-shaped night-light in the corner."
+
 **USER INPUTS:**
 - Core Concept: ${coreConcept}
 - Main Character: ${character.description}
 - Therapeutic Goal: ${therapeuticGoal || 'Create a fun and engaging story.'}
 - Tone: ${tone}
 - Art Style: ${art.style}
+
 **OUTPUT (JSON Array Only):**
         `.trim();
 
@@ -321,6 +339,7 @@ The output MUST be a valid JSON array of 20 objects and nothing else.
     }
 };
 
+// ... (The rest of the file is unchanged, including saveTimelineEvents)
 export const improvePrompt = async (req, res) => {
     const { prompt } = req.body;
     if (!prompt) {
@@ -345,7 +364,7 @@ You are a master of crafting highly specific and effective image prompts for the
 **IMPROVED PROMPT:**
 `.trim();
 
-        const improvedPrompt = await geminiService.callGeminiAPI(masterPrompt);
+        const improvedPrompt = await callGeminiAPI(masterPrompt);
 
         const cleanedPrompt = improvedPrompt.replace(/```/g, '').trim();
 
@@ -356,7 +375,6 @@ You are a master of crafting highly specific and effective image prompts for the
         res.status(500).json({ message: 'Failed to improve the prompt.' });
     }
 };
-
 export const generateSinglePageImage = async (req, res) => {
     const { bookId, pageNumber } = req.params;
     const userId = req.userId;
@@ -385,7 +403,7 @@ export const generateSinglePageImage = async (req, res) => {
         const imageServiceOptions = {
             referenceImageUrl: book.character_reference.url,
             prompt: prompt,
-            style: book.story_bible?.art?.style || 'watercolor',
+            style: book.story_bible?.art?.style || 'digital-art',
             characterFeatures: book.story_bible?.character?.description,
             mood: book.story_bible?.tone,
             bookId,
@@ -421,8 +439,6 @@ export const generateSinglePageImage = async (req, res) => {
         if (client) client.release();
     }
 };
-
-// ✅ NEW: Controller for queuing all page images for asynchronous generation.
 export const generateAllImages = async (req, res) => {
     const { bookId } = req.params;
     const userId = req.userId;
@@ -431,53 +447,67 @@ export const generateAllImages = async (req, res) => {
     try {
         const pool = await getDb();
         client = await pool.connect();
+        await client.query('BEGIN');
 
         const book = await getFullPictureBook(bookId, userId, client);
         if (!book) {
+            await client.query('ROLLBACK');
             return res.status(404).json({ message: 'Project not found.' });
         }
-        
+
         if (!book.character_reference?.url) {
+            await client.query('ROLLBACK');
             return res.status(400).json({ message: 'A character reference must be selected before generating images.' });
         }
 
-        // Filter for pages that have a prompt but don't have a generated or uploaded image.
-        const pagesToGenerate = book.timeline.filter(event => 
+        await client.query(`UPDATE picture_books SET book_status = 'generating-images' WHERE id = $1`, [bookId]);
+
+        const pagesToGenerate = book.timeline.filter(event =>
             event.image_prompt && !event.image_url && !event.uploaded_image_url
         );
 
         if (pagesToGenerate.length === 0) {
+            await client.query('ROLLBACK');
             return res.status(200).json({ message: 'All pages with descriptions already have an image.' });
         }
 
-        const jobPromises = pagesToGenerate.map(event => {
-            const jobData = {
+        const childJobs = pagesToGenerate.map(event => ({
+            name: 'generate-single-page-image',
+            data: {
                 bookId: book.id,
                 userId: userId,
                 pageNumber: event.page_number,
                 prompt: event.image_prompt,
-            };
-            // The job ID prevents queuing the same page for generation if it's already in the queue.
-            const jobId = `${book.id}-${event.page_number}`;
-            return imageGenerationQueue.add('generate-single-page-image', jobData, { jobId });
+            },
+            queueName: imageGenerationQueue.name,
+            opts: { jobId: `${book.id}-${event.page_number}` }
+        }));
+
+        await flowProducer.add({
+            name: 'generate-all-images-flow',
+            queueName: imageGenerationQueue.name,
+            data: { bookId, userId, finalStatus: 'writing' },
+            children: childJobs,
         });
 
-        await Promise.all(jobPromises);
+        await client.query('COMMIT');
 
-        res.status(202).json({ 
+        res.status(202).json({
             message: `Image generation has been queued for ${pagesToGenerate.length} pages.`,
             pagesQueued: pagesToGenerate.length
         });
 
     } catch (error) {
+        if (client) {
+            await client.query('ROLLBACK');
+            await client.query(`UPDATE picture_books SET book_status = 'writing' WHERE id = $1`, [bookId]);
+        }
         console.error('[Controller] Error queuing batch image generation:', error);
         res.status(500).json({ message: 'Failed to start the image generation process.' });
     } finally {
         if (client) client.release();
     }
 };
-
-
 export const generateEventImage = async (req, res) => {
     const { bookId, pageNumber } = req.params;
     const { prompt, style } = req.body;
@@ -508,7 +538,6 @@ export const generateEventImage = async (req, res) => {
         if (client) client.release();
     }
 };
-
 export const uploadCoverImage = async (req, res) => {
     const { bookId } = req.params;
     const userId = req.userId;
@@ -541,7 +570,6 @@ export const uploadCoverImage = async (req, res) => {
         if (client) client.release();
     }
 };
-
 export const saveTimelineEvents = async (req, res) => {
     let client;
     const { bookId } = req.params;
@@ -556,6 +584,8 @@ export const saveTimelineEvents = async (req, res) => {
         const pool = await getDb();
         client = await pool.connect();
         await client.query('BEGIN');
+
+        await client.query('LOCK TABLE timeline_events IN SHARE ROW EXCLUSIVE MODE');
 
         const bookResult = await client.query(`SELECT id FROM picture_books WHERE id = $1 AND user_id = $2`, [bookId, userId]);
         if (bookResult.rows.length === 0) {
@@ -615,7 +645,6 @@ export const saveTimelineEvents = async (req, res) => {
         if (client) client.release();
     }
 };
-
 export const generatePreviewPdf = async (req, res) => {
     const { bookId } = req.params;
     const userId = req.userId;
@@ -647,7 +676,6 @@ export const generatePreviewPdf = async (req, res) => {
         }
     }
 };
-
 export const createBookCheckoutSession = async (req, res) => {
     const { bookId } = req.params;
     const { shippingAddress, selectedShippingLevel, quoteToken } = req.body;
@@ -679,30 +707,30 @@ export const createBookCheckoutSession = async (req, res) => {
 
         const productConfig = luluService.findProductConfiguration(book.lulu_product_id);
         
+        emitProgress(req, bookId, { step: 1, totalSteps: 6, message: 'Generating your book pages...' });
         const { path: interiorPdfPath, pageCount: finalPageCount } = await pdfService.generateAndSavePictureBookPdf(book, productConfig);
         tempInteriorPdfPath = interiorPdfPath;
         
-        const coverDimensions = await luluService.getCoverDimensions(productConfig.luluSku, finalPageCount, 'mm');
+        emitProgress(req, bookId, { step: 2, totalSteps: 6, message: 'Creating your cover...' });
+        const coverDimensions = await luluService.getCoverDimensions(productConfig.luluSku, finalPageCount);
         
         let coverPdfPath;
         if (productConfig.productType === 'novel') {
-            console.log('[Checkout PB] Generating textbook-style cover...');
             const { path } = await pdfService.generateTextbookCoverPdf(book, productConfig, coverDimensions);
             coverPdfPath = path;
         } else {
-            console.log('[Checkout PB] Generating picture book-style cover...');
             const { path } = await pdfService.generateCoverPdf(book, productConfig, coverDimensions);
             coverPdfPath = path;
         }
         tempCoverPdfPath = coverPdfPath;
 
-        console.log('[Checkout PB] Uploading print files for validation...');
+        emitProgress(req, bookId, { step: 3, totalSteps: 6, message: 'Uploading files for printing...' });
         const [interiorUrl, coverUrl] = await Promise.all([
             fileHostService.uploadPrintFile(interiorPdfPath, `interior_${bookId}_${Date.now()}`),
             fileHostService.uploadPrintFile(tempCoverPdfPath, `cover_${bookId}_${Date.now()}`)
         ]);
 
-        console.log('[Checkout PB] Submitting files for Lulu validation...');
+        emitProgress(req, bookId, { step: 4, totalSteps: 6, message: 'Validating files with our printer...' });
         const [interiorValidation, coverValidation] = await Promise.all([
             luluService.validateInteriorFile(interiorUrl, productConfig.luluSku),
             luluService.validateCoverFile(coverUrl, productConfig.luluSku, finalPageCount)
@@ -714,6 +742,7 @@ export const createBookCheckoutSession = async (req, res) => {
                 ...(coverValidation.errors || [])
             ];
             console.error('[Checkout PB ERROR] Lulu file validation failed:', validationErrors);
+            emitProgress(req, bookId, { error: 'File validation failed. Please check your book content.' });
             return res.status(400).json({
                 message: 'One or more of your files failed Lulu’s validation.',
                 detailedError: 'Please check your book content for issues and try again.',
@@ -721,8 +750,7 @@ export const createBookCheckoutSession = async (req, res) => {
             });
         }
         
-        console.log('[Checkout PB] ✅ Both interior and cover files validated successfully!');
-        
+        emitProgress(req, bookId, { step: 5, totalSteps: 6, message: 'Calculating final costs...' });
         const { shippingOptions } = await luluService.getLuluShippingOptionsAndCosts(
             productConfig.luluSku,
             finalPageCount,
@@ -731,21 +759,20 @@ export const createBookCheckoutSession = async (req, res) => {
 
         const selectedOption = shippingOptions.find(option => option.level === selectedShippingLevel);
         if (!selectedOption) {
-            return res.status(400).json({ message: "Selected shipping option not found." });
+            throw new Error("Selected shipping option not found.");
         }
 
         const luluTotalCostAUD = productConfig.basePrice + parseFloat(selectedOption.cost);
         const finalPriceAUD = luluTotalCostAUD + PROFIT_MARGIN_AUD;
         const finalPriceInCents = Math.round(finalPriceAUD * 100);
         
-        console.log(`[Checkout PB] Final Pricing (AUD): Lulu Total=$${luluTotalCostAUD.toFixed(2)}, Profit=$${PROFIT_MARGIN_AUD} -> TOTAL=$${finalPriceAUD.toFixed(2)}`);
-        
         const orderId = randomUUID();
+        // FIX: Removed invisible character after "updated_at" that was causing a syntax error.
         const insertOrderSql = `
             INSERT INTO orders (
                 id, user_id, book_id, book_type, book_title, lulu_product_id, status,
                 total_price_aud, currency, actual_page_count, shipping_level_selected,
-                interior_pdf_url, cover_pdf_url, order_date, updated_at 
+                interior_pdf_url, cover_pdf_url, order_date, updated_at
             ) VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7, 'AUD', $8, $9, $10, $11, $12, $13)`;
 
         await client.query(insertOrderSql, [
@@ -754,6 +781,7 @@ export const createBookCheckoutSession = async (req, res) => {
             selectedShippingLevel, interiorUrl, coverUrl, new Date(), new Date()
         ]);
 
+        emitProgress(req, bookId, { step: 6, totalSteps: 6, message: 'Redirecting to payment...' });
         const session = await stripeService.createStripeCheckoutSession(
             {
                 name: book.title,
@@ -770,6 +798,7 @@ export const createBookCheckoutSession = async (req, res) => {
     } catch (error) {
         console.error("[Checkout PB ERROR]", error.stack);
         const detailedError = error.response?.data ? JSON.stringify(error.response.data) : error.message;
+        emitProgress(req, bookId, { error: 'An unexpected error occurred. Please try again.' });
         res.status(500).json({ message: 'Failed to create checkout session.', detailedError });
     } finally {
         if (client) client.release();
@@ -781,7 +810,6 @@ export const createBookCheckoutSession = async (req, res) => {
         }
     }
 };
-
 export const deletePictureBook = async (req, res) => {
     let client;
     try {
@@ -805,7 +833,6 @@ export const deletePictureBook = async (req, res) => {
         if (client) client.release();
     }
 };
-
 export const deleteTimelineEvent = async (req, res) => {
     let client;
     const { bookId, pageNumber } = req.params;
@@ -829,7 +856,6 @@ export const deleteTimelineEvent = async (req, res) => {
         if (client) client.release();
     }
 };
-
 export const togglePictureBookPrivacy = async (req, res) => {
     let client;
     const { bookId } = req.params;
@@ -861,7 +887,6 @@ export const togglePictureBookPrivacy = async (req, res) => {
         if (client) client.release();
     }
 };
-
 export const prepareBookForPrint = async (req, res) => {
     const { bookId } = req.params;
     const userId = req.userId;
@@ -870,66 +895,84 @@ export const prepareBookForPrint = async (req, res) => {
     try {
         const pool = await getDb();
         client = await pool.connect();
+        await client.query('BEGIN');
 
         const book = await getFullPictureBook(bookId, userId, client);
         if (!book) {
+            await client.query('ROLLBACK');
             return res.status(404).json({ message: 'Project not found.' });
         }
 
-        const pagesToGenerate = book.timeline.filter(event => 
-            !event.image_url_print && 
-            event.story_text
-        );
+        await client.query(`UPDATE picture_books SET book_status = 'generating-print' WHERE id = $1`, [bookId]);
+
+        const pagesToGenerate = book.timeline
+            .filter(event => event && (typeof event.page_number === 'number')) // Safeguard against undefined pages
+            .filter(event =>
+                !event.image_url_print &&
+                event.story_text
+            );
 
         if (pagesToGenerate.length === 0) {
+            await client.query(`UPDATE picture_books SET book_status = 'print-ready' WHERE id = $1`, [bookId]);
+            await client.query('COMMIT');
             return res.status(200).json({ message: 'All pages are already prepared for printing.' });
         }
 
-        const jobPromises = pagesToGenerate.map(event => {
-            const jobData = {
+        const childJobs = pagesToGenerate.map(event => ({
+            name: 'generate-page-image',
+            data: {
                 bookId: book.id,
                 userId: userId,
                 pageNumber: event.page_number,
-                prompt: event.story_text,
-                style: event.image_style || 'watercolor'
-            };
-            console.log(`[Controller] Queuing job for page ${event.page_number}`);
-            return imageGenerationQueue.add('generate-page-image', jobData);
+                prompt: event.image_prompt || event.story_text,
+                style: event.image_style || book.story_bible?.art?.style || 'watercolor'
+            },
+            queueName: imageGenerationQueue.name,
+        }));
+
+        console.log(`[Controller] Queuing flow for ${childJobs.length} pages for book ${bookId}`);
+
+        await flowProducer.add({
+            name: 'prepare-for-print-flow',
+            queueName: imageGenerationQueue.name,
+            data: { bookId, userId, finalStatus: 'print-ready' },
+            children: childJobs,
         });
 
-        await Promise.all(jobPromises);
+        await client.query('COMMIT');
 
-        res.status(202).json({ 
-            message: `Image generation started in the background for ${pagesToGenerate.length} pages.`,
+        res.status(202).json({
+            message: `Print preparation started in the background for ${pagesToGenerate.length} pages.`,
             pagesQueued: pagesToGenerate.length
         });
 
     } catch (error) {
+        if (client) {
+            await client.query('ROLLBACK');
+            await client.query(`UPDATE picture_books SET book_status = 'error' WHERE id = $1`, [bookId]);
+        }
         console.error('[Controller] Error preparing book for print:', error);
         res.status(500).json({ message: 'Failed to start print preparation process.' });
     } finally {
         if (client) client.release();
     }
 };
-// ✅ NEW: Controller function to get the status of all active image generation jobs for a book.
 export const getGenerationStatus = async (req, res) => {
     const { bookId } = req.params;
     const userId = req.userId;
 
     try {
-        // Get jobs for the specific book from the queue
         const jobs = await imageGenerationQueue.getJobs([
             'active', 'waiting', 'completed', 'failed'
         ]);
 
-        // Filter and map the jobs to get a cleaner status report
         const jobStatus = jobs
             .filter(job => job.data.bookId === bookId && job.data.userId === userId)
             .map(job => {
                 return {
                     pageNumber: job.data.pageNumber,
                     status: job.state,
-                    progress: job.progress, // BullMQ provides a progress field
+                    progress: job.progress,
                     id: job.id
                 };
             });
@@ -941,7 +984,6 @@ export const getGenerationStatus = async (req, res) => {
         res.status(500).json({ message: 'Failed to retrieve generation status.' });
     }
 };
-
 export const uploadEventImage = async (req, res) => {
     console.log('--- WE ARE INSIDE THE UPLOAD EVENT IMAGE FUNCTION ---'); 
     const { eventId } = req.params;

@@ -1,6 +1,15 @@
-// backend/src/controllers/feed.controller.js
+// src/controllers/feed.controller.js
+
 import { getDb } from '../db/database.js';
 import admin from 'firebase-admin';
+
+// --- Define your placeholder images here
+const placeholderCovers = [
+    '/assets/p1.png',
+    '/assets/p2.png',
+    '/assets/p3.png',
+    '/assets/p4.png'
+];
 
 export const getForYouFeed = async (req, res) => {
     const userId = req.userId;
@@ -15,23 +24,39 @@ export const getForYouFeed = async (req, res) => {
         const pool = await getDb();
         client = await pool.connect();
 
-        // MODIFIED: Used plain string concatenation instead of template literal
-        const allPublicBooksQuery = 
-            "SELECT id, user_id, title, cover_image_url, like_count, comment_count, date_created, 'picture_book' AS book_type " +
-            "FROM picture_books " +
-            "WHERE is_public = TRUE " +
-            "UNION ALL " + // Added UNION ALL to split the query, will adjust later
-            "SELECT id, user_id, title, cover_image_url, like_count, comment_count, date_created, 'text_book' AS book_type " +
-            "FROM text_books " +
-            "WHERE is_public = TRUE " +
-            "ORDER BY date_created DESC LIMIT $1 OFFSET $2";
+        const allPublicBooksQuery = `
+            SELECT 
+                id, 
+                user_id, 
+                title, 
+                user_cover_image_url AS cover_image_url,
+                like_count, 
+                comment_count, 
+                date_created,
+                'picture_book' AS book_type
+            FROM picture_books
+            WHERE is_public = TRUE
+            UNION ALL
+            SELECT 
+                id, 
+                user_id, 
+                title, 
+                cover_image_url, 
+                like_count, 
+                comment_count, 
+                date_created,
+                'text_book' AS book_type
+            FROM text_books
+            WHERE is_public = TRUE
+            ORDER BY date_created DESC
+            LIMIT $1 OFFSET $2
+        `;
 
-        console.log("[DEBUG] Executing allPublicBooksQuery:", allPublicBooksQuery, "with params:", [limit, offset]); 
+        console.log("[DEBUG] Executing allPublicBooksQuery with params:", [limit, offset]); 
 
         let feedBooks = (await client.query(allPublicBooksQuery, [limit, offset])).rows;
         console.log(`[FEED DEBUG 2] Found ${feedBooks.length} public books from both tables.`);
 
-        // Map Firebase UIDs to usernames and avatar URLs
         const uniqueUserIds = [...new Set(feedBooks.map(book => book.user_id))];
         const userProfiles = new Map();
 
@@ -54,34 +79,24 @@ export const getForYouFeed = async (req, res) => {
 
         feedBooks = feedBooks.map(book => {
             const profile = userProfiles.get(book.user_id) || {};
+            
+            let coverUrl;
+
+            if (book.cover_image_url) {
+                coverUrl = book.cover_image_url;
+            } else {
+                const seed = book.id.charCodeAt(0) + book.id.charCodeAt(1); 
+                const randomIndex = seed % placeholderCovers.length;
+                coverUrl = placeholderCovers[randomIndex];
+            }
+
             return {
                 ...book,
+                cover_image_url: coverUrl,
                 author_username: profile.username || `Unknown User`,
                 author_avatar_url: profile.avatar_url || 'https://via.placeholder.com/40',
             };
         });
-
-        if (userId && feedBooks.length > 0) {
-            const bookTypePlaceholders = feedBooks.map((_, i) => `($${i * 2 + 2}, $${i * 2 + 3})`).join(',');
-            const likeCheckParams = [userId];
-            feedBooks.forEach(book => {
-                likeCheckParams.push(book.id, book.book_type);
-            });
-
-            const likesSql = `SELECT book_id, book_type FROM likes WHERE user_id = $1 AND (book_id, book_type) IN (${bookTypePlaceholders})`;
-            const likedResults = (await client.query(likesSql, likeCheckParams)).rows;
-
-            const likedSet = new Set(likedResults.map(like => `${like.book_type}:${like.book_id}`));
-
-            feedBooks = feedBooks.map(book => ({
-                ...book,
-                isLiked: likedSet.has(`${book.book_type}:${book.id}`)
-            }));
-            console.log(`[FEED DEBUG] Checked like status for ${likedResults.length} books.`);
-        } else if (!userId) {
-            feedBooks = feedBooks.map(book => ({ ...book, isLiked: false }));
-            console.log(`[FEED DEBUG] User not logged in, setting all books as not liked.`);
-        }
 
         res.status(200).json(feedBooks);
 
