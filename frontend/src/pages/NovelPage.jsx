@@ -11,10 +11,12 @@ import { ChevronDownIcon, PhotoIcon, TrashIcon } from '@heroicons/react/24/solid
 import toast from 'react-hot-toast';
 import Cropper from 'react-easy-crop';
 import getCroppedImg from '../utils/cropImage.js'; 
-import BackCoverBlurbEditor from '../components/BackCoverBlurbEditor.jsx'; 
+import BackCoverBlurbEditor from '../components/BackCoverBlurbEditor.jsx';
+// FIX: Import react-markdown to correctly render chapter text formatting.
+import ReactMarkdown from 'react-markdown';
 
-// New component for the image cropping interface with loading state
-const CoverCropper = ({ image, onCropComplete, onCancel, crop, zoom, setCrop, setZoom, onConfirm, isConfirmingCrop }) => (
+// FIX: CoverCropper now accepts a dynamic aspect ratio.
+const CoverCropper = ({ image, onCropComplete, onCancel, crop, zoom, setCrop, setZoom, onConfirm, isConfirmingCrop, aspect }) => (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90">
         <div className="relative w-full max-w-2xl h-[500px] bg-slate-900 rounded-lg p-6">
             <div className="relative w-full h-[400px]">
@@ -22,7 +24,8 @@ const CoverCropper = ({ image, onCropComplete, onCancel, crop, zoom, setCrop, se
                     image={image}
                     crop={crop}
                     zoom={zoom}
-                    aspect={5.25 / 8.25} // Set aspect ratio for the book's front cover
+                    // FIX: Use the dynamic aspect ratio passed in as a prop.
+                    aspect={aspect}
                     onCropChange={setCrop}
                     onZoomChange={setZoom}
                     onCropComplete={onCropComplete}
@@ -56,8 +59,8 @@ const CoverCropper = ({ image, onCropComplete, onCancel, crop, zoom, setCrop, se
     </div>
 );
 
-// MODIFIED: CoverUploader component
-const CoverUploader = ({ bookId, currentCoverUrl }) => {
+// FIX: CoverUploader now accepts the book's trim size to calculate aspect ratio.
+const CoverUploader = ({ bookId, currentCoverUrl, productTrimSize }) => {
     const [selectedFile, setSelectedFile] = useState(null);
     const [previewUrl, setPreviewUrl] = useState(null);
     const [error, setError] = useState('');
@@ -70,6 +73,17 @@ const CoverUploader = ({ bookId, currentCoverUrl }) => {
     const [zoom, setZoom] = useState(1);
     const [croppedAreaPixels, setCroppedAreaPixels] = useState(null);
     const [isConfirmingCrop, setIsConfirmingCrop] = useState(false);
+
+    // FIX: Calculate aspect ratio from the trim size string.
+    const getAspectRatio = () => {
+        if (!productTrimSize) return 9 / 16; // Default fallback
+        const [width, height] = productTrimSize.split('x').map(Number);
+        if (width && height) {
+            return width / height;
+        }
+        return 9 / 16;
+    };
+    const aspect = getAspectRatio();
 
     const onCropComplete = useCallback((croppedArea, croppedAreaPixels) => {
         setCroppedAreaPixels(croppedAreaPixels);
@@ -145,7 +159,6 @@ const CoverUploader = ({ bookId, currentCoverUrl }) => {
         }
     };
 
-
     return (
         <div className="flex flex-col items-center gap-4">
             {isCropping && (
@@ -159,6 +172,7 @@ const CoverUploader = ({ bookId, currentCoverUrl }) => {
                     setZoom={setZoom}
                     onConfirm={onConfirmCrop}
                     isConfirmingCrop={isConfirmingCrop} 
+                    aspect={aspect} // Pass the dynamic aspect ratio
                 />
             )}
             <div className="relative w-48 h-64 rounded-md border-2 border-dashed border-slate-500 flex items-center justify-center bg-slate-800 overflow-hidden">
@@ -199,7 +213,6 @@ const CoverUploader = ({ bookId, currentCoverUrl }) => {
     );
 };
 
-// Chapter component remains unchanged
 const Chapter = ({ chapter, isOpen, onToggle, onRegenerate, isLoading, guidance, onGuidanceChange, isLatest }) => {
     const handleRegenerateClick = (e) => {
         e.stopPropagation();
@@ -220,10 +233,9 @@ const Chapter = ({ chapter, isOpen, onToggle, onRegenerate, isLoading, guidance,
                                 animate={{ height: 'auto', opacity: 1, transition: { height: { duration: 0.4, ease: 'easeInOut' }, opacity: { duration: 0.25, delay: 0.15 } } }}
                                 exit={{ height: 0, opacity: 0, transition: { height: { duration: 0.4, ease: 'easeInOut' }, opacity: { duration: 0.25 } } }}
                                 className="overflow-hidden">
-                        <div className="prose prose-lg lg:prose-xl max-w-none text-slate-300 prose-p:text-slate-300 prose-p:mb-5 pt-4 pb-8 px-4 font-light leading-relaxed">
-                            {chapter.content.split('\n').map((paragraph, index) => (
-                                <p key={index} className="mb-4">{paragraph}</p>
-                            ))}
+                        {/* FIX: Use ReactMarkdown to render chapter content with proper formatting. */}
+                        <div className="prose prose-lg lg:prose-xl max-w-none prose-p:text-slate-300 prose-em:text-slate-200 prose-strong:text-white pt-4 pb-8 px-4 font-light leading-relaxed">
+                            <ReactMarkdown>{chapter.content}</ReactMarkdown>
                         </div>
                         
                         {isLatest && (
@@ -258,7 +270,6 @@ const Chapter = ({ chapter, isOpen, onToggle, onRegenerate, isLoading, guidance,
     );
 };
 
-// fetchBookOptions remains unchanged
 const fetchBookOptions = async () => {
     const { data } = await apiClient.get('/products/book-options');
     return data;
@@ -484,19 +495,18 @@ function NovelPage() {
     }
     
     if (bookDetails) {
-        // MODIFICATION: The entire return statement is restructured into the Workspace + Sidebar layout.
+        // FIX: Find the full product config to get the trim size for the cover uploader.
+        const productConfig = allBookOptions?.find(p => p.id === bookDetails.lulu_product_id);
+
         return (
             <div className="min-h-screen bg-slate-900 bg-[radial-gradient(ellipse_80%_80%_at_50%_-20%,rgba(120,119,198,0.3),rgba(255,255,255,0))]">
                 <CheckoutModal isOpen={isCheckoutModalOpen} onClose={() => setCheckoutModalOpen(false)} onSubmit={submitFinalCheckout} bookId={paramBookId} bookType="textBook" book={bookDetails} />
                 
-                {/* MODIFICATION: Container is wider (max-w-7xl) to accommodate two columns */}
                 <div className="max-w-7xl mx-auto py-12 px-4 sm:px-6 lg:px-8">
                     <PageHeader title={bookDetails.title} subtitle="Your personalized story" />
 
-                    {/* MODIFICATION: Flex container for the two-column layout */}
                     <div className="flex flex-col lg:flex-row gap-8 mt-8">
 
-                        {/* --- Main Workspace (Left Column) --- */}
                         <div className="lg:w-2/3 w-full">
                             <motion.div 
                                 initial={{ opacity: 0, y: 20 }}
@@ -540,7 +550,6 @@ function NovelPage() {
                             </motion.div>
                         </div>
 
-                        {/* --- Book Settings Sidebar (Right Column) --- */}
                         <div className="lg:w-1/3 w-full lg:sticky lg:top-8 h-fit">
                             <motion.div
                                 initial={{ opacity: 0, y: 20 }}
@@ -556,10 +565,8 @@ function NovelPage() {
                                     </p>
                                 )}
 
-                                {/* MODIFICATION: The finalization tools are now stacked vertically in this sidebar */}
                                 <div className="flex flex-col gap-10">
 
-                                    {/* Custom Cover */}
                                     <div className="flex flex-col items-center border-b border-slate-700 pb-8">
                                         <h4 className="text-lg font-semibold text-gray-200 mb-2">Custom Cover</h4>
                                         <p className="text-sm text-gray-400 mb-5 text-center max-w-[220px]">
@@ -568,10 +575,11 @@ function NovelPage() {
                                         <CoverUploader
                                             bookId={bookDetails.id}
                                             currentCoverUrl={bookDetails.user_cover_image_url}
+                                            // FIX: Pass the book's trim size to the uploader.
+                                            productTrimSize={productConfig?.trimSize}
                                         />
                                     </div>
 
-                                    {/* Back Cover Blurb */}
                                     <div className="flex flex-col items-center border-b border-slate-700 pb-8">
                                         <h4 className="text-lg font-semibold text-gray-200 mb-2">Back Cover Blurb</h4>
                                         <p className="text-sm text-gray-400 mb-5 text-center max-w-[220px]">
@@ -583,7 +591,6 @@ function NovelPage() {
                                         />
                                     </div>
 
-                                    {/* Finalize Your Book */}
                                     <div className="flex flex-col items-center justify-center gap-4">
                                         <h4 className="text-lg font-semibold text-gray-200 mb-2">Finalize Your Book</h4>
                                         <p className="text-gray-400 text-center mb-4 max-w-[260px]">

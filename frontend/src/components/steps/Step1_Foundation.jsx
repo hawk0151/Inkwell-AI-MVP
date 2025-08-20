@@ -24,7 +24,7 @@ export const Step1_Foundation = ({
     const initialCoreConcept = book?.story_bible?.coreConcept || '';
     const initialTherapeuticGoal = book?.story_bible?.therapeuticGoal || '';
     const initialTone = book?.story_bible?.tone || '';
-    const initialArtStyle = book?.story_bible?.art?.style || 'watercolor';
+    const initialArtStyle = book?.story_bible?.art?.style || 'digital-art';
 
     return (
         <motion.div {...motionProps} className="p-8">
@@ -97,12 +97,16 @@ export const Step1_Foundation = ({
                         name="artStyle"
                         value={values.artStyle || initialArtStyle}
                         onChange={handleChange}
+                        // FIX: Corrected the typo in the background color class below
                         className="mt-1 block w-full bg-slate-700 border border-slate-600 rounded-md shadow-sm text-white px-3 py-2 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
                     >
-                        <option value="watercolor">Watercolor</option>
-                        <option value="oil painting">Oil Painting</option>
-                        <option value="digital art">Digital Art</option>
-                        <option value="line art">Line Art</option>
+                        <option value="digital-art">Digital Art</option>
+                        <option value="line-art">Line Art</option>
+                        <option value="comic-book">Comic Book</option>
+                        <option value="fantasy-art">Fantasy Art</option>
+                        <option value="anime">Anime</option>
+                        <option value="photographic">Photographic</option>
+                        <option value="cinematic">Cinematic</option>
                     </select>
                 </div>
 

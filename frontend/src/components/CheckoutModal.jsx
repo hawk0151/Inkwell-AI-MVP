@@ -1,5 +1,6 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { io } from 'socket.io-client'; // FIX: Import Socket.IO client
 import apiClient from '../services/apiClient';
 import { LoadingSpinner, Alert } from './common.jsx';
 
@@ -24,10 +25,48 @@ const CheckoutModal = ({ isOpen, onClose, bookId, bookType, onSubmit, book }) =>
     const [isLoadingOptions, setIsLoadingOptions] = useState(false);
     const [isProcessingCheckout, setIsProcessingCheckout] = useState(false);
     const [modalError, setModalError] = useState(null);
-    const [loadingMessage, setLoadingMessage] = useState(''); // <-- NEW STATE FOR LOADING MESSAGE
+    const [loadingMessage, setLoadingMessage] = useState('');
 
     const inputClasses = "w-full p-3 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:ring-2 focus:ring-green-500 focus:border-green-500";
     const buttonClasses = "bg-green-600 text-white font-bold py-2 px-6 rounded-lg hover:bg-green-700 disabled:bg-green-300 transition";
+
+    // FIX: useEffect to handle the WebSocket connection lifecycle.
+    useEffect(() => {
+        if (!isProcessingCheckout) {
+            return;
+        }
+
+        // Connect to the WebSocket server. Use your actual backend URL in production.
+        const socket = io(process.env.NODE_ENV === 'production' ? 'https://your-backend-url.com' : 'http://localhost:5001');
+
+        socket.on('connect', () => {
+            console.log('[Socket.IO] Connected to server with ID:', socket.id);
+            // Join a room specific to this book to only receive relevant updates.
+            socket.emit('join_room', bookId);
+        });
+
+        // Listen for progress updates from the backend.
+        socket.on('checkout_progress', (data) => {
+            if (data.error) {
+                setModalError(data.error);
+                setLoadingMessage('An error occurred...'); // Set a generic error message
+            } else {
+                const progressMessage = `(Step ${data.step}/${data.totalSteps}) ${data.message}`;
+                setLoadingMessage(progressMessage);
+            }
+        });
+
+        socket.on('disconnect', () => {
+            console.log('[Socket.IO] Disconnected from server.');
+        });
+
+        // Cleanup function: This runs when the modal closes or the process ends.
+        return () => {
+            console.log('[Socket.IO] Disconnecting socket...');
+            socket.disconnect();
+        };
+    }, [isProcessingCheckout, bookId]); // This effect only runs when the checkout process starts/stops.
+
 
     const handleFullAddressChange = (e) => {
         setShippingAddress(prev => ({ ...prev, [e.target.name]: e.target.value }));
@@ -48,7 +87,7 @@ const CheckoutModal = ({ isOpen, onClose, bookId, bookType, onSubmit, book }) =>
     const fetchShippingQuotes = useCallback(async () => {
         setModalError(null);
         setIsLoadingOptions(true);
-        setLoadingMessage('Getting shipping options...'); // <-- SET MESSAGE
+        setLoadingMessage('Getting shipping options...');
         setShippingOptions([]);
         setSelectedShippingLevel(null);
         setQuoteDetails(null);
@@ -81,7 +120,7 @@ const CheckoutModal = ({ isOpen, onClose, bookId, bookType, onSubmit, book }) =>
             setShippingOptions([]);
         } finally {
             setIsLoadingOptions(false);
-            setLoadingMessage(''); // <-- CLEAR MESSAGE
+            setLoadingMessage('');
         }
     }, [bookId, bookType, shippingAddress]);
 
@@ -120,20 +159,24 @@ const CheckoutModal = ({ isOpen, onClose, bookId, bookType, onSubmit, book }) =>
             return;
         }
         setIsProcessingCheckout(true);
-        setLoadingMessage('Securing your book... Please wait while we prepare your order.'); // <-- SET MESSAGE
+        // Set an initial message before WebSocket takes over
+        setLoadingMessage('Starting secure checkout...'); 
         try {
             const finalShippingOption = shippingOptions.find(opt => opt.level === selectedShippingLevel);
             if (!finalShippingOption || !quoteDetails || !quoteDetails.quote_token) {
                 throw new Error("Missing shipping option details or quote token for checkout.");
             }
+            // The onSubmit function will now trigger the backend process,
+            // and our useEffect hook will listen for the progress.
             await onSubmit(shippingAddress, selectedShippingLevel, quoteDetails.quote_token);
         } catch (err) {
             console.error('handleProceedToPayment: Could not proceed to checkout:', err);
             setModalError(err.response?.data?.detailedError || err.response?.data?.message || 'Could not proceed to checkout. Please try again.');
-        } finally {
-            setIsProcessingCheckout(false);
-            setLoadingMessage(''); // <-- CLEAR MESSAGE
+            setIsProcessingCheckout(false); // Make sure to turn off processing on error
+            setLoadingMessage('');
         }
+        // We no longer set isProcessingCheckout to false in a finally block here,
+        // as the parent component will handle closing the modal on success, which triggers the cleanup.
     };
 
     const getDisplayPrice = () => {
@@ -162,12 +205,13 @@ const CheckoutModal = ({ isOpen, onClose, bookId, bookType, onSubmit, book }) =>
                         
                         {modalError && <Alert type="error" message={modalError} onClose={() => setModalError(null)} className="mb-4" />}
                         
-                        {/* --- MODIFIED LOADING SPINNER RENDERING --- */}
+                        {/* The LoadingSpinner will now show the dynamic message from our state */}
                         {isLoadingOptions && <LoadingSpinner text={loadingMessage} className="my-4" />}
                         {isProcessingCheckout && <LoadingSpinner text={loadingMessage} className="my-4" />}
                         
                         {checkoutStep === 'shipping_input' && !isLoadingOptions && (
                             <form onSubmit={handleGetOptions} className="space-y-5">
+                                {/* The form JSX remains unchanged */}
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <div>
                                         <label htmlFor="fullName" className="block text-sm font-medium text-slate-300 mb-1">Full Name</label>

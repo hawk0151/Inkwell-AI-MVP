@@ -25,7 +25,6 @@ import PolicyPage from './pages/PolicyPage.jsx';
 import NotFoundPage from './pages/NotFoundPage.jsx';
 import { CookieConsentBanner } from './components/common.jsx';
 import ContactPage from './pages/ContactPage.jsx';
-// --- MODIFICATION: Re-import the AboutHowItWorksPage ---
 import AboutHowItWorksPage from './pages/AboutHowItWorksPage.jsx';
 
 function App() {
@@ -52,11 +51,11 @@ function App() {
                     <Route path="/cancel" element={<CancelPage />} />
                     <Route path="/policies" element={<PolicyPage />} />
                     <Route path="/contact" element={<ContactPage />} />
-                    {/* --- MODIFICATION: Re-add the route for the About & How It Works page --- */}
                     <Route path="/about-how-it-works" element={<AboutHowItWorksPage />} />
-                    
+
                     {/* Protected Routes */}
                     <Route path="/feed" element={<ProtectedRoute><FeedPage /></ProtectedRoute>} />
+                    <Route path="/feed/:userId" element={<ProtectedRoute><FeedPage /></ProtectedRoute>} /> {/* New Route */}
                     <Route path="/profile/:username" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
                     <Route path="/profile/edit" element={<ProtectedRoute><EditProfilePage /></ProtectedRoute>} />
                     <Route path="/novel/new" element={<ProtectedRoute><NovelPage /></ProtectedRoute>} />

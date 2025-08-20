@@ -6,7 +6,8 @@ const getProductIcon = (productId) => {
     switch (productId) {
         case 'NOVBOOK_BW_5.25x8.25': return DocumentTextIcon;
         case 'A4NOVEL_PB_8.52x11.94': return BookOpenIcon;
-        case 'ROYAL_HARDCOVER_6.39x9.46': return BookmarkSquareIcon;
+        // FIX: Use the correct, compliant product ID
+        case 'ROYAL_HARDCOVER_6.14x9.21': return BookmarkSquareIcon;
         default: return BookOpenIcon;
     }
 };
@@ -27,15 +28,16 @@ const ProductDescription = ({ product }) => {
             return (
                 <>
                     <strong className="text-slate-300">Approx. 40 pages</strong> <br />
-                    <span className="text-slate-300">Nearly 2x the story content of the Novella on larger pages.</span>
+                    {/* FIX: Updated to reflect the corrected backend generation plan */}
+                    <span className="text-slate-300">Nearly 3x the story content of the Novella on larger pages.</span>
                     {doubleSidedPrint}
                 </>
             );
-        case 'ROYAL_HARDCOVER_6.39x9.46':
+        // FIX: Use the correct, compliant product ID and updated description
+        case 'ROYAL_HARDCOVER_6.14x9.21':
             return (
                 <>
-                    {/* TEXT CHANGE: Updated page count */}
-                    Approx. 60-70 pages <br /> 
+                    <strong className="text-slate-300">Approx. 70 pages</strong> <br /> 
                     <strong className="text-slate-300">Hardcover Collector's Edition</strong>
                     {doubleSidedPrint}
                 </>
@@ -62,17 +64,15 @@ const cardVariants = {
     }
 };
 
-// UPDATE: Component now accepts onHover, isHovered, and isDefaultSelected props
 const ProductCard = ({ product, onSelect, onHover, isHovered, isDefaultSelected }) => {
     const IconComponent = getProductIcon(product.id);
     const isBestSeller = product.id === 'A4NOVEL_PB_8.52x11.94';
 
-    // UPDATE: New logic for applying outline styles
     const outlineClass = isHovered
-        ? 'border-blue-300 shadow-xl shadow-blue-500/50' // Hovered state: glowing border
+        ? 'border-blue-300 shadow-xl shadow-blue-500/50'
         : isDefaultSelected
-        ? 'border-blue-300' // Default selected state: solid border
-        : 'border-slate-700'; // No selection: standard border
+        ? 'border-blue-300'
+        : 'border-slate-700';
 
     return (
         <motion.div
@@ -80,7 +80,7 @@ const ProductCard = ({ product, onSelect, onHover, isHovered, isDefaultSelected 
             whileHover={{ y: -8, scale: 1.03, boxShadow: "0px 15px 30px rgba(0, 0, 0, 0.3)" }}
             whileTap={{ scale: 0.98 }}
             onClick={() => onSelect(product)}
-            onMouseEnter={onHover} // UPDATE: Added onMouseEnter handler
+            onMouseEnter={onHover}
             className={`bg-slate-800 border-2 ${outlineClass} p-8 rounded-xl cursor-pointer 
                          flex flex-col items-center text-center overflow-hidden relative transition-all duration-300`}
         >
