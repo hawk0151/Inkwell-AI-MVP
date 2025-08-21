@@ -19,6 +19,7 @@ const emitProgress = (req, bookId, progressData) => {
         console.log(`[Socket.IO] Emitted progress to room ${bookId}: ${progressData.message}`);
     }
 };
+
 const PROFIT_MARGIN_AUD = 15.00;
 const REQUIRED_CONTENT_PAGES = 20;
 
@@ -147,6 +148,13 @@ export const saveStoryBible = async (req, res) => {
         client = await pool.connect();
         await client.query('BEGIN');
         
+        // --- FIX: Add a safety check for the art style ---
+        if (storyBibleData.art && storyBibleData.art.style === 'watercolor') {
+            console.log(`[Controller/Save] WARNING: Intercepted invalid 'watercolor' style, defaulting to 'digital-art'.`);
+            storyBibleData.art.style = 'digital-art';
+        }
+        // --- END FIX ---
+
         await client.query('LOCK TABLE timeline_events IN SHARE ROW EXCLUSIVE MODE');
 
         const bookResult = await client.query(`SELECT id FROM picture_books WHERE id = $1 AND user_id = $2`, [bookId, userId]);
@@ -168,12 +176,12 @@ export const saveStoryBible = async (req, res) => {
             await client.query('DELETE FROM timeline_events WHERE book_id = $1', [bookId]);
             
             const insertEventSql = `
-                 INSERT INTO timeline_events (book_id, page_number, story_text, image_style, prompt_metadata)
-                 VALUES ($1, $2, $3, $4, $5)
+                INSERT INTO timeline_events (book_id, page_number, story_text, image_style, prompt_metadata)
+                VALUES ($1, $2, $3, $4, $5)
             `;
             for (const page of storyBibleData.storyPlan) {
                 const metadata = { imagePrompt: page.imagePrompt };
-                await client.query(insertEventSql, [ bookId, page.page_number, page.storyText, storyBibleData.art?.style || 'watercolor', JSON.stringify(metadata) ]);
+                await client.query(insertEventSql, [ bookId, page.page_number, page.storyText, storyBibleData.art?.style || 'digital-art', JSON.stringify(metadata) ]);
             }
         }
 
@@ -187,13 +195,10 @@ export const saveStoryBible = async (req, res) => {
         if (client) client.release();
     }
 };
-
-// --- MODIFIED FUNCTION ---
-// Now generates 2 character references instead of 3.
 export const generateCharacterReferences = async (req, res) => {
     const { bookId } = req.params;
     const userId = req.userId;
-    const { description, artStyle: style_preset } = req.body;
+    const { description, artStyle } = req.body;
     let client;
 
     try {
@@ -204,30 +209,46 @@ export const generateCharacterReferences = async (req, res) => {
         const book = bookResult.rows[0];
 
         if (!book) return res.status(404).json({ message: 'Project not found.' });
-        if (!book.story_bible && !description) return res.status(400).json({ message: 'Please save your Story Bible or provide a description before generating characters.' });
         if (book.book_status !== 'draft') return res.status(400).json({ message: 'Character references cannot be re-generated for this book.' });
         
-        const characterDescription = description || book.story_bible.character.description;
-        const finalStylePreset = style_preset || book.story_bible.art.style;
+        const finalDescription = description || book.story_bible?.character?.description;
+        let finalStylePreset = artStyle || book.story_bible?.art?.style;
+
+        if (finalStylePreset === 'watercolor') {
+            finalStylePreset = 'digital-art';
+        }
         
-        const referenceSheetPrompt = `A single, solo character concept for a children's book. Centered full-body view of one character only: ${characterDescription}. The character is in a neutral pose against a plain white background. Simple, clean, no other objects or people.`;
+        if (!finalDescription || !finalStylePreset) {
+            return res.status(400).json({ message: 'A description and art style are required.' });
+        }
+        
+        // --- NEW STYLE-AWARE PROMPT LOGIC ---
+        // 1. Use our new Gemini function to create the prompt, passing in the selected style
+        const referenceSheetPrompt = await geminiService.createStyleAwareStabilityPrompt(finalDescription, finalStylePreset);
 
-        console.log(`[Controller] Generating 2 character reference options for book ${bookId}`);
-        // FIX: Changed from 3 promises to 2 to save costs.
+        // 2. Create an aggressive negative prompt to support it
+        const negativePrompt = `
+            ((extra characters)), ((multiple people)), (two boys), animals, pets, companions, 
+            crowds, groups, scenery, background objects, props, text, watermark, signature, blurry, photorealistic, 8k.
+        `.replace(/\s+/g, ' ').trim();
+        // --- END OF NEW LOGIC ---
+
+        console.log(`[Controller] Generating TWO character references with style: ${finalStylePreset}`);
+        console.log(`[Controller] Master Prompt: ${referenceSheetPrompt}`);
+        
         const generationPromises = [
-            imageService.generateImageFromApi(referenceSheetPrompt, finalStylePreset),
-            imageService.generateImageFromApi(referenceSheetPrompt, finalStylePreset)
+            imageService.generateImageFromApi(referenceSheetPrompt, finalStylePreset, negativePrompt, 0),
+            imageService.generateImageFromApi(referenceSheetPrompt, finalStylePreset, negativePrompt, Math.floor(Math.random() * 100000))
         ];
-        const imageBuffers = await Promise.all(generationPromises);
-        console.log(`[Controller] ✅ 2 raw images generated.`);
 
+        const imageBuffers = await Promise.all(generationPromises);
+        
         const uploadFolder = `inkwell-ai/user_${userId}/books/${bookId}/references`;
         const uploadPromises = imageBuffers.map((buffer, index) => {
             const publicId = `character-reference-${index + 1}`;
             return imageService.uploadImageToCloudinary(buffer, uploadFolder, publicId);
         });
         const referenceImageUrls = await Promise.all(uploadPromises);
-        console.log(`[Controller] ✅ 2 images uploaded to Cloudinary.`);
 
         res.status(200).json({ referenceImageUrls });
     } catch (err) {
@@ -237,7 +258,6 @@ export const generateCharacterReferences = async (req, res) => {
         if (client) client.release();
     }
 };
-
 export const selectCharacterReference = async (req, res) => {
     const { bookId } = req.params;
     const { characterReference } = req.body;
@@ -269,9 +289,6 @@ export const selectCharacterReference = async (req, res) => {
         if (client) client.release();
     }
 };
-
-// --- MODIFIED FUNCTION ---
-// The master prompt is now significantly more detailed to improve consistency.
 export const generateStoryPlan = async (req, res) => {
     const { bookId } = req.params;
     let client;
@@ -289,25 +306,20 @@ export const generateStoryPlan = async (req, res) => {
 
         const { coreConcept, character, therapeuticGoal, tone, art } = book.story_bible;
 
-        // FIX: Added extensive new rules to the master prompt.
+        // --- FIX: This prompt now includes instructions for scenery-only pages ---
         storyPlanPrompt = `
 You are an expert children's book author and illustrator's assistant. Create a 20-page story plan based on these inputs.
-The output MUST be a valid JSON array of 20 objects and nothing else.
-Each object in the array must have three keys: "page_number", "storyText", and "imagePrompt".
+The output MUST be a valid JSON array of 20 objects.
+Each object must have "page_number", "storyText", and "imagePrompt".
 
 **CRITICAL INSTRUCTIONS FOR EVERY "imagePrompt":**
-1.  **FULL DESCRIPTIONS, EVERY TIME:** For any character in the prompt, you MUST include their full core description (e.g., "Leo, a fluffy rabbit with big, expressive blue eyes"). You have no memory; repeat the description every single time to ensure consistency.
-2.  **CONTEXTUAL DETAILS:** You MUST enrich the character descriptions with details relevant to their ACTION, EMOTION, and LOCATION in that specific scene. This includes clothing, facial expressions, and interaction with objects. (e.g., "Mummy, a smiling white woman with her hair in a bun and a blue apron, kneels down...").
-3.  **VIVID SCENERY & FRAMING:** Describe the SCENE, ENVIRONMENT, and CAMERA SHOT (e.g., "close-up," "wide shot") with 2-3 key details. The prompt must be a complete brief for an illustrator.
-
-**EXAMPLE of a good "imagePrompt":**
-"A wide shot of a messy bedroom at night. Leo, a small rabbit with fluffy white fur, is peeking out from under a blue blanket, his expressive blue eyes wide with fear. The only light comes from a soft whale-shaped night-light in the corner."
+1.  **Character or Scenery:** If the main character is in the scene, the prompt must include their full description. If the scene is purely environmental, symbolic, or does NOT feature the main character, the prompt MUST begin with the tag "[no character]".
+2.  **Start with the Style:** After the optional [no character] tag, every prompt MUST begin with a description of the art style, for example: "${art.style} of...".
+3.  **VIVID SCENERY & FRAMING:** Describe the SCENE, ENVIRONMENT, and CAMERA SHOT (e.g., "close-up," "wide shot").
 
 **USER INPUTS:**
 - Core Concept: ${coreConcept}
 - Main Character: ${character.description}
-- Therapeutic Goal: ${therapeuticGoal || 'Create a fun and engaging story.'}
-- Tone: ${tone}
 - Art Style: ${art.style}
 
 **OUTPUT (JSON Array Only):**
@@ -339,24 +351,33 @@ Each object in the array must have three keys: "page_number", "storyText", and "
     }
 };
 
-// ... (The rest of the file is unchanged, including saveTimelineEvents)
+
+
 export const improvePrompt = async (req, res) => {
-    const { prompt } = req.body;
+    const { prompt, isScenery } = req.body; // <-- now receives isScenery flag
     if (!prompt) {
         return res.status(400).json({ message: 'A prompt to improve is required.' });
     }
 
     try {
+        // --- NEW: Dynamic instructions based on context ---
+        const subject = isScenery ? 'a beautiful scenery shot' : 'a character in a scene';
+        const template = isScenery 
+            ? `[A beautiful landscape/scenery shot of...] with [specific type of lighting] and [an emotion or mood]. The image should have a [camera shot or framing].`
+            : `[Main Subject/Character] is [performing a specific action] with [an emotion or mood]. The scene is set in [a specific, detailed environment]. The image should have a [camera shot or framing] with [a specific type of lighting].`;
+            
         const masterPrompt = `
-You are a master of crafting highly specific and effective image prompts for the Stability AI model. Your task is to take a user's basic request and rewrite it as a single, coherent, and detailed prompt. This prompt must follow a strict format and prioritize visual clarity above all else to ensure a perfect output.
+You are a master of crafting highly specific and effective image prompts for the Stability AI model. Your task is to take a user's basic request and rewrite it as a single, coherent, and detailed paragraph.
+
+**CONTEXT:** The user is creating an illustration for a children's book. The target image is for **${subject}**.
 
 **CRITICAL INSTRUCTIONS:**
 - The output MUST be a single, descriptive paragraph.
-- The output MUST NOT contain any conversational text, labels like "Prompt:" or "Description:", or numbered lists.
+- The output MUST NOT contain any conversational text, labels, or numbered lists.
 - The output MUST NOT contain any negative prompts.
 
 **STRICT TEMPLATE TO FOLLOW:**
-[Main Subject/Character] is [performing a specific action] with [an emotion or mood]. The scene is set in [a specific, detailed environment]. The image should have a [camera shot or framing] with [a specific type of lighting].
+${template}
 
 **USER'S PROMPT TO IMPROVE:**
 "${prompt}"
@@ -365,9 +386,7 @@ You are a master of crafting highly specific and effective image prompts for the
 `.trim();
 
         const improvedPrompt = await callGeminiAPI(masterPrompt);
-
         const cleanedPrompt = improvedPrompt.replace(/```/g, '').trim();
-
         res.status(200).json({ improvedPrompt: cleanedPrompt });
 
     } catch (err) {
@@ -375,6 +394,7 @@ You are a master of crafting highly specific and effective image prompts for the
         res.status(500).json({ message: 'Failed to improve the prompt.' });
     }
 };
+
 export const generateSinglePageImage = async (req, res) => {
     const { bookId, pageNumber } = req.params;
     const userId = req.userId;
@@ -439,6 +459,7 @@ export const generateSinglePageImage = async (req, res) => {
         if (client) client.release();
     }
 };
+
 export const generateAllImages = async (req, res) => {
     const { bookId } = req.params;
     const userId = req.userId;
@@ -508,6 +529,7 @@ export const generateAllImages = async (req, res) => {
         if (client) client.release();
     }
 };
+
 export const generateEventImage = async (req, res) => {
     const { bookId, pageNumber } = req.params;
     const { prompt, style } = req.body;
@@ -538,6 +560,8 @@ export const generateEventImage = async (req, res) => {
         if (client) client.release();
     }
 };
+
+
 export const uploadCoverImage = async (req, res) => {
     const { bookId } = req.params;
     const userId = req.userId;
@@ -553,13 +577,20 @@ export const uploadCoverImage = async (req, res) => {
 
         const bookResult = await client.query(`SELECT id FROM picture_books WHERE id = $1 AND user_id = $2`, [bookId, userId]);
         if (bookResult.rows.length === 0) {
-            return res.status(404).json({ message: 'Project not found or you do not have permission to edit it.' });
+            return res.status(404).json({ message: 'Project not found.' });
         }
 
         const folder = `inkwell-ai/user_${userId}/covers`;
         const imageUrl = await fileHostService.uploadImageBuffer(req.file.buffer, folder);
 
-        await client.query(`UPDATE picture_books SET user_cover_image_url = $1, last_modified = $2 WHERE id = $3`, [imageUrl, new Date().toISOString(), bookId]);
+        // --- FIX: This query now ONLY updates the cover image URL ---
+        const updateSql = `
+            UPDATE picture_books 
+            SET user_cover_image_url = $1, last_modified = NOW()
+            WHERE id = $2
+        `;
+        await client.query(updateSql, [imageUrl, bookId]);
+        // --- END FIX ---
 
         res.status(200).json({ message: 'Cover image uploaded successfully!', imageUrl });
 
@@ -570,6 +601,7 @@ export const uploadCoverImage = async (req, res) => {
         if (client) client.release();
     }
 };
+
 export const saveTimelineEvents = async (req, res) => {
     let client;
     const { bookId } = req.params;
@@ -593,44 +625,41 @@ export const saveTimelineEvents = async (req, res) => {
             return res.status(404).json({ message: 'Project not found or you do not have permission.' });
         }
         
+        // --- FIX: Use a smart UPSERT query instead of a full DELETE. ---
         if (events.length > 0) {
             const upsertSql = `
                 INSERT INTO timeline_events (
-                    book_id, page_number, event_date, story_text, image_url, 
-                    image_style, uploaded_image_url, overlay_text, is_bold_story_text,
-                    image_url_preview, image_url_print
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-                ON CONFLICT (book_id, page_number) 
-                DO UPDATE SET 
-                    event_date = EXCLUDED.event_date,
+                    book_id, page_number, story_text,
+                    image_url_preview, image_url_print, uploaded_image_url, 
+                    image_prompt, last_modified, id
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), $8)
+                ON CONFLICT (id) DO UPDATE SET 
                     story_text = EXCLUDED.story_text,
-                    image_url = EXCLUDED.image_url,
-                    image_style = EXCLUDED.image_style,
-                    uploaded_image_url = EXCLUDED.uploaded_image_url,
-                    overlay_text = EXCLUDED.overlay_text,
-                    is_bold_story_text = EXCLUDED.is_bold_story_text,
-                    image_url_preview = EXCLUDED.image_url_preview,
-                    image_url_print = EXCLUDED.image_url_print;
+                    image_prompt = EXCLUDED.image_prompt,
+                    last_modified = NOW();
             `;
             
             for (let i = 0; i < events.length; i++) {
                 const event = events[i];
+                // Check for a UUID (ID) to decide if we're updating or inserting
+                const eventId = event.id || randomUUID();
+
+                // This handles updates to the text fields only
                 await client.query(upsertSql, [
                     bookId, 
                     i + 1,
-                    event.event_date || null,
                     event.story_text || null, 
-                    event.image_url || null, 
-                    event.image_style || null,
-                    event.uploaded_image_url || null, 
-                    event.overlay_text || null, 
-                    event.is_bold_story_text || false,
                     event.image_url_preview || null, 
-                    event.image_url_print || null
+                    event.image_url_print || null,
+                    event.uploaded_image_url || null,
+                    event.prompt_metadata?.imagePrompt || null,
+                    eventId
                 ]);
             }
         }
+        // --- END FIX ---
         
+        // Delete any events that no longer exist in the timeline
         const maxPageNumber = events.length;
         await client.query(`DELETE FROM timeline_events WHERE book_id = $1 AND page_number > $2`, [bookId, maxPageNumber]);
 
@@ -645,6 +674,7 @@ export const saveTimelineEvents = async (req, res) => {
         if (client) client.release();
     }
 };
+
 export const generatePreviewPdf = async (req, res) => {
     const { bookId } = req.params;
     const userId = req.userId;
@@ -676,6 +706,7 @@ export const generatePreviewPdf = async (req, res) => {
         }
     }
 };
+
 export const createBookCheckoutSession = async (req, res) => {
     const { bookId } = req.params;
     const { shippingAddress, selectedShippingLevel, quoteToken } = req.body;
@@ -767,7 +798,6 @@ export const createBookCheckoutSession = async (req, res) => {
         const finalPriceInCents = Math.round(finalPriceAUD * 100);
         
         const orderId = randomUUID();
-        // FIX: Removed invisible character after "updated_at" that was causing a syntax error.
         const insertOrderSql = `
             INSERT INTO orders (
                 id, user_id, book_id, book_type, book_title, lulu_product_id, status,
@@ -810,6 +840,7 @@ export const createBookCheckoutSession = async (req, res) => {
         }
     }
 };
+
 export const deletePictureBook = async (req, res) => {
     let client;
     try {
@@ -833,6 +864,7 @@ export const deletePictureBook = async (req, res) => {
         if (client) client.release();
     }
 };
+
 export const deleteTimelineEvent = async (req, res) => {
     let client;
     const { bookId, pageNumber } = req.params;
@@ -856,6 +888,7 @@ export const deleteTimelineEvent = async (req, res) => {
         if (client) client.release();
     }
 };
+
 export const togglePictureBookPrivacy = async (req, res) => {
     let client;
     const { bookId } = req.params;
@@ -887,6 +920,9 @@ export const togglePictureBookPrivacy = async (req, res) => {
         if (client) client.release();
     }
 };
+
+// in src/controllers/pictureBook.controller.js
+
 export const prepareBookForPrint = async (req, res) => {
     const { bookId } = req.params;
     const userId = req.userId;
@@ -906,11 +942,8 @@ export const prepareBookForPrint = async (req, res) => {
         await client.query(`UPDATE picture_books SET book_status = 'generating-print' WHERE id = $1`, [bookId]);
 
         const pagesToGenerate = book.timeline
-            .filter(event => event && (typeof event.page_number === 'number')) // Safeguard against undefined pages
-            .filter(event =>
-                !event.image_url_print &&
-                event.story_text
-            );
+            .filter(event => event && (typeof event.page_number === 'number'))
+            .filter(event => !event.image_url_print && event.story_text);
 
         if (pagesToGenerate.length === 0) {
             await client.query(`UPDATE picture_books SET book_status = 'print-ready' WHERE id = $1`, [bookId]);
@@ -919,15 +952,17 @@ export const prepareBookForPrint = async (req, res) => {
         }
 
         const childJobs = pagesToGenerate.map(event => ({
-            name: 'generate-page-image',
+            name: 'generate-single-page-image', // This should match your worker's job name
             data: {
                 bookId: book.id,
                 userId: userId,
-                pageNumber: event.page_number,
+                // --- FIX: Ensure pageNumber is correctly named and passed ---
+                pageNumber: event.page_number, 
                 prompt: event.image_prompt || event.story_text,
-                style: event.image_style || book.story_bible?.art?.style || 'watercolor'
+                style: event.image_style || book.story_bible?.art?.style || 'digital-art'
             },
             queueName: imageGenerationQueue.name,
+            opts: { jobId: `${book.id}-${event.page_number}` } // Use a unique job ID
         }));
 
         console.log(`[Controller] Queuing flow for ${childJobs.length} pages for book ${bookId}`);
@@ -957,6 +992,7 @@ export const prepareBookForPrint = async (req, res) => {
         if (client) client.release();
     }
 };
+
 export const getGenerationStatus = async (req, res) => {
     const { bookId } = req.params;
     const userId = req.userId;
@@ -985,7 +1021,6 @@ export const getGenerationStatus = async (req, res) => {
     }
 };
 export const uploadEventImage = async (req, res) => {
-    console.log('--- WE ARE INSIDE THE UPLOAD EVENT IMAGE FUNCTION ---'); 
     const { eventId } = req.params;
     const userId = req.userId;
     let client;
@@ -1006,11 +1041,11 @@ export const uploadEventImage = async (req, res) => {
         `, [eventId, userId]);
 
         if (eventResult.rows.length === 0) {
-            return res.status(404).json({ message: 'Page not found or you do not have permission to edit it.' });
+            // --- FIX: More descriptive error message ---
+            return res.status(404).json({ message: `Upload failed: Page with ID ${eventId} not found or permission denied.` });
         }
         
         const { book_id } = eventResult.rows[0];
-
         const folder = `inkwell-ai/user_${userId}/books/${book_id}/uploads`;
         const imageUrl = await fileHostService.uploadImageBuffer(req.file.buffer, folder);
 

@@ -369,11 +369,14 @@ export const finalizePdfPageCount = async (filePath, productConfig, currentConte
 
 // --- MODIFIED FUNCTION #2 ---
 // This function is completely rebuilt to create the exact 24-page structure.
+// in src/services/pdf.service.js
+
 export const generateAndSavePictureBookPdf = async (book, productConfig) => {
     return new Promise(async (resolve, reject) => {
         try {
             const dims = getProductDimensions(productConfig.id);
-            const authorName = book.story_bible?.character?.name || 'An Inkwell Author';
+            // --- FIX: Use the correct author name from the book object ---
+            const authorName = book.author || 'An Inkwell Author';
 
             const doc = new PDFDocument({
                 size: [dims.pageWidth, dims.pageHeight],
@@ -393,22 +396,22 @@ export const generateAndSavePictureBookPdf = async (book, productConfig) => {
 
             // Page 2: Title Page
             doc.addPage();
-            doc.font(ROBOTO_BOLD_PATH).fontSize(32).fillColor('black')
+            doc.font(ROBOT_BOLD_PATH).fontSize(32).fillColor('black')
                .text(book.title, 0, dims.pageHeight / 3, { 
                    align: 'center',
                    width: dims.pageWidth 
                 });
             doc.moveDown(1);
-            doc.font(ROBOTO_REGULAR_PATH).fontSize(18).fillColor('black')
+            doc.font(ROBOT_REGULAR_PATH).fontSize(18).fillColor('black')
                .text(`By ${authorName}`, {
                    align: 'center',
                    width: dims.pageWidth
                });
-            doc.font(ROBOTO_REGULAR_PATH).fontSize(10).fillColor('grey')
-                .text('Made with inkwell.net.au', 0, dims.pageHeight - 50, {
-                    align: 'center',
-                    width: dims.pageWidth
-                });
+            doc.font(ROBOT_REGULAR_PATH).fontSize(10).fillColor('grey')
+               .text('Made with inkwell.net.au', 0, dims.pageHeight - 50, {
+                   align: 'center',
+                   width: dims.pageWidth
+               });
             
             // Pages 3-22: Story Content
             if (book.timeline && book.timeline.length > 0) {
@@ -467,22 +470,22 @@ export const generateAndSavePictureBookPdf = async (book, productConfig) => {
 
             // Page 23: 'The End' Page
             doc.addPage();
-            doc.font(ROBOTO_BOLD_PATH).fontSize(18).fillColor('black')
+            doc.font(ROBOT_BOLD_PATH).fontSize(18).fillColor('black')
                .text(book.title, 0, dims.pageHeight / 4, {
                    align: 'center',
                    width: dims.pageWidth
                });
-            doc.font(ROBOTO_BOLD_PATH).fontSize(48).fillColor('black')
+            doc.font(ROBOT_BOLD_PATH).fontSize(48).fillColor('black')
                .text('The End', 0, dims.pageHeight / 2 - 50, {
                    align: 'center',
                    width: dims.pageWidth
                });
-            doc.font(ROBOTO_REGULAR_PATH).fontSize(14).fillColor('black')
+            doc.font(ROBOT_REGULAR_PATH).fontSize(14).fillColor('black')
                .text(authorName, 0, dims.pageHeight / 2 + 20, {
                    align: 'center',
                    width: dims.pageWidth
                });
-            doc.font(ROBOTO_REGULAR_PATH).fontSize(10).fillColor('grey')
+            doc.font(ROBOT_REGULAR_PATH).fontSize(10).fillColor('grey')
                .text('inkwell.net.au', 0, dims.pageHeight - 50, {
                    align: 'center',
                    width: dims.pageWidth
@@ -490,7 +493,7 @@ export const generateAndSavePictureBookPdf = async (book, productConfig) => {
 
             // Page 24: Branded Blank Page
             doc.addPage();
-            doc.font(ROBOTO_REGULAR_PATH).fontSize(10).fillColor('grey')
+            doc.font(ROBOT_REGULAR_PATH).fontSize(10).fillColor('grey')
                .text('inkwell.net.au', 0, dims.pageHeight - 50, {
                    align: 'center',
                    width: dims.pageWidth

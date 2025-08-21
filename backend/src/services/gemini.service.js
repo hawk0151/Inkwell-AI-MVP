@@ -374,3 +374,80 @@ export const generateStoryFromApi = async (promptDetails, guidance = '', safetyS
 
     return chapterText.trim();
 };
+/**
+ * Takes a user's picture book character description and distills it into
+ * clean, visual-only keywords for an image generation model.
+ * @param {string} description The raw character description from the user.
+ * @returns {Promise<string>} A comma-separated string of visual keywords.
+ */
+export const getVisualKeywordsFromDescription = async (description) => {
+    console.log(`[Gemini] Distilling visual keywords for picture book character...`);
+    const masterPrompt = `
+        You are an expert prompt engineer's assistant for children's book illustrations.
+        Analyze the following character description and extract ONLY the key visual, physical attributes.
+        - IGNORE non-visual traits (like personality, conditions, names, or feelings).
+        - CONVERT possessions into actions (e.g., "loves his teddy bear" becomes "holding a one-eyed teddy bear").
+        - The output MUST be a clean, comma-separated list of keywords suitable for an AI image generator.
+        - DO NOT use any conversational text or labels.
+
+        Example Input: "Leo is a brave 5-year-old lion cub with a fluffy mane and a scar over his left eye. He is adventurous and kind."
+        Example Output: 5-year-old lion cub, fluffy mane, scar over left eye
+
+        User's Description: "${description}"
+
+        Keywords:
+    `.trim();
+
+    try {
+        // We use the general-purpose callGeminiAPI function you already have.
+        const keywords = await callGeminiAPI(masterPrompt);
+        const cleanedKeywords = keywords.replace(/Keywords:/gi, '').trim();
+        console.log(`[Gemini] ✅ Distilled keywords: ${cleanedKeywords}`);
+        return cleanedKeywords;
+    } catch (error) {
+        console.error("[Gemini] Error distilling keywords:", error);
+        // Fallback to the original description if Gemini fails, so the app doesn't crash.
+        return description; 
+    }
+};
+
+/**
+ * Transforms a user's description into a highly detailed and structured prompt,
+ * dynamically incorporating the user's selected art style.
+ * @param {string} description The raw character description from the user.
+ * @param {string} artStyle The user's selected art style (e.g., 'digital-art').
+ * @returns {Promise<string>} A detailed, style-aware prompt for Stability AI.
+ */
+export const createStyleAwareStabilityPrompt = async (description, artStyle) => {
+    console.log(`[Gemini] Creating style-aware Stability AI prompt with style: ${artStyle}...`);
+    const masterPrompt = `
+        You are an expert AI prompt engineer for a children's book illustrator.
+        Your task is to convert a simple user description into a detailed, powerful, and structured prompt for the Stability AI model, strictly adhering to a specific art style.
+
+        **User's Description:** "${description}"
+        **Required Art Style:** "${artStyle}"
+
+        **Instructions:**
+        1.  Create a prompt that is a single block of text with concepts separated by commas.
+        2.  The prompt's primary focus MUST be the specified **Art Style**.
+        3.  It MUST describe a 'character design sheet' or 'concept art' of a single, solo character on a plain white background.
+        4.  It must incorporate all key visual details from the user's description.
+        5.  DO NOT use photorealistic, 8k, or cinematic keywords. The style must match the user's selection.
+
+        **Example for artStyle='anime'**: "anime character design sheet, concept art, of a 3-year-old boy with brown hair and blue eyes, solo character, full body portrait, plain white background, clean line art, cell shading."
+
+        **Example for artStyle='fantasy-art'**: "fantasy art character concept sheet, of a 3-year-old boy with brown hair and blue eyes, full body portrait, plain white background, painterly style, detailed."
+
+        Now, create the perfect prompt based on the user's description and the required art style.
+    `.trim();
+
+    try {
+        const stabilityPrompt = await callGeminiAPI(masterPrompt);
+        console.log(`[Gemini] ✅ Created new style-aware Stability AI prompt.`);
+        return stabilityPrompt.replace(/\s+/g, ' ').trim();
+    } catch (error) {
+        console.error("[Gemini] Error creating style-aware Stability AI prompt:", error);
+        // Fallback to a basic prompt structure if Gemini fails
+        return `character sheet, in the style of ${artStyle}, concept art of ${description}, full body portrait, plain white background.`;
+    }
+};

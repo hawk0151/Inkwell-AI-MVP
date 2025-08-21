@@ -18,86 +18,117 @@ const createWebAndPrintVersion = async (inputBuffer) => {
         .toBuffer();
 };
 
-export const generateImageFromApi = async (prompt, style_preset) => {
-    const apiKey = process.env.STABILITY_API_KEY;
+const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+export const generateImageFromApi = async (prompt, style_preset, negativePrompt, seed) => {
+    const apiKey = process.env.STABILITY_API_KEY; 
     if (!apiKey) {
         throw new Error("Stability AI API key is not configured.");
     }
 
     const apiUrl = `https://api.stability.ai/v2beta/stable-image/generate/core`;
-    
-    const fullPrompt = `${prompt}, children's book illustration, whimsical, charming, vibrant colors, clean lines, centered composition, simple background`;
-    const negativePrompt = "photorealistic, 3d, dark, scary, ugly, blurry, noisy, text, watermark, signature";
+    const finalNegativePrompt = negativePrompt || "photorealistic, 3d, dark, scary, ugly, blurry, noisy, text, watermark, signature";
+    const MAX_RETRIES = 3;
 
-    try {
-        const formData = new FormData();
-        formData.append('prompt', fullPrompt);
-        formData.append('negative_prompt', negativePrompt);
-        formData.append('output_format', 'png');
-        
-        formData.append('width', 2625);
-        formData.append('height', 2625);
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+        try {
+            const formData = new FormData();
+            
+            // --- FIX: Use the new required format for prompts ---
+            formData.append('prompt', prompt);
+            formData.append('negative_prompt', finalNegativePrompt);
+            // --- END FIX ---
 
-        if (style_preset) {
-            formData.append('style_preset', style_preset);
-            console.log(`[Stability AI] Using style_preset: ${style_preset}`);
+            formData.append('output_format', 'png');
+            formData.append('width', 1024);
+            formData.append('height', 1024);
+            
+            if (seed !== undefined) {
+                formData.append('seed', seed);
+            }
+
+            if (style_preset) {
+                formData.append('style_preset', style_preset);
+                console.log(`[Stability AI] Using style_preset: ${style_preset}`);
+            }
+
+            console.log(`[Stability AI] Sending request (Attempt ${attempt}/${MAX_RETRIES})...`);
+
+            const response = await axios.post(apiUrl, formData, {
+                headers: { ...formData.getHeaders(), Authorization: `Bearer ${apiKey}`, Accept: 'image/*' },
+                responseType: 'arraybuffer',
+                timeout: 300000 
+            });
+            
+            console.log('[Stability AI] ✅ Request successful, received image data.');
+            return Buffer.from(response.data);
+
+        } catch (error) {
+            console.error(`❌ [Stability AI] Attempt ${attempt} failed.`);
+            const errorMessage = error.response ? Buffer.from(error.response.data).toString() : error.message;
+            console.error('Error details from Stability AI API:', errorMessage);
+
+            if (attempt === MAX_RETRIES) {
+                console.error(`[Stability AI] All ${MAX_RETRIES} attempts failed. Giving up.`);
+                throw new Error(`An error occurred while generating the image.`);
+            }
+
+            console.log(`[Stability AI] Waiting 5 seconds before retrying...`);
+            await delay(5000);
         }
-
-        const response = await axios.post(apiUrl, formData, {
-            headers: { ...formData.getHeaders(), Authorization: `Bearer ${apiKey}`, Accept: 'image/*' },
-            responseType: 'arraybuffer',
-            timeout: 60000
-        });
-        
-        console.log(`[Stability AI Generation] ✅ Master image generated successfully.`);
-        return Buffer.from(response.data);
-
-    } catch (error) {
-        const errorMessage = error.response ? Buffer.from(error.response.data).toString() : error.message;
-        console.error('Error calling Stability AI API (text-to-image):', errorMessage);
-        throw new Error(`An error occurred while generating the image.`);
     }
 };
 
+// in src/services/image.service.js
+
 export const generateImageFromReference = async (options) => {
-    const {
+    let {
         referenceImageUrl,
         prompt,
         style,
         bookId,
         pageNumber,
-        characterFeatures = 'As shown in the reference image.',
-        mood = 'As described in the scene.',
-        composition = 'dynamic and interesting',
         seed = 0
     } = options;
 
     const apiKey = process.env.STABILITY_API_KEY;
     if (!apiKey) throw new Error("Stability AI API key is not configured.");
     
+    // --- FIX: Reverted to the /core endpoint which supports custom dimensions ---
     const apiUrl = `https://api.stability.ai/v2beta/stable-image/generate/core`;
     
-    try {
-        console.log(`[Style Reference] Downloading reference image from ${referenceImageUrl}`);
-        const imageResponse = await axios.get(referenceImageUrl, { responseType: 'arraybuffer' });
-        const imageBuffer = Buffer.from(imageResponse.data);
+    if (style === 'watercolor') {
+        style = 'digital-art';
+    }
 
+    try {
         const formData = new FormData();
-        
-        const fullPrompt = `
-A beautiful and charming children's book illustration. The main character MUST be rendered to be EXACTLY THE SAME as the character in the reference image.
-The character is ${prompt}. The mood is ${mood}. The camera shot is a ${composition} view.
-`.trim();
+        let finalPrompt = prompt;
+
+        if (prompt.toLowerCase().includes('[no character]')) {
+            console.log('[Style Reference] Scenery-only mode detected. Ignoring character reference image.');
+            finalPrompt = prompt.replace(/\[no character\]/gi, '').trim();
+            formData.append('prompt', finalPrompt);
+        } else {
+            console.log(`[Style Reference] Downloading reference image from ${referenceImageUrl}`);
+            const imageResponse = await axios.get(referenceImageUrl, { responseType: 'arraybuffer' });
+            const imageBuffer = Buffer.from(imageResponse.data);
+            formData.append('style_image', imageBuffer);
+
+            finalPrompt = `
+                A beautiful and charming children's book illustration. The main character MUST be rendered to be EXACTLY THE SAME as the character in the reference image.
+                The character is ${prompt}. The mood is 'as described in the scene'. The camera shot is a 'dynamic and interesting' view.
+            `.trim();
+            formData.append('prompt', finalPrompt);
+        }
 
         const negativePrompt = 'photorealistic, 3d, text, words, watermark, signature, ugly, deformed, blurry, noisy, multiple characters, grainy, pixelated';
 
-        formData.append('prompt', fullPrompt);
         formData.append('negative_prompt', negativePrompt);
-        formData.append('style_image', imageBuffer);
-        formData.append('style_strength', 60);
         formData.append('seed', seed);
         formData.append('output_format', 'png');
-
+        
+        // --- KEPT YOUR REQUIRED DIMENSIONS FOR LULU ---
         formData.append('width', 2625);
         formData.append('height', 2625);
 
@@ -106,23 +137,17 @@ The character is ${prompt}. The mood is ${mood}. The camera shot is a ${composit
             console.log(`[Stability AI] Using style_preset: ${style} from book's story bible.`);
         }
 
-        console.log(`[Style Reference] Generating image for page ${pageNumber} with new master prompt...`);
+        console.log(`[Style Reference] Generating image for page ${pageNumber}...`);
         const generationResponse = await axios.post(apiUrl, formData, {
-            headers: {
-                ...formData.getHeaders(),
-                'Authorization': `Bearer ${apiKey}`,
-                'Accept': 'image/*'
-            },
+            headers: { ...formData.getHeaders(), 'Authorization': `Bearer ${apiKey}`, 'Accept': 'image/*' },
             responseType: 'arraybuffer',
-            timeout: 90000
+            timeout: 300000
         });
 
         const masterImageBuffer = Buffer.from(generationResponse.data);
-        
         const optimizedImageBuffer = await createWebAndPrintVersion(masterImageBuffer);
         const printFolder = `inkwell-ai/user_books/${bookId}/print`;
         const imageName = `page_${pageNumber}`;
-        
         const imageUrl = await uploadImageToCloudinary(optimizedImageBuffer, printFolder, imageName);
         
         console.log(`[Style Reference] ✅ Image uploaded successfully for page ${pageNumber}.`);
