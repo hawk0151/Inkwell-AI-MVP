@@ -1,14 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { LoadingSpinner } from './common';
 import { PhotoIcon, SparklesIcon, ArrowUturnLeftIcon } from '@heroicons/react/24/solid';
-import * as HeroIcons from '@heroicons/react/24/solid'; // import all icons
+import * as HeroIcons from '@heroicons/react/24/solid';
 
-// Version-safe Wand icon with robust fallback
 const WandIconSafe =
   HeroIcons.WandIcon ||
   HeroIcons.WandMagicSparklesIcon ||
   HeroIcons.MagicWandIcon ||
-  (() => <div className="h-5 w-5 bg-red-500 inline-block" />); // dummy fallback
+  (() => <div className="h-5 w-5 bg-red-500 inline-block" />);
 
 import { motion, AnimatePresence } from 'framer-motion';
 import toast from 'react-hot-toast';
@@ -18,15 +17,27 @@ function ImageEditor({ bookId, currentEvent, onImageUpdate, timeline, onGenerate
     
     const [prompt, setPrompt] = useState(currentEvent?.image_prompt || '');
     const [previousPrompt, setPreviousPrompt] = useState(null);
-    const [overlayText, setOverlayText] = useState(currentEvent?.overlay_text || '');
+    const [storyText, setStoryText] = useState(currentEvent?.story_text || '');
     const [selectedFile, setSelectedFile] = useState(null);
     const [isUploading, setIsUploading] = useState(false);
     const [isImproving, setIsImproving] = useState(false);
+    // --- NEW: State for our scenery-only checkbox ---
+    const [isSceneryOnly, setIsSceneryOnly] = useState(false);
 
     useEffect(() => {
-        setPrompt(currentEvent?.image_prompt || '');
-        setOverlayText(currentEvent?.overlay_text || '');
+        const initialPrompt = currentEvent?.image_prompt || '';
+        // When the page changes, check if the prompt includes the tag
+        if (initialPrompt.toLowerCase().includes('[no character]')) {
+            setIsSceneryOnly(true);
+            setPrompt(initialPrompt.replace(/\[no character\]/gi, '').trim());
+        } else {
+            setIsSceneryOnly(false);
+            setPrompt(initialPrompt);
+        }
+
+        setStoryText(currentEvent?.story_text || '');
         setPreviousPrompt(null);
+        setSelectedFile(null);
     }, [currentEvent]);
 
     const handleGenerateClick = () => {
@@ -38,7 +49,14 @@ function ImageEditor({ bookId, currentEvent, onImageUpdate, timeline, onGenerate
             toast.error("Please write an Image Description before generating.");
             return;
         }
-        onGenerate(currentEvent.page_number, prompt);
+        
+        // --- NEW: Conditionally add the [no character] tag ---
+        let finalPrompt = prompt;
+        if (isSceneryOnly) {
+            finalPrompt = `[no character] ${prompt}`;
+        }
+        
+        onGenerate(currentEvent.page_number, finalPrompt);
     };
 
     const handleImprovePrompt = async () => {
@@ -80,39 +98,38 @@ function ImageEditor({ bookId, currentEvent, onImageUpdate, timeline, onGenerate
         const file = event.target.files[0];
         if (file && file.size > 2 * 1024 * 1024) {
             toast.error("File size cannot exceed 2MB.");
-            setSelectedFile(null);
             return;
         }
-        setSelectedFile(file);
+        setSelectedFile({ file: file, eventId: currentEvent.id });
     };
+const handleUploadImage = async () => {
+    if (!selectedFile || !selectedFile.file || !selectedFile.eventId) {
+        toast.error("Please choose a file to upload.");
+        return;
+    }
+    
+    setIsUploading(true);
+    const toastId = toast.loading('Uploading your image...');
+    
+    try {
+        const formData = new FormData();
+        formData.append('image', selectedFile.file);
 
-    const handleUploadImage = async () => {
-        if (!selectedFile) {
-            toast.error("Please choose a file to upload.");
-            return;
-        }
-        
-        setIsUploading(true);
-        const toastId = toast.loading('Uploading your image...');
-        
-        try {
-            const formData = new FormData();
-            formData.append('image', selectedFile);
+        // --- FIX: The URL now correctly points to the 'events' endpoint ---
+        const response = await apiClient.post(`/picture-books/events/${selectedFile.eventId}/upload-image`, formData, {
+            headers: { 'Content-Type': 'multipart/form-data' }
+        });
 
-            const response = await apiClient.post(`/picture-books/events/${currentEvent.id}/upload-image`, formData, {
-                headers: { 'Content-Type': 'multipart/form-data' }
-            });
-
-            onImageUpdate(timeline.indexOf(currentEvent), 'uploaded_image_url', response.data.imageUrl);
-            toast.success('Image uploaded successfully!', { id: toastId });
-            setSelectedFile(null);
-        } catch (error) {
-            console.error('Error uploading image:', error);
-            toast.error(error.response?.data?.message || 'Failed to upload image.', { id: toastId });
-        } finally {
-            setIsUploading(false);
-        }
-    };
+        onImageUpdate(timeline.indexOf(currentEvent), 'uploaded_image_url', response.data.imageUrl);
+        toast.success('Image uploaded successfully!', { id: toastId });
+        setSelectedFile(null);
+    } catch (error) {
+        console.error('Error uploading image:', error);
+        toast.error(error.response?.data?.message || 'Failed to upload image.', { id: toastId });
+    } finally {
+        setIsUploading(false);
+    }
+};
     
     const imageUrl = currentEvent?.image_url || currentEvent?.uploaded_image_url;
 
@@ -145,14 +162,32 @@ function ImageEditor({ bookId, currentEvent, onImageUpdate, timeline, onGenerate
                     <label htmlFor="storyText" className="block text-sm font-medium text-slate-300 mb-2">Story Text for Page {currentEvent?.page_number}</label>
                     <textarea
                         id="storyText"
-                        readOnly
-                        value={currentEvent?.story_text || ''}
-                        className="w-full px-4 py-3 rounded-lg bg-slate-900 border border-slate-700 text-slate-300 min-h-[100px] cursor-not-allowed"
+                        value={storyText}
+                        onChange={(e) => {
+                            setStoryText(e.target.value);
+                            onImageUpdate(timeline.indexOf(currentEvent), 'story_text', e.target.value);
+                        }}
+                        className="w-full px-4 py-3 rounded-lg bg-slate-700 border border-slate-600 text-white min-h-[100px] focus:outline-none focus:ring-2 focus:ring-indigo-500"
                     />
                 </div>
 
                 <div>
-                    <label htmlFor="imagePrompt" className="block text-sm font-medium text-slate-300 mb-2">Image Description (Editable)</label>
+                    <div className="flex justify-between items-center mb-2">
+                        <label htmlFor="imagePrompt" className="block text-sm font-medium text-slate-300">Image Description (Editable)</label>
+                        {/* --- NEW: Scenery-only checkbox --- */}
+                        <div className="flex items-center">
+                            <input
+                                id="scenery-only"
+                                type="checkbox"
+                                checked={isSceneryOnly}
+                                onChange={(e) => setIsSceneryOnly(e.target.checked)}
+                                className="h-4 w-4 rounded border-slate-500 bg-slate-700 text-indigo-600 focus:ring-indigo-500"
+                            />
+                            <label htmlFor="scenery-only" className="ml-2 block text-sm text-slate-300">
+                                No Character - Scenery Only
+                            </label>
+                        </div>
+                    </div>
                     <textarea
                         id="imagePrompt"
                         value={prompt}

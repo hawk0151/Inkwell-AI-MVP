@@ -1,10 +1,12 @@
 // frontend/src/components/feed/BookCard.jsx
 import React, { useState } from 'react';
-import { LikeButton } from './LikeButton.jsx';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import apiClient from '@/services/apiClient.js';
 import { useAuth } from '@/contexts/AuthContext.jsx';
+import { LikeButton } from './LikeButton.jsx';
+import { CommentButton } from './CommentButton.jsx';
 
 // --- Local assets (Option 1) ---
 import p1 from '@/assets/p1.png';
@@ -16,312 +18,296 @@ const ASSET_MAP = { p1, p2, p3, p4 };
 const ASSET_KEYS = ['cover_key', 'coverKey', 'cover', 'cover_asset', 'asset_cover', 'imageKey'];
 const DEFAULT_ASSET = p1;
 
-// Prefer an explicit local asset key (p1–p4). If none, use a stable deterministic pick.
-// Only then consider remote cover_image_url. Always onError -> DEFAULT_ASSET.
 function resolveCoverSrc(book) {
-  // 1) Explicit local asset key takes priority (any of several field names).
-  for (const k of ASSET_KEYS) {
-    const val = book?.[k];
-    if (typeof val === 'string' && ASSET_MAP[val]) return ASSET_MAP[val];
-  }
-
-  // 2) If no explicit key, try remote URL if present & non-empty.
-  if (book?.cover_image_url && typeof book.cover_image_url === 'string' && book.cover_image_url.trim().length > 0) {
-    return book.cover_image_url.trim();
-  }
-
-  // 3) Deterministic local fallback by id so cards don’t shuffle on re-render.
-  const keys = Object.keys(ASSET_MAP); // ["p1","p2","p3","p4"]
-  let idx = 0;
-  if (book?.id != null) {
-    const s = String(book.id);
-    idx = [...s].reduce((a, c) => a + c.charCodeAt(0), 0) % keys.length;
-  }
-  return ASSET_MAP[keys[idx]] || DEFAULT_ASSET;
+    for (const k of ASSET_KEYS) {
+        const val = book?.[k];
+        if (typeof val === 'string' && ASSET_MAP[val]) return ASSET_MAP[val];
+    }
+    if (book?.cover_image_url && typeof book.cover_image_url === 'string' && book.cover_image_url.trim().length > 0) {
+        return book.cover_image_url.trim();
+    }
+    const keys = Object.keys(ASSET_MAP);
+    let idx = 0;
+    if (book?.id != null) {
+        const s = String(book.id);
+        idx = [...s].reduce((a, c) => a + c.charCodeAt(0), 0) % keys.length;
+    }
+    return ASSET_MAP[keys[idx]] || DEFAULT_ASSET;
 }
 
-const MessageCircleIcon = () => (
-  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"
-       viewBox="0 0 24 24" fill="none" stroke="currentColor"
-       strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/>
-  </svg>
-);
-
 const XIcon = () => (
-  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"
-       viewBox="0 0 24 24" fill="none" stroke="currentColor"
-       strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <line x1="18" y1="6" x2="6" y2="18"></line>
-    <line x1="6" y1="6" x2="18" y2="18"></line>
-  </svg>
+    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <line x1="18" y1="6" x2="6" y2="18"></line>
+        <line x1="6" y1="6" x2="18" y2="18"></line>
+    </svg>
 );
 
 const SendIcon = () => (
-  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"
-       viewBox="0 0 24 24" fill="none" stroke="currentColor"
-       strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M22 2 11 13M22 2l-7 20-4-9-9-4 20-7Z"/>
-  </svg>
+    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M22 2 11 13M22 2l-7 20-4-9-9-4 20-7Z"/>
+    </svg>
 );
 
 const TrashIcon = () => (
-  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"
-       viewBox="0 0 24 24" fill="none" stroke="currentColor"
-       strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M3 6h18"/>
-    <path d="M19 6v14c0 1.1-.9 2-2 2H7c-1.1 0-2-.9-2-2V6"/>
-    <path d="M8 6V4c0-1.1.9-2 2-2h4c1.1 0 2 .9 2 2v2"/>
-  </svg>
+    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M3 6h18"/>
+        <path d="M19 6v14c0 1.1-.9 2-2 2H7c-1.1 0-2-.9-2-2V6"/>
+        <path d="M8 6V4c0-1.1.9-2 2-2h4c1.1 0 2 .9 2 2v2"/>
+    </svg>
 );
 
 const BookPreviewModal = ({ book, onClose }) => {
-  const navigate = useNavigate();
-  const { currentUser } = useAuth();
-  const queryClient = useQueryClient();
-  const [newCommentText, setNewCommentText] = useState('');
+    const navigate = useNavigate();
+    const { currentUser } = useAuth();
+    const queryClient = useQueryClient();
+    const [newCommentText, setNewCommentText] = useState('');
 
-  // Fetch comments for the book
-  const { data: comments, isLoading: isLoadingComments, error: commentsError } = useQuery({
-    queryKey: ['comments', book.id, book.book_type],
-    queryFn: async () => {
-      const { data } = await apiClient.get(`/social/comments/${book.book_type}/${book.id}`);
-      return data;
-    },
-    enabled: !!book.id && !!book.book_type,
-  });
+    const { data: comments, isLoading: isLoadingComments, error: commentsError } = useQuery({
+        queryKey: ['comments', book.id, book.book_type],
+        queryFn: async () => {
+            const { data } = await apiClient.get(`/social/comments/${book.book_type}/${book.id}`);
+            return data;
+        },
+        enabled: !!book.id && !!book.book_type,
+    });
 
-  // Mutation for adding a new comment
-  const addCommentMutation = useMutation({
-    mutationFn: async (comment) => {
-      await apiClient.post('/social/comment', {
-        bookId: book.id,
-        bookType: book.book_type,
-        commentText: comment
-      });
-    },
-    onSuccess: () => {
-      setNewCommentText('');
-      queryClient.invalidateQueries({ queryKey: ['comments', book.id, book.book_type] });
-      queryClient.invalidateQueries({ queryKey: ['forYouFeed'] });
-      queryClient.invalidateQueries({ queryKey: ['userProfile', book.author_username] });
-    },
-    onError: (err) => {
-      console.error('Failed to add comment:', err);
-      alert(`Failed to add comment: ${err.response?.data?.message || err.message}`);
-    },
-  });
+    const addCommentMutation = useMutation({
+        mutationFn: async (comment) => {
+            await apiClient.post('/social/comment', {
+                bookId: book.id,
+                bookType: book.book_type,
+                commentText: comment
+            });
+        },
+        onSuccess: () => {
+            setNewCommentText('');
+            queryClient.invalidateQueries({ queryKey: ['comments', book.id, book.book_type] });
+            queryClient.invalidateQueries({ queryKey: ['forYouFeed'] });
+            queryClient.invalidateQueries({ queryKey: ['userProfile', book.author_username] });
+        },
+        onError: (err) => {
+            console.error('Failed to add comment:', err);
+            alert(`Failed to add comment: ${err.response?.data?.message || err.message}`);
+        },
+    });
 
-  // Mutation for deleting a comment
-  const deleteCommentMutation = useMutation({
-    mutationFn: async ({ commentId, bookId, bookType }) => {
-      await apiClient.delete(`/social/comment/${bookType}/${bookId}/${commentId}`);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['comments', book.id, book.book_type] });
-      queryClient.invalidateQueries({ queryKey: ['forYouFeed'] });
-      queryClient.invalidateQueries({ queryKey: ['userProfile', book.author_username] });
-    },
-    onError: (err) => {
-      console.error('Failed to delete comment:', err);
-      alert(`Failed to delete comment: ${err.response?.data?.message || err.message}`);
-    },
-  });
+    const deleteCommentMutation = useMutation({
+        mutationFn: async ({ commentId, bookId, bookType }) => {
+            await apiClient.delete(`/social/comment/${bookType}/${bookId}/${commentId}`);
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['comments', book.id, book.book_type] });
+            queryClient.invalidateQueries({ queryKey: ['forYouFeed'] });
+            queryClient.invalidateQueries({ queryKey: ['userProfile', book.author_username] });
+        },
+        onError: (err) => {
+            console.error('Failed to delete comment:', err);
+            alert(`Failed to delete comment: ${err.response?.data?.message || err.message}`);
+        },
+    });
 
-  const handleAddComment = (e) => {
-    e.preventDefault();
-    if (!currentUser) {
-      alert("Please log in to add comments.");
-      return;
-    }
-    if (newCommentText.trim()) {
-      addCommentMutation.mutate(newCommentText);
-    }
-  };
+    const handleAddComment = (e) => {
+        e.preventDefault();
+        if (!currentUser) {
+            alert("Please log in to add comments.");
+            return;
+        }
+        if (newCommentText.trim()) {
+            addCommentMutation.mutate(newCommentText);
+        }
+    };
 
-  const handleDeleteComment = (commentId) => {
-    if (window.confirm("Are you sure you want to delete this comment?")) {
-      deleteCommentMutation.mutate({ commentId, bookId: book.id, bookType: book.book_type });
-    }
-  };
+    const handleDeleteComment = (commentId) => {
+        if (window.confirm("Are you sure you want to delete this comment?")) {
+            deleteCommentMutation.mutate({ commentId, bookId: book.id, bookType: book.book_type });
+        }
+    };
 
-  const goToProfile = (e) => {
-    e.stopPropagation();
-    onClose();
-    navigate(`/profile/${book.author_username}`);
-  };
+    const goToProfile = (e) => {
+        e.stopPropagation();
+        onClose();
+        navigate(`/profile/${book.author_username}`);
+    };
 
-  const goToFullBook = (e) => {
-    e.stopPropagation();
-    onClose();
-    const path = book.type === 'pictureBook' ? `/project/${book.id}` : `/novel`;
-    navigate(path, { state: { bookId: book.id } });
-  };
+    const goToFullBook = (e) => {
+        e.stopPropagation();
+        onClose();
+        const path = book.book_type === 'pictureBook' ? `/project/${book.id}` : `/novel/${book.id}`;
+        navigate(path);
+    };
 
-  const modalCoverSrc = resolveCoverSrc(book);
+    const modalCoverSrc = resolveCoverSrc(book);
 
-  return (
-    <div
-      className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex justify-center items-center p-4"
-      onClick={onClose}
-    >
-      <div
-        className="bg-slate-900 border border-slate-700 rounded-lg w-full max-w-4xl max-h-[90vh] flex flex-col md:flex-row overflow-hidden"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Cover image (modal) */}
-        <img
-          src={modalCoverSrc}
-          alt={`Cover for ${book.title}`}
-          className="w-full h-full object-cover"
-          onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = DEFAULT_ASSET; }}
-        />
-        <div className="p-6 flex flex-col flex-1 overflow-y-auto">
-          <div className="flex justify-between items-start">
-            <div>
-              <h2 className="text-2xl font-bold text-white">{book.title}</h2>
-              <button onClick={goToProfile} className="text-md text-slate-400 hover:text-indigo-400">
-                by @{book.author_username}
-              </button>
-            </div>
-            <button onClick={onClose} className="text-slate-400 hover:text-white">
-              <XIcon />
-            </button>
-          </div>
-          <p className="text-slate-300 mt-4 flex-grow">
-            {book.description || "No description available."}
-          </p>
-
-          {/* Comments Section */}
-          <div className="mt-6 border-t border-slate-700 pt-4">
-            <h3 className="text-xl font-semibold text-white mb-3">Comments ({book.comment_count || 0})</h3>
-            <div className="space-y-3 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
-              {isLoadingComments ? (
-                <p className="text-slate-400">Loading comments...</p>
-              ) : commentsError ? (
-                <p className="text-red-400">Failed to load comments.</p>
-              ) : comments && comments.length > 0 ? (
-                comments.map((comment) => (
-                  <div key={comment.id} className="bg-slate-800 p-3 rounded-lg text-sm flex justify-between items-start">
-                    <div>
-                      <p className="font-semibold text-white">{comment.username}</p>
-                      <p className="text-slate-300">{comment.comment_text}</p>
-                      <p className="text-xs text-slate-500 mt-1">
-                        {new Date(comment.created_at).toLocaleString()}
-                      </p>
-                    </div>
-                    {currentUser && currentUser.uid === comment.user_id && (
-                      <button
-                        onClick={() => handleDeleteComment(comment.id)}
-                        className="text-slate-500 hover:text-red-500 transition-colors ml-2 p-1 rounded-full hover:bg-slate-700"
-                        disabled={deleteCommentMutation.isPending}
-                        title="Delete comment"
-                      >
-                        <TrashIcon />
-                      </button>
-                    )}
-                  </div>
-                ))
-              ) : (
-                <p className="text-slate-400">No comments yet. Be the first to comment!</p>
-              )}
-            </div>
-
-            {currentUser && (
-              <form onSubmit={handleAddComment} className="mt-4 flex gap-2">
-                <input
-                  type="text"
-                  value={newCommentText}
-                  onChange={(e) => setNewCommentText(e.target.value)}
-                  placeholder="Add a comment..."
-                  className="flex-grow p-2 rounded-md bg-slate-700 border border-slate-600 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  disabled={addCommentMutation.isPending}
+    return (
+        <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex justify-center items-center p-4"
+            onClick={onClose}
+        >
+            <motion.div
+                initial={{ scale: 0.9, y: 50 }}
+                animate={{ scale: 1, y: 0 }}
+                exit={{ scale: 0.9, y: 50 }}
+                transition={{ type: "spring", damping: 25, stiffness: 400 }}
+                className="bg-slate-900 border border-slate-700 rounded-lg w-full max-w-4xl max-h-[90vh] flex flex-col md:flex-row overflow-hidden"
+                onClick={(e) => e.stopPropagation()}
+            >
+                <img
+                    src={modalCoverSrc}
+                    alt={`Cover for ${book.title}`}
+                    className="w-full h-full object-cover"
+                    onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = DEFAULT_ASSET; }}
                 />
-                <button
-                  type="submit"
-                  className="bg-indigo-600 hover:bg-indigo-700 text-white p-2 rounded-md transition disabled:bg-indigo-400"
-                  disabled={addCommentMutation.isPending || !newCommentText.trim()}
-                >
-                  {addCommentMutation.isPending ? 'Posting...' : <SendIcon />}
-                </button>
-              </form>
-            )}
-          </div>
+                <div className="p-6 flex flex-col flex-1 overflow-y-auto custom-scrollbar">
+                    <div className="flex justify-between items-start">
+                        <div>
+                            <h2 className="text-2xl font-bold text-white">{book.title}</h2>
+                            <button onClick={goToProfile} className="text-md text-slate-400 hover:text-indigo-400 transition-colors">
+                                by @{book.author_username}
+                            </button>
+                        </div>
+                        <button onClick={onClose} className="text-slate-400 hover:text-white transition-colors">
+                            <XIcon />
+                        </button>
+                    </div>
+                    <p className="text-slate-300 mt-4 flex-grow">
+                        {book.description || "No description available."}
+                    </p>
 
-          <div className="border-t border-slate-700 pt-4 mt-4 flex items-center justify-between text-slate-400">
-            <div className="flex items-center gap-4">
-              <LikeButton book={book} />
-              <div className="flex items-center gap-1.5">
-                <MessageCircleIcon />
-                <span className="text-sm font-medium">{book.comment_count || 0}</span>
-              </div>
-            </div>
-            <button onClick={goToFullBook} className="text-sm font-semibold text-indigo-400 hover:text-indigo-300">
-              View Full Book
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+                    <div className="mt-6 border-t border-slate-700 pt-4">
+                        <h3 className="text-xl font-semibold text-white mb-3">Comments ({book.comment_count || 0})</h3>
+                        <div className="space-y-3 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
+                            {isLoadingComments ? (
+                                <p className="text-slate-400">Loading comments...</p>
+                            ) : commentsError ? (
+                                <p className="text-red-400">Failed to load comments.</p>
+                            ) : comments && comments.length > 0 ? (
+                                comments.map((comment) => (
+                                    <div key={comment.id} className="bg-slate-800 p-3 rounded-lg text-sm flex justify-between items-start">
+                                        <div>
+                                            <p className="font-semibold text-white">{comment.username}</p>
+                                            <p className="text-slate-300">{comment.comment_text}</p>
+                                            <p className="text-xs text-slate-500 mt-1">
+                                                {new Date(comment.created_at).toLocaleString()}
+                                            </p>
+                                        </div>
+                                        {currentUser && currentUser.uid === comment.user_id && (
+                                            <button
+                                                onClick={() => handleDeleteComment(comment.id)}
+                                                className="text-slate-500 hover:text-red-500 transition-colors ml-2 p-1 rounded-full hover:bg-slate-700"
+                                                disabled={deleteCommentMutation.isPending}
+                                                title="Delete comment"
+                                            >
+                                                <TrashIcon />
+                                            </button>
+                                        )}
+                                    </div>
+                                ))
+                            ) : (
+                                <p className="text-slate-400">No comments yet. Be the first to comment!</p>
+                            )}
+                        </div>
+
+                        {currentUser && (
+                            <form onSubmit={handleAddComment} className="mt-4 flex gap-2">
+                                <input
+                                    type="text"
+                                    value={newCommentText}
+                                    onChange={(e) => setNewCommentText(e.target.value)}
+                                    placeholder="Add a comment..."
+                                    className="flex-grow p-2 rounded-md bg-slate-700 border border-slate-600 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                    disabled={addCommentMutation.isPending}
+                                />
+                                <button
+                                    type="submit"
+                                    className="bg-indigo-600 hover:bg-indigo-700 text-white p-2 rounded-md transition disabled:bg-indigo-400"
+                                    disabled={addCommentMutation.isPending || !newCommentText.trim()}
+                                >
+                                    {addCommentMutation.isPending ? 'Posting...' : <SendIcon />}
+                                </button>
+                            </form>
+                        )}
+                    </div>
+
+                    <div className="border-t border-slate-700 pt-4 mt-4 flex items-center justify-between text-slate-400">
+                        <div className="flex items-center gap-4">
+                            <LikeButton book={book} />
+                            <CommentButton book={book} onClick={() => {}} />
+                        </div>
+                        <button onClick={goToFullBook} className="text-sm font-semibold text-indigo-400 hover:text-indigo-300 transition-colors">
+                            View Full Book
+                        </button>
+                    </div>
+                </div>
+            </motion.div>
+        </motion.div>
+    );
 };
 
 export function BookCard({ book }) {
-  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+    const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+    const cardCoverSrc = resolveCoverSrc(book);
 
-  const cardCoverSrc = resolveCoverSrc(book);
-
-  return (
-    <>
-      <div
-        className="bg-slate-800/50 rounded-lg shadow-lg overflow-hidden flex flex-col group transition-all duration-300 hover:shadow-indigo-500/30 hover:scale-105 cursor-pointer"
-        onClick={() => setIsPreviewOpen(true)}
-      >
-        <div className="p-4 flex items-center gap-3">
-          <img
-            src={book.author_avatar_url || 'https://via.placeholder.com/40'}
-            alt={book.author_username}
-            className="w-10 h-10 rounded-full object-cover border-2 border-slate-700"
-          />
-          <div>
-            <p className="font-semibold text-white truncate group-hover:text-indigo-400">{book.title}</p>
-            <p className="text-sm text-slate-400">by @{book.author_username}</p>
-          </div>
-        </div>
-
-        <div className="w-full aspect-[3/4] bg-slate-700">
-          {/* Cover image (card) */}
-          <img
-            src={cardCoverSrc}
-            alt={`Cover for ${book.title}`}
-            className="w-full h-full object-cover"
-            onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = DEFAULT_ASSET; }}
-          />
-        </div>
-
-        <div className="p-4 mt-auto">
-          <div className="flex items-center justify-between text-slate-400">
-            <div className="flex items-center gap-4">
-              <LikeButton book={book} />
-              <button
-                className="flex items-center gap-1.5 hover:text-sky-500 transition-colors"
-                onClick={(e) => { e.stopPropagation(); setIsPreviewOpen(true); }}
-              >
-                <MessageCircleIcon />
-                <span className="text-sm font-medium">{book.comment_count || 0}</span>
-              </button>
-            </div>
-            <button
-              className="text-sm font-semibold text-indigo-400 hover:text-indigo-300"
-              onClick={(e) => { e.stopPropagation(); setIsPreviewOpen(true); }}
+    return (
+        <>
+            <motion.div
+                className="bg-slate-800/50 rounded-lg shadow-lg overflow-hidden flex flex-col group transition-all duration-300 hover:shadow-indigo-500/30 hover:scale-105"
+                whileHover={{ scale: 1.05 }}
+                transition={{ type: "spring", stiffness: 300, damping: 10 }}
             >
-              View
-            </button>
-          </div>
-        </div>
-      </div>
+                {/* TOP SECTION: Clickable Header  */}
+                <div
+                    className="p-4 flex items-center gap-3 cursor-pointer"
+                    onClick={() => setIsPreviewOpen(true)}
+                >
+                    <img
+                        src={book.author_avatar_url || 'https://via.placeholder.com/40'}
+                        alt={book.author_username}
+                        className="w-10 h-10 rounded-full object-cover border-2 border-slate-700"
+                    />
+                    <div>
+                        <p className="font-semibold text-white truncate group-hover:text-indigo-400">{book.title}</p>
+                        <p className="text-sm text-slate-400">by @{book.author_username}</p>
+                    </div>
+                </div>
 
-      {isPreviewOpen && <BookPreviewModal book={book} onClose={() => setIsPreviewOpen(false)} />}
-    </>
-  );
+                {/* MIDDLE SECTION: Clickable Image  */}
+                <div
+                    className="w-full aspect-[3/4] bg-slate-700 cursor-pointer"
+                    onClick={() => setIsPreviewOpen(true)}
+                >
+                    <img
+                        src={cardCoverSrc}
+                        alt={`Cover for ${book.title}`}
+                        className="w-full h-full object-cover"
+                        onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = DEFAULT_ASSET; }}
+                    />
+                </div>
+
+                {/* BOTTOM SECTION: Action Buttons (This is where the fix is!)  */}
+                <div className="p-4 mt-auto">
+                    <div className="flex items-center justify-between text-slate-400">
+                        {/* This div contains the like and comment buttons.  */}
+                        {/* This div does NOT have an onClick handler.  */}
+                        <div className="flex items-center gap-4">
+                            <LikeButton book={book} />
+                            <CommentButton book={book} onClick={() => setIsPreviewOpen(true)} />
+                        </div>
+                        <button
+                            className="text-sm font-semibold text-indigo-400 hover:text-indigo-300"
+                            onClick={(e) => { e.stopPropagation(); setIsPreviewOpen(true); }}
+                        >
+                            View
+                        </button>
+                    </div>
+                </div>
+            </motion.div>
+
+            <AnimatePresence>
+                {isPreviewOpen && <BookPreviewModal book={book} onClose={() => setIsPreviewOpen(false)} />}
+            </AnimatePresence>
+        </>
+    );
 }

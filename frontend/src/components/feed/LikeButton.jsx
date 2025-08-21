@@ -5,11 +5,25 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import apiClient from '@/services/apiClient.js';
 
 // --- API Service Functions using apiClient ---
-// MODIFIED: Removed the redundant '/api' prefix from the paths
 const likeBookApi = ({ bookId, bookType }) => apiClient.post('/social/like', { bookId, bookType });
 const unlikeBookApi = ({ bookId, bookType }) => apiClient.post('/social/unlike', { bookId, bookType });
 
-const HeartIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg>;
+// --- MODIFIED: Removed fill="none" from the SVG element ---
+const HeartIcon = ({ className }) => (
+    <svg 
+        xmlns="http://www.w3.org/2000/svg" 
+        width="24" 
+        height="24" 
+        viewBox="0 0 24 24" 
+        stroke="currentColor" 
+        strokeWidth="2" 
+        strokeLinecap="round" 
+        strokeLinejoin="round" 
+        className={className}
+    >
+        <path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/>
+    </svg>
+);
 
 export function LikeButton({ book }) {
     const { currentUser } = useAuth();
@@ -33,19 +47,16 @@ export function LikeButton({ book }) {
                     ? { ...b, isLiked: !isCurrentlyLiked, like_count: b.like_count + (isCurrentlyLiked ? -1 : 1) }
                     : b;
 
-                // Handle 'forYouFeed' which might have 'pages' property (for infinite scroll)
                 if (oldData.pages) {
                     return {
                         ...oldData,
                         pages: oldData.pages.map(page => ({
                             ...page,
-                            // Ensure 'books' array exists before mapping
                             books: page.books ? page.books.map(updater) : []
                         }))
                     };
                 }
-                // Handle 'userProfile' which has 'books' directly
-                if (oldData.profile && oldData.books) { // Check for oldData.books
+                if (oldData.profile && oldData.books) {
                     return { ...oldData, books: oldData.books.map(updater) };
                 }
                 return oldData;
@@ -59,10 +70,9 @@ export function LikeButton({ book }) {
         onError: (err, variables, context) => {
             if (context.previousFeed) queryClient.setQueryData(['forYouFeed'], context.previousFeed);
             if (context.previousProfile) queryClient.setQueryData(['userProfile', book.author_username], context.previousProfile);
-            console.error("Like/Unlike mutation failed:", err); // Added error logging
+            console.error("Like/Unlike mutation failed:", err);
         },
         onSettled: () => {
-            // Invalidate both relevant queries to re-fetch fresh data after the mutation
             queryClient.invalidateQueries({ queryKey: ['forYouFeed'] });
             queryClient.invalidateQueries({ queryKey: ['userProfile', book.author_username] });
         },
@@ -77,14 +87,12 @@ export function LikeButton({ book }) {
         }
     };
 
-    // Make sure book.isLiked is always a boolean for consistent class application
     const isBookLiked = book.isLiked === true;
     const heartClass = isBookLiked ? "text-red-500 fill-current" : "hover:text-red-500";
 
     return (
-        <button onClick={handleLikeClick} disabled={mutation.isPending} className={`flex items-center gap-1.5 transition-colors ${heartClass}`}>
-            <HeartIcon />
-            {/* Ensure book.like_count is a number, default to 0 if null/undefined */}
+        <button onClick={handleLikeClick} disabled={mutation.isPending} className="flex items-center gap-1.5 transition-colors">
+            <HeartIcon className={heartClass} />
             <span className="text-sm font-medium">{book.like_count || 0}</span>
         </button>
     );

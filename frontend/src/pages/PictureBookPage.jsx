@@ -277,25 +277,36 @@ function PictureBookPage() {
         }
     };
 
-    const handleFinalizeAndPurchase = async () => {
-        if (timeline.length !== REQUIRED_CONTENT_PAGES) {
-            setError(`Your book must have exactly ${REQUIRED_CONTENT_PAGES} pages.`);
-            return;
+const handleFinalizeAndPurchase = async () => {
+    if (timeline.length !== REQUIRED_CONTENT_PAGES) {
+        setError(`Your book must have exactly ${REQUIRED_CONTENT_PAGES} pages.`);
+        return;
+    }
+
+    const pagesToGenerateCount = timeline.filter(p => p.image_prompt && !p.image_url && !p.uploaded_image_url).length;
+    
+    if (pagesToGenerateCount > 0) {
+        const creditCost = pagesToGenerateCount * 3; // Assuming 3 credits per image
+        const confirmationMessage = `This will generate ${pagesToGenerateCount} missing image(s) and use approximately ${creditCost} credits.\n\nAre you sure you want to continue?`;
+        
+        if (!window.confirm(confirmationMessage)) {
+            return; 
         }
-        setIsFinalizing(true);
-        const toastId = toast.loading('Step 1/2: Saving final changes...');
-        try {
-            await saveAllTimelineEvents(timeline);
-            toast.loading('Step 2/2: Preparing print images...', { id: toastId });
-            await apiClient.post(`/picture-books/${bookId}/prepare-for-print`);
-            toast.success('Your book is ready for checkout!', { id: toastId, duration: 4000 });
-            setCheckoutModalOpen(true);
-        } catch (err) {
-            toast.error('Could not prepare your book. Please try again.', { id: toastId });
-        } finally {
-            setIsFinalizing(false);
-        }
-    };
+    }
+    setIsFinalizing(true);
+    const toastId = toast.loading('Step 1/2: Saving final changes...');
+    try {
+        await saveAllTimelineEvents(timeline);
+        toast.loading('Step 2/2: Preparing print images...', { id: toastId });
+        await apiClient.post(`/picture-books/${bookId}/prepare-for-print`);
+        toast.success('Your book is ready for checkout!', { id: toastId, duration: 4000 });
+        setCheckoutModalOpen(true);
+    } catch (err) {
+        toast.error('Could not prepare your book. Please try again.', { id: toastId });
+    } finally {
+        setIsFinalizing(false);
+    }
+};
 
     const submitFinalCheckout = async (shippingAddress, selectedShippingLevel, quoteToken) => {
         try {
