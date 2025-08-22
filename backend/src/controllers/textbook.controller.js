@@ -236,7 +236,8 @@ Your response:`.trim();
 export const generateNextChapter = async (req, res) => {
     const { bookId } = req.params;
     const userId = req.userId;
-    
+    let client = null; // FIX: Declare client outside the try block
+
     const isLocked = await lockBook(bookId);
     if (!isLocked) {
         return res.status(409).json({ message: 'A chapter is already being generated. Please wait.' });
@@ -244,9 +245,8 @@ export const generateNextChapter = async (req, res) => {
 
     try {
         const pool = await getDb();
-        const client = await pool.connect();
+        client = await pool.connect(); // FIX: Assign the connection here
         const book = await getFullTextBook(bookId, userId, client);
-        client.release();
 
         if (!book) {
             await unlockBook(bookId);
@@ -274,6 +274,10 @@ export const generateNextChapter = async (req, res) => {
         console.error(`Error submitting chapter generation job for book ${bookId}:`, error);
         await unlockBook(bookId);
         res.status(500).json({ message: 'Failed to submit next chapter generation job.' });
+    } finally {
+        if (client) {
+            client.release();
+        }
     }
 };
 
@@ -283,16 +287,19 @@ export const regenerateChapter = async (req, res) => {
     const userId = req.userId;
     const chapterNumber = parseInt(chapterNumberStr);
     
+    // START FIX: Use the new, robust lock utility
     const isLocked = await lockBook(bookId);
     if (!isLocked) {
         return res.status(409).json({ message: 'A chapter is already being generated. Please wait.' });
     }
+    // END FIX
 
     try {
         const pool = await getDb();
         const client = await pool.connect();
         const book = await getFullTextBook(bookId, userId, client);
-        client.release();
+        // FIX: The original code released the client here.
+        // client.release();
 
         if (!book) {
             await unlockBook(bookId);
@@ -322,9 +329,17 @@ export const regenerateChapter = async (req, res) => {
         });
     } catch (error) {
         console.error(`Error submitting chapter regeneration job for book ${bookId}:`, error);
+        // Ensure the lock is released on error
         await unlockBook(bookId);
         res.status(500).json({ message: 'Failed to submit chapter regeneration job.' });
     }
+    // START FIX: Add a finally block to ensure the database client is always released.
+    finally {
+        if (client) {
+            client.release();
+        }
+    }
+    // END FIX
 };
 
 export const getTextBooks = async (req, res) => {

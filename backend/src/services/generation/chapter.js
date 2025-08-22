@@ -1,5 +1,3 @@
-// backend/src/services/generation/chapter.js
-
 /**
  * @fileoverview This module is responsible for generating the full-text prose for a chapter.
  * It uses a structured plan from the planner module and the story's overall context to
@@ -7,8 +5,7 @@
  */
 
 // --- MODIFICATION: Unused imports related to the deleted function have been removed. ---
-import { generateStoryFromApi as generateStoryFromApiImport } from '../gemini.service.js';
-import { createStoryBible } from '../gemini.service.js';
+import { generateStoryFromApi as generateStoryFromApiImport, createStoryBible } from '../gemini.service.js';
 import { generateChapterPlan } from './planner.js';
 import { postprocessChapterText } from './postprocess.js';
 import { getDb } from '../../db/database.js';
@@ -41,9 +38,13 @@ export const generateChapterWithPlan = async (bookId, userId, chapterNumber, gui
             Math.max(selectedProductConfig.defaultPageCount, Math.ceil(selectedProductConfig.defaultPageCount * 1.5))
         );
 
+        // --- MODIFICATION: Prepare promptDetails for the new strategy. ---
+        // We will calculate the word count from previousChaptersText, but
+        // we will NOT pass the full text itself to the next step.
         const apiPromptDetails = {
             ...promptData,
-            previousChaptersText: previousChaptersText,
+            // We intentionally do NOT include previousChaptersText here to keep the prompt small.
+            previousChaptersText: '', // This value is no longer used in the prompt itself, only in budgeting.
             wordsPerPage: selectedProductConfig.wordsPerPage,
             totalChapters: totalChaptersForBook,
             maxPageCount: effectiveMaxPageCount,
@@ -54,12 +55,24 @@ export const generateChapterWithPlan = async (bookId, userId, chapterNumber, gui
         };
 
         // --- Call the corrected services in order ---
-        // 1. Create Story Bible from previous text
+        // 1. Create Story Bible from previous text. This is a crucial step that distills the full
+        //    chapter text into a small, manageable JSON summary.
         const storyBible = await createStoryBible(previousChaptersText);
-        // 2. Generate a DETAILED plan using the fixed planner
+
+        // 2. Generate a DETAILED plan using the fixed planner.
+        //    The planner will now use the storyBible for context.
         const chapterPlan = await generateChapterPlan(apiPromptDetails, storyBible);
-        // 3. Generate the chapter text using the robust service
-        const rawChapterText = await generateStoryFromApiImport(apiPromptDetails, guidance, chapterPlan);
+
+        // 3. Generate the chapter text using the robust service.
+        //    The generateStoryFromApiImport function now takes the storyBible and plan directly.
+        //    It will internally calculate the word budget using the sanitizedPreviousChaptersText.
+        const rawChapterText = await generateStoryFromApiImport({
+            ...apiPromptDetails,
+            previousChaptersText: previousChaptersText, // Passed for budgeting, but not used in the final prompt.
+            storyBible: storyBible, // Now the main source of context for the prompt.
+            chapterPlan: chapterPlan, // Explicitly passed to the prompt builder.
+        }, guidance);
+
         // 4. Post-process the text for any final cleanup
         const postprocessedChapterText = await postprocessChapterText(rawChapterText, apiPromptDetails);
 

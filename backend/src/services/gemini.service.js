@@ -53,7 +53,8 @@ export const callGeminiAPI = async (prompt, model = 'gemini-1.5-flash-latest', s
     };
 
     const controller = new AbortController();
-    const id = setTimeout(() => controller.abort(), 90000); // 90-second timeout
+    // FIX: Increased timeout to 3 minutes (180 seconds) to prevent stalls on longer prompts.
+    const id = setTimeout(() => controller.abort(), 180000); 
 
     try {
         const response = await fetch(apiUrl, {
@@ -301,7 +302,8 @@ export const generateStoryFromApi = async (promptDetails, guidance = '', safetyS
         wordsPerPage, totalChapters, previousChaptersText = '', chapterNumber, maxPageCount, wordTarget
     } = promptDetails;
 
-    const sanitizedPreviousChaptersText = sanitizeText(previousChaptersText);
+    // FIX: The previousChaptersText is no longer needed here, but the function still needs to calculate word count from it for budget.
+    const sanitizedPreviousChaptersText = sanitizeText(previousChaptersText); 
     console.log('[Gemini Service] Creating Story Bible for context...');
     const storyBible = await createStoryBible(sanitizedPreviousChaptersText);
 
