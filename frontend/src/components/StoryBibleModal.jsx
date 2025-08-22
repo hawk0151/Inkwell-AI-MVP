@@ -13,7 +13,23 @@ export const StoryBibleModal = ({ isOpen, onClose, book }) => {
     const [error, setError] = useState(null);
     const [loadingText, setLoadingText] = useState('');
     const [selectedCharacterUrl, setSelectedCharacterUrl] = useState(null);
-    const [foundationValues, setFoundationValues] = useState({});
+    
+    // --- CHANGE 1: The state for Step 1 now holds a structured character object ---
+    const [foundationValues, setFoundationValues] = useState({
+        coreConcept: '',
+        therapeuticGoal: '',
+        tone: '',
+        artStyle: 'digital-art',
+        character: {
+            name: '',
+            age: 'toddler',
+            gender: 'male',
+            ethnicity: '',
+            hair: '',
+            clothing: '',
+            extras: ''
+        }
+    });
 
     const isInitialized = useRef(false);
 
@@ -22,31 +38,33 @@ export const StoryBibleModal = ({ isOpen, onClose, book }) => {
             setCurrentStep(1);
             setError(null);
             setSelectedCharacterUrl(null);
-
-            const defaultShape = {
-                coreConcept: '',
-                character: { name: '', description: '' },
-                art: { style: 'watercolor' },
-                tone: '',
-                therapeuticGoal: '',
-                storyPlan: [],
+            
+            // --- CHANGE 2: The initialization logic now populates our new structured state ---
+            const initialCharacter = {
+                name: book?.story_bible?.character?.name || '',
+                age: book?.story_bible?.character?.description?.age || 'toddler',
+                gender: book?.story_bible?.character?.description?.gender || 'male',
+                ethnicity: book?.story_bible?.character?.description?.ethnicity || '',
+                hair: book?.story_bible?.character?.description?.hair || '',
+                clothing: book?.story_bible?.character?.description?.clothing || '',
+                extras: book?.story_bible?.character?.description?.extras || ''
             };
 
-            const initialStoryBible = {
-                ...defaultShape,
-                ...(book?.story_bible || {}),
-                character: { ...defaultShape.character, ...(book?.story_bible?.character || {}) },
-                art: { ...defaultShape.art, ...(book?.story_bible?.art || {}) },
+            const initialFoundation = {
+                coreConcept: book?.story_bible?.coreConcept || '',
+                therapeuticGoal: book?.story_bible?.therapeuticGoal || '',
+                tone: book?.story_bible?.tone || '',
+                artStyle: book?.story_bible?.art?.style || 'digital-art',
+                character: initialCharacter
             };
-            setStoryBible(initialStoryBible);
-
-            setFoundationValues({
-                coreConcept: initialStoryBible.coreConcept,
-                characterName: initialStoryBible.character.name,
-                characterDescription: initialStoryBible.character.description,
-                tone: initialStoryBible.tone,
-                artStyle: initialStoryBible.art.style,
-                therapeuticGoal: initialStoryBible.therapeuticGoal
+            
+            setFoundationValues(initialFoundation);
+            
+            // This syncs the main storyBible state used in later steps
+            setStoryBible({
+                ...initialFoundation,
+                art: { style: initialFoundation.artStyle },
+                character: { name: initialFoundation.character.name, description: initialFoundation.character }
             });
 
             isInitialized.current = true;
@@ -55,12 +73,25 @@ export const StoryBibleModal = ({ isOpen, onClose, book }) => {
         }
     }, [isOpen, book]);
 
+    // --- CHANGE 3: The change handler now supports nested state objects ---
     const handleFoundationChange = (e) => {
         const { name, value } = e.target;
-        setFoundationValues(prevValues => ({
-            ...prevValues,
-            [name]: value
-        }));
+        
+        setFoundationValues(prev => {
+            const keys = name.split('.');
+            if (keys.length > 1) {
+                // Handle nested properties like "character.name"
+                return {
+                    ...prev,
+                    [keys[0]]: {
+                        ...prev[keys[0]],
+                        [keys[1]]: value
+                    }
+                };
+            }
+            // Handle top-level properties like "coreConcept"
+            return { ...prev, [name]: value };
+        });
     };
 
     const handleSaveFoundation = async () => {
@@ -68,15 +99,17 @@ export const StoryBibleModal = ({ isOpen, onClose, book }) => {
         setIsLoading(true);
         setLoadingText('Saving your vision...');
         try {
+            // --- CHANGE 4: Assemble the data from our new state shape ---
             const formData = {
                 coreConcept: foundationValues.coreConcept,
-                character: {
-                    name: foundationValues.characterName,
-                    description: foundationValues.characterDescription,
-                },
-                art: { style: foundationValues.artStyle },
-                tone: foundationValues.tone,
                 therapeuticGoal: foundationValues.therapeuticGoal,
+                tone: foundationValues.tone,
+                art: { style: foundationValues.artStyle },
+                // The character's 'description' is now the structured object itself
+                character: {
+                    name: foundationValues.character.name,
+                    description: foundationValues.character,
+                },
             };
             await apiClient.post(`/picture-books/${book.id}/story-bible`, formData);
             setStoryBible(prev => ({ ...prev, ...formData }));
@@ -159,10 +192,9 @@ export const StoryBibleModal = ({ isOpen, onClose, book }) => {
                                     bookId={book.id}
                                     onBack={() => setCurrentStep(1)}
                                     onComplete={handleCharacterSelect}
-                                    characterInfo={{
-                                        description: storyBible.character.description,
-                                        artStyle: storyBible.art.style,
-                                    }}
+                                    // --- CHANGE 5: Pass the structured character details to the next step ---
+                                    characterDetails={storyBible.character.description}
+                                    artStyle={storyBible.art.style}
                                />
                             )}
                             {currentStep === 3 && (

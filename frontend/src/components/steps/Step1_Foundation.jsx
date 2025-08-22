@@ -18,13 +18,9 @@ export const Step1_Foundation = ({
         exit: { opacity: 0, x: 20 },
         transition: { duration: 0.3 }
     };
-
-    const initialCharacterDescription = book?.story_bible?.character?.description || '';
-    const initialCharacterName = book?.story_bible?.character?.name || '';
-    const initialCoreConcept = book?.story_bible?.coreConcept || '';
-    const initialTherapeuticGoal = book?.story_bible?.therapeuticGoal || '';
-    const initialTone = book?.story_bible?.tone || '';
-    const initialArtStyle = book?.story_bible?.art?.style || 'digital-art';
+    
+    // Note: The logic for initial values is now handled in the parent StoryBibleModal.jsx
+    // This component now just receives the fully formed `values` prop.
 
     return (
         <motion.div {...motionProps} className="p-8">
@@ -40,45 +36,121 @@ export const Step1_Foundation = ({
                         id="coreConcept"
                         name="coreConcept"
                         rows="3"
-                        value={values.coreConcept || initialCoreConcept}
+                        value={values.coreConcept || ''}
                         onChange={handleChange}
                         className="mt-1 block w-full bg-slate-700 border border-slate-600 rounded-md shadow-sm text-white px-3 py-2 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
                         placeholder="e.g., A little rabbit overcomes their fear of the dark."
                     />
                 </div>
 
-                <div>
-                    <label htmlFor="characterName" className="block text-sm font-medium text-slate-300">Main Character Name</label>
-                    <input
-                        type="text"
-                        id="characterName"
-                        name="characterName"
-                        value={values.characterName || initialCharacterName}
-                        onChange={handleChange}
-                        className="mt-1 block w-full bg-slate-700 border border-slate-600 rounded-md shadow-sm text-white px-3 py-2 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-                        placeholder="e.g., Leo"
-                    />
-                </div>
+                {/* --- START OF REPLACEMENT --- */}
+                {/* The Character Name and Description fields are replaced with a structured form. */}
+                <div className="p-4 border border-slate-700 rounded-lg space-y-4 bg-slate-900/50">
+                    <h3 className="text-lg font-semibold text-white">Main Character Details</h3>
 
-                <div>
-                    <label htmlFor="characterDescription" className="block text-sm font-medium text-slate-300">Main Character Description</label>
-                    <textarea
-                        id="characterDescription"
-                        name="characterDescription"
-                        rows="3"
-                        value={values.characterDescription || initialCharacterDescription}
-                        onChange={handleChange}
-                        className="mt-1 block w-full bg-slate-700 border border-slate-600 rounded-md shadow-sm text-white px-3 py-2 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-                        placeholder="e.g., a fluffy rabbit with big, expressive blue eyes, wearing a red jacket."
-                    />
+                    <div>
+                        <label htmlFor="character.name" className="block text-sm font-medium text-slate-300">Character Name</label>
+                        <input
+                            type="text"
+                            id="character.name"
+                            name="character.name"
+                            value={values.character?.name || ''}
+                            onChange={handleChange}
+                            className="mt-1 block w-full bg-slate-700 border border-slate-600 rounded-md shadow-sm text-white px-3 py-2"
+                            placeholder="e.g., Charlie"
+                        />
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label htmlFor="character.age" className="block text-sm font-medium text-slate-300">Age Range</label>
+                            <select
+                                id="character.age"
+                                name="character.age"
+                                value={values.character?.age || 'toddler'}
+                                onChange={handleChange}
+                                className="mt-1 block w-full bg-slate-700 border border-slate-600 rounded-md shadow-sm text-white px-3 py-2"
+                            >
+                                <option value="toddler">Toddler (2-4 years)</option>
+                                <option value="young-child">Young Child (5-8 years)</option>
+                                <option value="child">Child (9-12 years)</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label htmlFor="character.gender" className="block text-sm font-medium text-slate-300">Gender</label>
+                            <select
+                                id="character.gender"
+                                name="character.gender"
+                                value={values.character?.gender || 'male'}
+                                onChange={handleChange}
+                                className="mt-1 block w-full bg-slate-700 border border-slate-600 rounded-md shadow-sm text-white px-3 py-2"
+                            >
+                                <option value="male">Male</option>
+                                <option value="female">Female</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label htmlFor="character.ethnicity" className="block text-sm font-medium text-slate-300">Appearance / Ethnicity</label>
+                            <input
+                                type="text"
+                                id="character.ethnicity"
+                                name="character.ethnicity"
+                                value={values.character?.ethnicity || ''}
+                                onChange={handleChange}
+                                placeholder="e.g., African American, East Asian"
+                                className="mt-1 block w-full bg-slate-700 border border-slate-600 rounded-md shadow-sm text-white px-3 py-2"
+                            />
+                        </div>
+                        <div>
+                            <label htmlFor="character.hair" className="block text-sm font-medium text-slate-300">Hair</label>
+                            <input
+                                type="text"
+                                id="character.hair"
+                                name="character.hair"
+                                value={values.character?.hair || ''}
+                                onChange={handleChange}
+                                placeholder="e.g., with red hair, with curly blonde hair"
+                                className="mt-1 block w-full bg-slate-700 border border-slate-600 rounded-md shadow-sm text-white px-3 py-2"
+                            />
+                        </div>
+                    </div>
+
+                    <div>
+                        <label htmlFor="character.clothing" className="block text-sm font-medium text-slate-300">Clothing</label>
+                        <input
+                            type="text"
+                            id="character.clothing"
+                            name="character.clothing"
+                            value={values.character?.clothing || ''}
+                            onChange={handleChange}
+                            placeholder="e.g., wearing a blue t-shirt and jeans"
+                            className="mt-1 block w-full bg-slate-700 border border-slate-600 rounded-md shadow-sm text-white px-3 py-2"
+                        />
+                    </div>
+                    <div>
+                        <label htmlFor="character.extras" className="block text-sm font-medium text-slate-300">Distinctive Features (Optional)</label>
+                        <input
+                            type="text"
+                            id="character.extras"
+                            name="character.extras"
+                            value={values.character?.extras || ''}
+                            onChange={handleChange}
+                            placeholder="e.g., with freckles, wearing glasses"
+                            className="mt-1 block w-full bg-slate-700 border border-slate-600 rounded-md shadow-sm text-white px-3 py-2"
+                        />
+                    </div>
                 </div>
+                {/* --- END OF REPLACEMENT --- */}
 
                 <div>
                     <label htmlFor="tone" className="block text-sm font-medium text-slate-300">Tone of the Story</label>
                     <select
                         id="tone"
                         name="tone"
-                        value={values.tone || initialTone}
+                        value={values.tone || ''}
                         onChange={handleChange}
                         className="mt-1 block w-full bg-slate-700 border border-slate-600 rounded-md shadow-sm text-white px-3 py-2 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
                     >
@@ -95,9 +167,8 @@ export const Step1_Foundation = ({
                     <select
                         id="artStyle"
                         name="artStyle"
-                        value={values.artStyle || initialArtStyle}
+                        value={values.artStyle || 'digital-art'}
                         onChange={handleChange}
-                        // FIX: Corrected the typo in the background color class below
                         className="mt-1 block w-full bg-slate-700 border border-slate-600 rounded-md shadow-sm text-white px-3 py-2 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
                     >
                         <option value="digital-art">Digital Art</option>
@@ -116,7 +187,7 @@ export const Step1_Foundation = ({
                         type="text"
                         id="therapeuticGoal"
                         name="therapeuticGoal"
-                        value={values.therapeuticGoal || initialTherapeuticGoal}
+                        value={values.therapeuticGoal || ''}
                         onChange={handleChange}
                         className="mt-1 block w-full bg-slate-700 border border-slate-600 rounded-md shadow-sm text-white px-3 py-2 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
                         placeholder="e.g., Helps with feelings of anxiety."

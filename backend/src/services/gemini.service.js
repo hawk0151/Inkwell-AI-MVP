@@ -1,40 +1,40 @@
 /**
- * @fileoverview This file provides a centralized service for interacting with the Gemini API.
- * It contains functions for generating story content, creating a story bible, and planning chapters.
- */
+ * @fileoverview This file provides a centralized service for interacting with the Gemini API.
+ * It contains functions for generating story content, creating a story bible, and planning chapters.
+ */
 
 import fetch from 'node-fetch';
 
 let AbortController;
 if (typeof globalThis.AbortController === 'function') {
-    AbortController = globalThis.AbortController;
+    AbortController = globalThis.AbortController;
 } else {
-    try {
-        const NodeAbortController = await import('node-abort-controller');
-        AbortController = NodeAbortController.AbortController;
-    } catch (e) {
-        console.error("Could not load node-abort-controller. AbortController may not be available. Error:", e.message);
-        throw new Error("AbortController is not available. Please ensure you are on Node.js 15+ or 'node-abort-controller' is installed.");
-    }
+    try {
+        const NodeAbortController = await import('node-abort-controller');
+        AbortController = NodeAbortController.AbortController;
+    } catch (e) {
+        console.error("Could not load node-abort-controller. AbortController may not be available. Error:", e.message);
+        throw new Error("AbortController is not available. Please ensure you are on Node.js 15+ or 'node-abort-controller' is installed.");
+    }
 }
 
 const sanitizeText = (text) => {
-    if (!text) return '';
-    let sanitized = text.replace(/\[[^\]]*?\]/g, '').trim();
-    sanitized = sanitized.replace(/^\s*Chapter\s+\d+[:.]?\s*$/gim, '').trim();
-    sanitized = sanitized.replace(/^\s*(The End|Epilogue)\s*$/gim, '').trim();
-    sanitized = sanitized.replace(/\s+/g, ' ').trim();
-    return sanitized;
+    if (!text) return '';
+    let sanitized = text.replace(/\[[^\]]*?\]/g, '').trim();
+    sanitized = sanitized.replace(/^\s*Chapter\s+\d+[:.]?\s*$/gim, '').trim();
+    sanitized = sanitized.replace(/^\s*(The End|Epilogue)\s*$/gim, '').trim();
+    sanitized = sanitized.replace(/\s+/g, ' ').trim();
+    return sanitized;
 };
 
 /**
- * A general-purpose function for calling the Gemini API.
- * @param {string} prompt The text prompt to send to the Gemini API.
- * @param {string} [model='gemini-1.5-flash-latest'] The Gemini model to use.
- * @param {Array<object>} [safetySettings=[]] Optional safety settings to override defaults.
+ * A general-purpose function for calling the Gemini API.
+ * @param {string} prompt The text prompt to send to the Gemini API.
+ * @param {string} [model='gemini-1.5-flash-latest'] The Gemini model to use.
+ * @param {Array<object>} [safetySettings=[]] Optional safety settings to override defaults.
  * @param {object} [generationConfig={}] Optional generation config, e.g., for JSON mode.
- * @returns {Promise<string>} The raw text response from the API.
- */
+ * @returns {Promise<string>} The raw text response from the API.
+ */
 export const callGeminiAPI = async (prompt, model = 'gemini-1.5-flash-latest', safetySettings = [], generationConfig = {}) => {
     if (!process.env.GEMINI_API_KEY) {
         throw new Error('GEMINI_API_KEY is not set in .env');
@@ -95,23 +95,23 @@ export const callGeminiAPI = async (prompt, model = 'gemini-1.5-flash-latest', s
 };
 
 /**
- * Creates a structured story bible from previous chapters of a story.
- * @param {string} previousChaptersText The text of the story's previous chapters.
- * @param {string} [model='gemini-1.5-pro-latest'] The model to use for bible creation.
- * @returns {Promise<object>} A JSON object containing key story details.
- */
+ * Creates a structured story bible from previous chapters of a story.
+ * @param {string} previousChaptersText The text of the story's previous chapters.
+ * @param {string} [model='gemini-1.5-pro-latest'] The model to use for bible creation.
+ * @returns {Promise<object>} A JSON object containing key story details.
+ */
 export const createStoryBible = async (previousChaptersText, model = 'gemini-1.5-pro-latest') => {
-    if (!previousChaptersText || previousChaptersText.trim() === '') {
-        return {
-            plot_summary_so_far: "This is the first chapter.",
-            character_developments: [],
-            key_objects_or_macguffins: [],
-            unresolved_plot_threads: [],
-            world_building_rules: []
-        };
-    }
+    if (!previousChaptersText || previousChaptersText.trim() === '') {
+        return {
+            plot_summary_so_far: "This is the first chapter.",
+            character_developments: [],
+            key_objects_or_macguffins: [],
+            unresolved_plot_threads: [],
+            world_building_rules: []
+        };
+    }
 
-    const biblePrompt = `
+    const biblePrompt = `
 You are a meticulous story editor. Read the following story text and extract ONLY the following key details in a concise, structured JSON format. Your output will be parsed directly as JSON. Do not add any conversational text or markdown formatting.
 
 STORY TEXT:
@@ -129,15 +129,15 @@ OUTPUT FORMAT (JSON):
   "unresolved_plot_threads": ["List of mysteries or cliffhangers, e.g., 'Who sent the mysterious letter?', 'What is behind the locked door?'"],
   "world_building_rules": ["List any established rules of the world, e.g., 'Magic can only be used at night.', 'The protagonist is allergic to pineapple.'"]
 }
-    `.trim();
+    `.trim();
 
-    try {
+    try {
         const bibleText = await callGeminiAPI(biblePrompt, model, [], { responseMimeType: "application/json" });
-        return JSON.parse(bibleText);
-    } catch (error) {
-        console.error('[StoryBible] Failed to create or parse story bible:', error.message);
-        throw new Error(`Story Bible creation failed: ${error.message}`);
-    }
+        return JSON.parse(bibleText);
+    } catch (error) {
+        console.error('[StoryBible] Failed to create or parse story bible:', error.message);
+        throw new Error(`Story Bible creation failed: ${error.message}`);
+    }
 };
 
 /**
@@ -280,10 +280,10 @@ const buildOutputSection = () => `
 
 
 /**
- * This function now builds a cleaner prompt by assembling modular sections.
- * @param {object} promptData - All the necessary data to build the prompt.
- * @returns {string} The fully formatted and structured prompt string.
- */
+ * This function now builds a cleaner prompt by assembling modular sections.
+ * @param {object} promptData - All the necessary data to build the prompt.
+ * @returns {string} The fully formatted and structured prompt string.
+ */
 export const formatChapterPrompt = (promptData) => {
     const sections = [
         buildInstructionsSection(),
@@ -297,13 +297,13 @@ export const formatChapterPrompt = (promptData) => {
 };
 
 export const generateStoryFromApi = async (promptDetails, guidance = '', safetySettings = []) => {
-    const {
-        wordsPerPage, totalChapters, previousChaptersText = '', chapterNumber, maxPageCount, wordTarget
-    } = promptDetails;
+    const {
+        wordsPerPage, totalChapters, previousChaptersText = '', chapterNumber, maxPageCount, wordTarget
+    } = promptDetails;
 
-    const sanitizedPreviousChaptersText = sanitizeText(previousChaptersText);
-    console.log('[Gemini Service] Creating Story Bible for context...');
-    const storyBible = await createStoryBible(sanitizedPreviousChaptersText);
+    const sanitizedPreviousChaptersText = sanitizeText(previousChaptersText);
+    console.log('[Gemini Service] Creating Story Bible for context...');
+    const storyBible = await createStoryBible(sanitizedPreviousChaptersText);
 
     let chapterPlan = { chapter_plan: [] }; // Default empty plan
 
@@ -317,62 +317,62 @@ export const generateStoryFromApi = async (promptDetails, guidance = '', safetyS
         }
     }
 
-    if (!wordsPerPage || !totalChapters || !maxPageCount) {
-        throw new Error('wordsPerPage, totalChapters, and maxPageCount are required for story generation.');
-    }
+    if (!wordsPerPage || !totalChapters || !maxPageCount) {
+        throw new Error('wordsPerPage, totalChapters, and maxPageCount are required for story generation.');
+    }
 
-    const availableContentPages = Math.max(0, maxPageCount - 4);
-    const totalContentWordsBudget = availableContentPages * wordsPerPage;
-    const previousWordsCount = sanitizedPreviousChaptersText.split(' ').filter(word => word.length > 0).length;
-    const remainingBudget = totalContentWordsBudget - previousWordsCount;
-    const remainingChapters = Math.max(1, totalChapters - chapterNumber + 1);
-    let rawTarget = remainingBudget / remainingChapters;
-    const MIN_CHAPTER_WORDS = wordTarget?.min || 800;
-    const MAX_CHAPTER_WORDS = wordTarget?.max || 1200;
-    let finalTargetChapterWordCount = Math.min(Math.max(rawTarget, MIN_CHAPTER_WORDS), MAX_CHAPTER_WORDS);
+    const availableContentPages = Math.max(0, maxPageCount - 4);
+    const totalContentWordsBudget = availableContentPages * wordsPerPage;
+    const previousWordsCount = sanitizedPreviousChaptersText.split(' ').filter(word => word.length > 0).length;
+    const remainingBudget = totalContentWordsBudget - previousWordsCount;
+    const remainingChapters = Math.max(1, totalChapters - chapterNumber + 1);
+    let rawTarget = remainingBudget / remainingChapters;
+    const MIN_CHAPTER_WORDS = wordTarget?.min || 800;
+    const MAX_CHAPTER_WORDS = wordTarget?.max || 1200;
+    let finalTargetChapterWordCount = Math.min(Math.max(rawTarget, MIN_CHAPTER_WORDS), MAX_CHAPTER_WORDS);
 
-    if (remainingBudget < 0 || isNaN(rawTarget)) {
-        console.warn(`[Gemini Service] Warning: Chapter ${chapterNumber}: Negative remaining budget. Defaulting to MIN_CHAPTER_WORDS.`);
-        finalTargetChapterWordCount = MIN_CHAPTER_WORDS;
-    }
+    if (remainingBudget < 0 || isNaN(rawTarget)) {
+        console.warn(`[Gemini Service] Warning: Chapter ${chapterNumber}: Negative remaining budget. Defaulting to MIN_CHAPTER_WORDS.`);
+        finalTargetChapterWordCount = MIN_CHAPTER_WORDS;
+    }
 
-    console.log(`[Gemini Service] Chapter ${chapterNumber} Budgeting:`);
-    console.log(` - Total Content Words Budget: ${totalContentWordsBudget}`);
-    console.log(` - Previous Chapters Word Count (sanitized): ${previousWordsCount}`);
-    console.log(` - Remaining Budget: ${remainingBudget}`);
-    console.log(` - Remaining Chapters: ${remainingChapters}`);
-    console.log(` - Raw Target per Chapter: ${Math.round(rawTarget)}`);
-    console.log(` - Final Target Chapter Word Count (clamped ${MIN_CHAPTER_WORDS}-${MAX_CHAPTER_WORDS}): ${Math.round(finalTargetChapterWordCount)} words.`);
+    console.log(`[Gemini Service] Chapter ${chapterNumber} Budgeting:`);
+    console.log(` - Total Content Words Budget: ${totalContentWordsBudget}`);
+    console.log(` - Previous Chapters Word Count (sanitized): ${previousWordsCount}`);
+    console.log(` - Remaining Budget: ${remainingBudget}`);
+    console.log(` - Remaining Chapters: ${remainingChapters}`);
+    console.log(` - Raw Target per Chapter: ${Math.round(rawTarget)}`);
+    console.log(` - Final Target Chapter Word Count (clamped ${MIN_CHAPTER_WORDS}-${MAX_CHAPTER_WORDS}): ${Math.round(finalTargetChapterWordCount)} words.`);
 
-    if (!process.env.GEMINI_API_KEY) {
-        throw new Error('GEMINI_API_KEY is not set in .env');
-    }
+    if (!process.env.GEMINI_API_KEY) {
+        throw new Error('GEMINI_API_KEY is not set in .env');
+    }
 
-    const prompt = formatChapterPrompt({
-        promptDetails,
-        storyBible,
-        chapterNumber,
-        totalChapters,
-        wordCountTarget: finalTargetChapterWordCount,
-        userGuidance: guidance,
-        chapterPlan,
-    });
-    
-    // --- DIAGNOSTIC LOG ADDED ---
-    // This will print the entire final prompt to the console.
-    console.log('--- FINAL PROMPT SENT TO GEMINI API ---');
-    console.log(prompt);
-    console.log('--------------------------------------');
-    // --- END OF DIAGNOSTIC LOG ---
+    const prompt = formatChapterPrompt({
+        promptDetails,
+        storyBible,
+        chapterNumber,
+        totalChapters,
+        wordCountTarget: finalTargetChapterWordCount,
+        userGuidance: guidance,
+        chapterPlan,
+    });
 
-    const rawResponse = await callGeminiAPI(prompt, 'gemini-1.5-flash-latest', safetySettings);
-    
-    const chapterText = sanitizeText(rawResponse);
+    // --- DIAGNOSTIC LOG ADDED ---
+    // This will print the entire final prompt to the console.
+    console.log('--- FINAL PROMPT SENT TO GEMINI API ---');
+    console.log(prompt);
+    console.log('--------------------------------------');
+    // --- END OF DIAGNOSTIC LOG ---
 
-    const words = chapterText.split(/\s+/).filter(word => word.length > 0);
-    console.log(`Chapter ${chapterNumber} generated with ~${words.length} words (target: ${Math.round(finalTargetChapterWordCount)}).`);
+    const rawResponse = await callGeminiAPI(prompt, 'gemini-1.5-flash-latest', safetySettings);
 
-    return chapterText.trim();
+    const chapterText = sanitizeText(rawResponse);
+
+    const words = chapterText.split(/\s+/).filter(word => word.length > 0);
+    console.log(`Chapter ${chapterNumber} generated with ~${words.length} words (target: ${Math.round(finalTargetChapterWordCount)}).`);
+
+    return chapterText.trim();
 };
 /**
  * Takes a user's picture book character description and distills it into
@@ -407,47 +407,6 @@ export const getVisualKeywordsFromDescription = async (description) => {
     } catch (error) {
         console.error("[Gemini] Error distilling keywords:", error);
         // Fallback to the original description if Gemini fails, so the app doesn't crash.
-        return description; 
-    }
-};
-
-/**
- * Transforms a user's description into a highly detailed and structured prompt,
- * dynamically incorporating the user's selected art style.
- * @param {string} description The raw character description from the user.
- * @param {string} artStyle The user's selected art style (e.g., 'digital-art').
- * @returns {Promise<string>} A detailed, style-aware prompt for Stability AI.
- */
-export const createStyleAwareStabilityPrompt = async (description, artStyle) => {
-    console.log(`[Gemini] Creating style-aware Stability AI prompt with style: ${artStyle}...`);
-    const masterPrompt = `
-        You are an expert AI prompt engineer for a children's book illustrator.
-        Your task is to convert a simple user description into a detailed, powerful, and structured prompt for the Stability AI model, strictly adhering to a specific art style.
-
-        **User's Description:** "${description}"
-        **Required Art Style:** "${artStyle}"
-
-        **Instructions:**
-        1.  Create a prompt that is a single block of text with concepts separated by commas.
-        2.  The prompt's primary focus MUST be the specified **Art Style**.
-        3.  It MUST describe a 'character design sheet' or 'concept art' of a single, solo character on a plain white background.
-        4.  It must incorporate all key visual details from the user's description.
-        5.  DO NOT use photorealistic, 8k, or cinematic keywords. The style must match the user's selection.
-
-        **Example for artStyle='anime'**: "anime character design sheet, concept art, of a 3-year-old boy with brown hair and blue eyes, solo character, full body portrait, plain white background, clean line art, cell shading."
-
-        **Example for artStyle='fantasy-art'**: "fantasy art character concept sheet, of a 3-year-old boy with brown hair and blue eyes, full body portrait, plain white background, painterly style, detailed."
-
-        Now, create the perfect prompt based on the user's description and the required art style.
-    `.trim();
-
-    try {
-        const stabilityPrompt = await callGeminiAPI(masterPrompt);
-        console.log(`[Gemini] ✅ Created new style-aware Stability AI prompt.`);
-        return stabilityPrompt.replace(/\s+/g, ' ').trim();
-    } catch (error) {
-        console.error("[Gemini] Error creating style-aware Stability AI prompt:", error);
-        // Fallback to a basic prompt structure if Gemini fails
-        return `character sheet, in the style of ${artStyle}, concept art of ${description}, full body portrait, plain white background.`;
+        return description;
     }
 };

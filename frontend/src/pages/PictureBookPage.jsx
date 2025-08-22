@@ -6,7 +6,7 @@ import { LoadingSpinner, Alert } from '../components/common.jsx';
 import CheckoutModal from '../components/CheckoutModal.jsx';
 import { StoryBibleModal } from '../components/StoryBibleModal.jsx';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowLeftIcon, EyeIcon, PhotoIcon, SparklesIcon } from '@heroicons/react/24/solid';
+import { ArrowLeftIcon, EyeIcon, PhotoIcon, SparklesIcon, BookOpenIcon } from '@heroicons/react/24/solid';
 import toast from 'react-hot-toast';
 import Cropper from 'react-easy-crop';
 import getCroppedImg from '../utils/cropImage.js';
@@ -147,7 +147,7 @@ function PictureBookPage() {
     const [author, setAuthor] = useState('');
     
     const [isStoryBibleOpen, setIsStoryBibleOpen] = useState(false);
-    const hasAutoOpenedBible = useRef(false);
+    // REMOVED: The one-time flag that was preventing the modal from reopening
     const [isGenerating, setIsGenerating] = useState(false);
 
     const fetchBook = useCallback(async () => {
@@ -180,12 +180,13 @@ function PictureBookPage() {
 
     useEffect(() => { fetchBook(); }, [fetchBook]);
     
+    // --- FIX: The new logic to open the modal automatically for draft books ---
     useEffect(() => {
-        if (book && book.book_status === 'draft' && !hasAutoOpenedBible.current) {
+        if (book && book.book_status === 'draft') {
             setIsStoryBibleOpen(true);
-            hasAutoOpenedBible.current = true;
         }
     }, [book]);
+    // --- END FIX ---
     
     useDebouncedEffect(() => {
         if (!book || (title === book.title && author === book.author)) return Promise.resolve();
@@ -258,13 +259,13 @@ function PictureBookPage() {
     
     const handleDeletePage = () => {
         if (timeline.length <= 1) {
-             if (timeline.length === 1 && window.confirm(`Are you sure you want to delete the last page? This will clear the editor.`)) {
-                 setTimeline([]);
-                 setCurrentPage(1);
-             } else {
-                 setError("You cannot delete the last page.");
-             }
-             return;
+            if (timeline.length === 1 && window.confirm(`Are you sure you want to delete the last page? This will clear the editor.`)) {
+                setTimeline([]);
+                setCurrentPage(1);
+            } else {
+                setError("You cannot delete the last page.");
+            }
+            return;
         }
         if (window.confirm(`Are you sure you want to delete Page ${currentPage}? This action cannot be undone.`)) {
             setTimeline(prevTimeline => {
@@ -277,36 +278,36 @@ function PictureBookPage() {
         }
     };
 
-const handleFinalizeAndPurchase = async () => {
-    if (timeline.length !== REQUIRED_CONTENT_PAGES) {
-        setError(`Your book must have exactly ${REQUIRED_CONTENT_PAGES} pages.`);
-        return;
-    }
-
-    const pagesToGenerateCount = timeline.filter(p => p.image_prompt && !p.image_url && !p.uploaded_image_url).length;
-    
-    if (pagesToGenerateCount > 0) {
-        const creditCost = pagesToGenerateCount * 3; // Assuming 3 credits per image
-        const confirmationMessage = `This will generate ${pagesToGenerateCount} missing image(s) and use approximately ${creditCost} credits.\n\nAre you sure you want to continue?`;
-        
-        if (!window.confirm(confirmationMessage)) {
-            return; 
+    const handleFinalizeAndPurchase = async () => {
+        if (timeline.length !== REQUIRED_CONTENT_PAGES) {
+            setError(`Your book must have exactly ${REQUIRED_CONTENT_PAGES} pages.`);
+            return;
         }
-    }
-    setIsFinalizing(true);
-    const toastId = toast.loading('Step 1/2: Saving final changes...');
-    try {
-        await saveAllTimelineEvents(timeline);
-        toast.loading('Step 2/2: Preparing print images...', { id: toastId });
-        await apiClient.post(`/picture-books/${bookId}/prepare-for-print`);
-        toast.success('Your book is ready for checkout!', { id: toastId, duration: 4000 });
-        setCheckoutModalOpen(true);
-    } catch (err) {
-        toast.error('Could not prepare your book. Please try again.', { id: toastId });
-    } finally {
-        setIsFinalizing(false);
-    }
-};
+
+        const pagesToGenerateCount = timeline.filter(p => p.image_prompt && !p.image_url && !p.uploaded_image_url).length;
+        
+        if (pagesToGenerateCount > 0) {
+            const creditCost = pagesToGenerateCount * 3; // Assuming 3 credits per image
+            const confirmationMessage = `This will generate ${pagesToGenerateCount} missing image(s) and use approximately ${creditCost} credits.\n\nAre you sure you want to continue?`;
+            
+            if (!window.confirm(confirmationMessage)) {
+                return; 
+            }
+        }
+        setIsFinalizing(true);
+        const toastId = toast.loading('Step 1/2: Saving final changes...');
+        try {
+            await saveAllTimelineEvents(timeline);
+            toast.loading('Step 2/2: Preparing print images...', { id: toastId });
+            await apiClient.post(`/picture-books/${bookId}/prepare-for-print`);
+            toast.success('Your book is ready for checkout!', { id: toastId, duration: 4000 });
+            setCheckoutModalOpen(true);
+        } catch (err) {
+            toast.error('Could not prepare your book. Please try again.', { id: toastId });
+        } finally {
+            setIsFinalizing(false);
+        }
+    };
 
     const submitFinalCheckout = async (shippingAddress, selectedShippingLevel, quoteToken) => {
         try {
