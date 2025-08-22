@@ -4,14 +4,15 @@ import { Alert, LoadingSpinner } from '../common.jsx';
 import { BookOpenIcon } from '@heroicons/react/24/solid';
 import { ModalStep } from '../common/ModalStep.jsx';
 
-export const Step3_StoryPlan = ({ bookId, onBack, onFinalize }) => {
+// --- CHANGE 1: Receive isLoading and loadingText props ---
+export const Step3_StoryPlan = ({ bookId, onBack, onFinalize, isLoading: isFinalizing, loadingText }) => {
     const [storyPlan, setStoryPlan] = useState([]);
-    const [isLoading, setIsLoading] = useState(false);
+    const [isLoadingPlan, setIsLoadingPlan] = useState(false); // Renamed to avoid conflict
     const [error, setError] = useState(null);
 
     useEffect(() => {
         const generateStoryPlan = async () => {
-            setIsLoading(true);
+            setIsLoadingPlan(true);
             setError(null);
             try {
                 const response = await apiClient.post(`/picture-books/${bookId}/generate-story-plan`);
@@ -19,7 +20,7 @@ export const Step3_StoryPlan = ({ bookId, onBack, onFinalize }) => {
             } catch (err) {
                 setError(err.response?.data?.message || 'Failed to generate story plan.');
             } finally {
-                setIsLoading(false);
+                setIsLoadingPlan(false);
             }
         };
         generateStoryPlan();
@@ -39,15 +40,15 @@ export const Step3_StoryPlan = ({ bookId, onBack, onFinalize }) => {
         <div className="flex flex-col h-full overflow-hidden">
             <ModalStep title="Review and Edit Your Story" description="Here is your 20-page story plan. You can edit the text before the final images are created.">
                 {error && <Alert type="error" message={error} />}
-                {isLoading ? (
+                {isLoadingPlan ? (
                     <div className="flex items-center justify-center h-full">
                         <LoadingSpinner text="Writing your 20-page story plan..." />
                     </div>
                 ) : (
                     <div className="space-y-4 px-4">
                         {storyPlan.map((page, index) => (
-                            <div key={page.pageNumber} className="p-4 bg-slate-700/50 border border-slate-600 rounded-lg">
-                                <h4 className="font-bold text-white">Page {page.pageNumber}</h4>
+                            <div key={page.page_number} className="p-4 bg-slate-700/50 border border-slate-600 rounded-lg">
+                                <h4 className="font-bold text-white">Page {page.page_number}</h4>
                                 <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <div>
                                         <label className="text-sm font-semibold text-slate-300 flex items-center mb-1">
@@ -77,14 +78,15 @@ export const Step3_StoryPlan = ({ bookId, onBack, onFinalize }) => {
             </ModalStep>
 
             <div className="p-8 pt-6 border-t border-slate-700 flex justify-between items-center mt-auto">
-                <button type="button" onClick={onBack} className="text-slate-400 hover:text-white transition px-4 py-2">Back</button>
+                <button type="button" onClick={onBack} className="text-slate-400 hover:text-white transition px-4 py-2" disabled={isFinalizing}>Back</button>
+                {/* --- CHANGE 2: Update the button to use the new isFinalizing prop --- */}
                 <button
                     type="button"
                     onClick={handleFinalize}
                     className="inline-flex justify-center px-6 py-2 font-bold text-white bg-teal-600 hover:bg-teal-700 rounded-lg disabled:opacity-50"
-                    disabled={storyPlan.length === 0}
+                    disabled={storyPlan.length === 0 || isFinalizing}
                 >
-                    Finalize & Create My Book
+                    {isFinalizing ? <LoadingSpinner text={loadingText || 'Finalizing...'} /> : 'Finalize & Create My Book'}
                 </button>
             </div>
         </div>

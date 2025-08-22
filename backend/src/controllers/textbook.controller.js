@@ -403,7 +403,8 @@ export const getPreviewPdf = async (req, res) => {
         const estimatedPages = calculateEstimatedPages(book, selectedProductConfig);
         console.log(`[Preview PDF] Generating preview for book: ${book.title} with estimated page count: ${estimatedPages}`);
         
-        const { path } = await pdfService.generateAndSaveTextBookPdf(book, selectedProductConfig, estimatedPages);
+        // --- FIX: Pass 'true' as the third argument to enable the watermark ---
+        const { path } = await pdfService.generateAndSaveTextBookPdf(book, selectedProductConfig, true);
         
         tempPdfPath = path;
         const publicId = `preview_textbook_${bookId}_${Date.now()}`;

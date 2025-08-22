@@ -59,31 +59,35 @@ function ImageEditor({ bookId, currentEvent, onImageUpdate, timeline, onGenerate
         onGenerate(currentEvent.page_number, finalPrompt);
     };
 
-    const handleImprovePrompt = async () => {
-        if (!prompt) {
-            toast.error("Please write a description before trying to improve it.");
-            return;
-        }
+const handleImprovePrompt = async () => {
+    if (!prompt) {
+        toast.error("Please write a description before trying to improve it.");
+        return;
+    }
+    
+    setPreviousPrompt(prompt);
+    
+    setIsImproving(true);
+    const toastId = toast.loading('AI is refining your description...');
+    try {
+        // --- FIX: Send the isSceneryOnly flag to the backend ---
+        const response = await apiClient.post('/picture-books/improve-prompt', { 
+            prompt,
+            isScenery: isSceneryOnly 
+        });
+        const improvedPrompt = response.data.improvedPrompt;
         
-        setPreviousPrompt(prompt);
+        setPrompt(improvedPrompt);
+        onImageUpdate(timeline.indexOf(currentEvent), 'image_prompt', improvedPrompt);
         
-        setIsImproving(true);
-        const toastId = toast.loading('AI is refining your description...');
-        try {
-            const response = await apiClient.post('/picture-books/improve-prompt', { prompt });
-            const improvedPrompt = response.data.improvedPrompt;
-            
-            setPrompt(improvedPrompt);
-            onImageUpdate(timeline.indexOf(currentEvent), 'image_prompt', improvedPrompt);
-            
-            toast.success('Description improved!', { id: toastId });
-        } catch (error) {
-            setPreviousPrompt(null);
-            toast.error(error.response?.data?.message || 'Failed to improve description.', { id: toastId });
-        } finally {
-            setIsImproving(false);
-        }
-    };
+        toast.success('Description improved!', { id: toastId });
+    } catch (error) {
+        setPreviousPrompt(null);
+        toast.error(error.response?.data?.message || 'Failed to improve description.', { id: toastId });
+    } finally {
+        setIsImproving(false);
+    }
+};
 
     const handleUndo = () => {
         if (previousPrompt) {

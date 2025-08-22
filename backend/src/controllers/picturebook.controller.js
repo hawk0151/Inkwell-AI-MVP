@@ -196,8 +196,6 @@ export const saveStoryBible = async (req, res) => {
     }
 };
 
-// in src/controllers/pictureBook.controller.js
-
 export const generateCharacterReferences = async (req, res) => {
     const { bookId } = req.params;
     const userId = req.userId;
@@ -207,13 +205,23 @@ export const generateCharacterReferences = async (req, res) => {
     try {
         const pool = await getDb();
         client = await pool.connect();
-        const book = (await client.query(`SELECT 1 FROM picture_books WHERE id = $1 AND user_id = $2`, [bookId, userId])).rows[0];
+
+        // --- FIX: Fetch the story_bible to ensure a fallback art style is available ---
+        const bookResult = await client.query(`SELECT story_bible, book_status FROM picture_books WHERE id = $1 AND user_id = $2`, [bookId, userId]);
+        const book = bookResult.rows[0];
+
         if (!book) return res.status(404).json({ message: 'Project not found.' });
+        if (book.book_status !== 'draft') return res.status(400).json({ message: 'Character references cannot be re-generated for this book.' });
         
-        if (!characterDetails || !characterDetails.age || !characterDetails.gender || !characterDetails.ethnicity || !characterDetails.hair || !characterDetails.clothing) {
+        if (!characterDetails || !characterDetails.age || !characterDetails.gender) {
              return res.status(400).json({ message: 'Incomplete character details provided.' });
         }
 
+        const finalArtStyle = artStyle || book.story_bible?.art?.style;
+        if (!finalArtStyle) {
+            return res.status(400).json({ message: 'An art style is required.' });
+        }
+        
         const ageMap = {
             'toddler': '(toddler:1.3), 3 years old, (chubby cheeks:1.2), baby face, large innocent eyes, short and chubby build',
             'young-child': 'a young child (6 years old)',
@@ -231,15 +239,9 @@ export const generateCharacterReferences = async (req, res) => {
         if (characterDetails.extras) descriptionParts.push(characterDetails.extras);
         const finalDescription = descriptionParts.filter(Boolean).join(', ');
 
-        // --- PROMPT MODIFICATION: START ---
-        // 1. We're making the "illustration" style much more prominent in the positive prompt.
         const styleDescription = "(charming children's book illustration:1.4), (picture book style:1.3), vibrant colors, digital painting, soft friendly art style";
-
         const positivePrompt = `(solo full body portrait:1.5), ${finalDescription}, in a neutral t-pose, simple plain white background, ${styleDescription}`;
-        
-        // 2. As you suggested, we are adding 'photorealistic' and 'photo' to the negative prompt with a high weight.
         const negativePrompt = `(photorealistic:2.0), (realistic:2.0), (photo:2.0), (adult:2.0), (teenager:2.0), angry, sad, two characters, multiple characters, text, watermark`;
-        // --- PROMPT MODIFICATION: END ---
 
         console.log(`[Controller] Generating TWO character references with FINAL ILLUSTRATION prompting.`);
         console.log(`[Controller] Positive Prompt: ${positivePrompt}`);
@@ -315,47 +317,43 @@ export const generateStoryPlan = async (req, res) => {
         if (!book) return res.status(404).json({ message: 'Project not found.' });
         if (!book.story_bible) return res.status(400).json({ message: 'Cannot generate story plan. Story Bible has not been saved.' });
 
-        const { coreConcept, character, therapeuticGoal, tone, art } = book.story_bible;
+        const { coreConcept, character } = book.story_bible;
 
-        // --- FIX: This prompt now includes instructions for scenery-only pages ---
+        // --- FIX: Add our specific style keywords directly into the prompt instructions ---
+        const styleKeywords = "charming children's book illustration, picture book style, vibrant colors, digital painting, soft friendly art style";
+
         storyPlanPrompt = `
-You are an expert children's book author and illustrator's assistant. Create a 20-page story plan based on these inputs.
-The output MUST be a valid JSON array of 20 objects.
-Each object must have "page_number", "storyText", and "imagePrompt".
+You are an expert children's book author. Create a 20-page story plan based on these inputs.
+The output MUST be a valid JSON array of 20 objects. Each object must have "page_number", "storyText", and "imagePrompt".
 
 **CRITICAL INSTRUCTIONS FOR EVERY "imagePrompt":**
-1.  **Character or Scenery:** If the main character is in the scene, the prompt must include their full description. If the scene is purely environmental, symbolic, or does NOT feature the main character, the prompt MUST begin with the tag "[no character]".
-2.  **Start with the Style:** After the optional [no character] tag, every prompt MUST begin with a description of the art style, for example: "${art.style} of...".
-3.  **VIVID SCENERY & FRAMING:** Describe the SCENE, ENVIRONMENT, and CAMERA SHOT (e.g., "close-up," "wide shot").
+1.  **Style:** Every imagePrompt MUST describe a scene in the following style: "${styleKeywords}".
+2.  **Character:** The main character's name is "${character.name || 'the main character'}". Use this name in the story text.
+3.  **Scenery:** If the main character is NOT in the scene, the prompt MUST begin with the tag "[no character]".
+4.  **Detail:** Describe the SCENE, ENVIRONMENT, and CAMERA SHOT (e.g., "close-up," "wide shot").
 
 **USER INPUTS:**
 - Core Concept: ${coreConcept}
-- Main Character: ${character.description}
-- Art Style: ${art.style}
+- Main Character Name: ${character.name || 'Not specified'}
+- Main Character Description: A ${character.description.age} ${character.description.gender} ${character.description.ethnicity} with ${character.description.hair}.
 
 **OUTPUT (JSON Array Only):**
         `.trim();
 
         console.log(`[Controller] Generating 20-page story plan for book ${bookId}...`);
         const rawJsonResponse = await geminiService.callGeminiAPI(storyPlanPrompt);
-
+        
         const cleanedJson = rawJsonResponse.replace(/```json/g, '').replace(/```/g, '').trim();
         let storyPlan = JSON.parse(cleanedJson);
 
-        if (!Array.isArray(storyPlan) || storyPlan.length !== REQUIRED_CONTENT_PAGES) {
-            throw new Error(`The AI failed to generate exactly ${REQUIRED_CONTENT_PAGES} pages. Please try again.`);
+        if (!Array.isArray(storyPlan) || storyPlan.length !== 20) {
+            throw new Error(`The AI failed to generate exactly 20 pages. Please try again.`);
         }
-
-        const historySql = `INSERT INTO prompt_history (book_id, api_used, full_prompt, api_response, was_successful) VALUES ($1, $2, $3, $4, $5)`;
-        await client.query(historySql, [bookId, 'Gemini Story Plan', storyPlanPrompt, { storyPlan }, true]);
 
         res.status(200).json({ storyPlan });
 
     } catch (err) {
-        if (client) {
-            const historySql = `INSERT INTO prompt_history (book_id, api_used, full_prompt, was_successful, error_message) VALUES ($1, $2, $3, $4, $5)`;
-            await client.query(historySql, [bookId, 'Gemini Story Plan', storyPlanPrompt, false, err.message]);
-        }
+        console.error(`[Controller] Error generating story plan for book ${bookId}:`, err);
         res.status(500).json({ message: err.message || 'Failed to generate the story plan.' });
     } finally {
         if (client) client.release();
@@ -403,18 +401,17 @@ ${template}
         res.status(500).json({ message: 'Failed to improve the prompt.' });
     }
 };
-
 export const generateSinglePageImage = async (req, res) => {
     const { bookId, pageNumber } = req.params;
     const userId = req.userId;
-    const { prompt } = req.body; 
+    const { prompt } = req.body;
     let client;
-    let historyId = null;
 
     try {
         const pool = await getDb();
         client = await pool.connect();
 
+        // Fetch the full story_bible to get the art style
         const bookResult = await client.query(`SELECT character_reference, story_bible FROM picture_books WHERE id = $1 AND user_id = $2`, [bookId, userId]);
         if (bookResult.rows.length === 0) {
             return res.status(404).json({ message: 'Book not found.' });
@@ -426,60 +423,40 @@ export const generateSinglePageImage = async (req, res) => {
             return res.status(400).json({ message: 'An image description prompt is required.' });
         }
 
-        // --- REPLACEMENT: Logic to connect to the new image service function ---
-        
-        // 1. Check for the [no character] tag and create a boolean flag.
         const isSceneryOnly = prompt.toLowerCase().includes('[no character]');
-        
-        // 2. Clean the prompt for the AI by removing our tag.
-        const finalPrompt = prompt.replace(/\[no character\]/gi, '').trim();
+        const sceneDescription = prompt.replace(/\[no character\]/gi, '').trim();
 
         if (!isSceneryOnly && !book.character_reference?.url) {
-            return res.status(400).json({ message: 'A character reference must be selected to generate images with characters.' });
+            return res.status(400).json({ message: 'A character reference must be selected.' });
         }
 
-        // 3. Assemble the correct options object for our new service function.
+        // --- FIX: Add our proven style keywords to the user's scene prompt ---
+        const styleKeywords = "(charming children's book illustration:1.4), (picture book style:1.3), vibrant colors, digital painting, soft friendly art style";
+        const finalPromptForAI = `${sceneDescription}, ${styleKeywords}`;
+
         const imageServiceOptions = {
             referenceImageUrl: book.character_reference?.url,
-            prompt: finalPrompt,
+            prompt: finalPromptForAI, // Pass the combined prompt
             pageNumber,
-            isSceneryOnly: isSceneryOnly
+            isSceneryOnly
         };
         
-        const historySql = `INSERT INTO prompt_history (book_id, page_number, api_used, full_prompt) VALUES ($1, $2, $3, $4) RETURNING id`;
-        const historyResult = await client.query(historySql, [bookId, pageNumber, 'Stability AI SD3', JSON.stringify(imageServiceOptions)]);
-        historyId = historyResult.rows[0].id;
-        
-        // 4. Call the service to get the raw image buffer.
         const imageBuffer = await imageService.generateImageFromReference(imageServiceOptions);
-
-        // 5. Upload the buffer to Cloudinary to get the final URL.
         const uploadFolder = `inkwell-ai/user_${userId}/books/${bookId}/pages`;
-        const publicId = `page_${pageNumber}`;
-        const imageUrl = await imageService.uploadImageToCloudinary(imageBuffer, uploadFolder, publicId);
+        const imageUrl = await imageService.uploadImageToCloudinary(imageBuffer, uploadFolder, `page_${pageNumber}`);
         
-        // --- END OF REPLACEMENT ---
-
         const updateSql = `
             UPDATE timeline_events 
-            SET image_url = $1, image_url_preview = $2, image_url_print = $3, uploaded_image_url = NULL
+            SET image_url = $1, image_url_preview = $2, image_url_print = $3, uploaded_image_url = NULL, last_modified = NOW()
             WHERE book_id = $4 AND page_number = $5
         `;
-        // We use the same URL for all versions for now.
         await client.query(updateSql, [imageUrl, imageUrl, imageUrl, bookId, pageNumber]);
-        
-        const updateHistorySql = `UPDATE prompt_history SET was_successful = true, generated_image_url = $1 WHERE id = $2`;
-        await client.query(updateHistorySql, [imageUrl, historyId]);
 
-        res.status(200).json({ message: 'Image generated successfully!', imageUrl: imageUrl });
+        res.status(200).json({ message: 'Image generated and saved successfully!', imageUrl });
 
     } catch (error) {
-        if (client && historyId) {
-            const updateHistorySql = `UPDATE prompt_history SET was_successful = false, error_message = $1 WHERE id = $2`;
-            await client.query(updateHistorySql, [error.message, historyId]);
-        }
         console.error(`[Controller] Error generating image for page ${pageNumber}:`, error);
-        res.status(500).json({ message: 'Failed to generate image.' });
+        res.status(500).json({ message: 'Failed to generate and save image.' });
     } finally {
         if (client) client.release();
     }
@@ -698,25 +675,36 @@ export const generatePreviewPdf = async (req, res) => {
         const pool = await getDb();
         client = await pool.connect();
         const book = await getFullPictureBook(bookId, userId, client);
-        if (!book) return res.status(404).json({ message: "Project not found." });
+        if (!book) {
+            return res.status(404).json({ message: "Project not found." });
+        }
 
         const productConfig = luluService.findProductConfiguration(book.lulu_product_id);
-        if (!productConfig) throw new Error(`Product config not found for ${book.lulu_product_id}.`);
+        if (!productConfig) {
+            throw new Error(`Product config not found for ${book.lulu_product_id}.`);
+        }
 
-        const { path } = await pdfService.generateAndSavePictureBookPdf(book, productConfig);
+        // Call the PDF service, passing 'true' to activate the watermark
+        const { path } = await pdfService.generateAndSavePictureBookPdf(book, productConfig, true);
         tempPdfPath = path;
-
+        
         const publicId = `preview_${bookId}_${Date.now()}`;
         const previewUrl = await fileHostService.uploadPreviewFile(tempPdfPath, publicId);
-
+        
         res.status(200).json({ previewUrl });
+
     } catch (error) {
         console.error(`[Controller] Error generating preview PDF for book ${bookId}:`, error);
         res.status(500).json({ message: 'Failed to generate preview PDF.' });
     } finally {
         if (client) client.release();
+        // Clean up the temporary file from the server
         if (tempPdfPath) {
-            try { await fs.unlink(tempPdfPath); } catch (e) { console.error(`[Cleanup] Error deleting temp preview PDF: ${e.message}`); }
+            try { 
+                await fs.unlink(tempPdfPath); 
+            } catch (e) { 
+                console.error(`[Cleanup] Error deleting temp preview PDF: ${e.message}`); 
+            }
         }
     }
 };

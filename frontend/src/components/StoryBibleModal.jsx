@@ -14,7 +14,6 @@ export const StoryBibleModal = ({ isOpen, onClose, book }) => {
     const [loadingText, setLoadingText] = useState('');
     const [selectedCharacterUrl, setSelectedCharacterUrl] = useState(null);
     
-    // --- CHANGE 1: The state for Step 1 now holds a structured character object ---
     const [foundationValues, setFoundationValues] = useState({
         coreConcept: '',
         therapeuticGoal: '',
@@ -39,7 +38,6 @@ export const StoryBibleModal = ({ isOpen, onClose, book }) => {
             setError(null);
             setSelectedCharacterUrl(null);
             
-            // --- CHANGE 2: The initialization logic now populates our new structured state ---
             const initialCharacter = {
                 name: book?.story_bible?.character?.name || '',
                 age: book?.story_bible?.character?.description?.age || 'toddler',
@@ -60,7 +58,6 @@ export const StoryBibleModal = ({ isOpen, onClose, book }) => {
             
             setFoundationValues(initialFoundation);
             
-            // This syncs the main storyBible state used in later steps
             setStoryBible({
                 ...initialFoundation,
                 art: { style: initialFoundation.artStyle },
@@ -73,14 +70,12 @@ export const StoryBibleModal = ({ isOpen, onClose, book }) => {
         }
     }, [isOpen, book]);
 
-    // --- CHANGE 3: The change handler now supports nested state objects ---
     const handleFoundationChange = (e) => {
         const { name, value } = e.target;
         
         setFoundationValues(prev => {
             const keys = name.split('.');
             if (keys.length > 1) {
-                // Handle nested properties like "character.name"
                 return {
                     ...prev,
                     [keys[0]]: {
@@ -89,7 +84,6 @@ export const StoryBibleModal = ({ isOpen, onClose, book }) => {
                     }
                 };
             }
-            // Handle top-level properties like "coreConcept"
             return { ...prev, [name]: value };
         });
     };
@@ -99,13 +93,11 @@ export const StoryBibleModal = ({ isOpen, onClose, book }) => {
         setIsLoading(true);
         setLoadingText('Saving your vision...');
         try {
-            // --- CHANGE 4: Assemble the data from our new state shape ---
             const formData = {
                 coreConcept: foundationValues.coreConcept,
                 therapeuticGoal: foundationValues.therapeuticGoal,
                 tone: foundationValues.tone,
                 art: { style: foundationValues.artStyle },
-                // The character's 'description' is now the structured object itself
                 character: {
                     name: foundationValues.character.name,
                     description: foundationValues.character,
@@ -192,7 +184,6 @@ export const StoryBibleModal = ({ isOpen, onClose, book }) => {
                                     bookId={book.id}
                                     onBack={() => setCurrentStep(1)}
                                     onComplete={handleCharacterSelect}
-                                    // --- CHANGE 5: Pass the structured character details to the next step ---
                                     characterDetails={storyBible.character.description}
                                     artStyle={storyBible.art.style}
                                />
@@ -211,6 +202,9 @@ export const StoryBibleModal = ({ isOpen, onClose, book }) => {
                                     bookId={book.id}
                                     onBack={() => setCurrentStep(3)}
                                     onFinalize={handleFinalizeAndGenerate}
+                                    // --- FIX: Pass loading state down to the final step ---
+                                    isLoading={isLoading}
+                                    loadingText={loadingText}
                                 />
                             )}
                         </div>
