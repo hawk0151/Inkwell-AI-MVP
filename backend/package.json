@@ -4,12 +4,14 @@
   "description": "Backend for Inkwell AI",
   "main": "server.js",
   "type": "module",
-  "scripts": {
-    "start:server": "node server.js",
-    "start:worker": "node src/services/generation.worker.js",
-    "start:dev": "concurrently \"npm run start:server dev\" \"npm run start:worker\"",
-    "start": "concurrently \"npm run start:server\" \"npm run start:worker\""
-  },
+"scripts": {
+  "start:server": "node server.js",
+  "start:worker:img": "node src/services/generation.worker.js",
+  "start:worker:text": "node src/services/generation/chapter-worker.js",
+  "start:workers": "concurrently \"npm:start:worker:*\"",
+  "start": "concurrently \"npm:start:server\" \"npm:start:workers\"",
+  "start:dev": "concurrently \"npm run start:server dev\" \"npm:start:workers\""
+},
   "dependencies": {
     "@heroicons/react": "^2.2.0",
     "@paypal/checkout-server-sdk": "^1.0.3",
