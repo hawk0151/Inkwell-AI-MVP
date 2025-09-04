@@ -21,14 +21,28 @@ const processSequentialChapterJob = async (job) => {
     try {
         await generateChapterWithPlan(bookId, userId, chapterNumber, guidance);
         
-        // This logic now works because 'getDb' is correctly imported.
         const pool = await getDb();
         client = await pool.connect();
-        const bookResult = await client.query(`SELECT total_chapters FROM text_books WHERE id = $1`, [bookId]);
-        const totalChapters = bookResult.rows[0]?.total_chapters;
+
+        // --- FIX: Check the book's status BEFORE queuing the next chapter ---
+        const bookResult = await client.query(`SELECT generation_status, total_chapters FROM text_books WHERE id = $1`, [bookId]);
+        const book = bookResult.rows[0];
+
+        if (!book) {
+            throw new Error(`Book not found after generation: ${bookId}`);
+        }
+
+        // If the status is 'Cancelled', stop the chain.
+        if (book.generation_status === 'Cancelled') {
+            console.log(`[ChapterWorker] Generation for book ${bookId} was cancelled. Stopping sequence.`);
+            return; // Exit without queuing the next job
+        }
+
+        const totalChapters = book.total_chapters;
         const progress = `${chapterNumber}/${totalChapters}`;
         await client.query(`UPDATE text_books SET generation_progress = $1 WHERE id = $2`, [progress, bookId]);
         console.log(`[ChapterWorker] ✅ Service completed Chapter ${progress} for Book ${bookId}.`);
+
         if (chapterNumber < totalChapters) {
             console.log(`[ChapterWorker] Scheduling next chapter (${chapterNumber + 1}) for Book ${bookId}.`);
             await storyGenerationQueue.add('generateSequentialChapter', { bookId, userId, chapterNumber: chapterNumber + 1, guidance: '' });
@@ -38,7 +52,7 @@ const processSequentialChapterJob = async (job) => {
         }
     } catch (error) {
         console.error(`[ChapterWorker] ❌ FAILED sequential job for Book ${bookId}, Chapter ${chapterNumber}:`, error.message);
-        const pool = await getDb(); // This also now works correctly.
+        const pool = await getDb();
         client = await pool.connect();
         await client.query(`UPDATE text_books SET generation_status = 'Failed', generation_error = $1 WHERE id = $2`, [error.message, bookId]);
         throw error;

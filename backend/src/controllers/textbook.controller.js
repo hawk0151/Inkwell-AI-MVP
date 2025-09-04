@@ -199,7 +199,7 @@ Fantasy: The Shadowed One
 Sci-Fi: The Cosmic Anomaly
 Horror: The Whispering Shade
 Your response:`.trim();
-            const rawReplacementName = await callGeminiAPI(bugReplacementPrompt, 'gemini-1.5-flash-latest');
+            const rawReplacementName = await callGeminiAPI(bugReplacementPrompt, 'gemini-2.5-flash-latest');
             dynamicBugName = rawReplacementName.trim().replace(/^"|"$/g, '');
             console.log(`[Textbook Controller] Dynamic bug name generated for ${promptData.genre} genre: ${dynamicBugName}`);
         } else {
@@ -351,7 +351,34 @@ export const regenerateChapter = async (req, res) => {
     }
     // END FIX
 };
+export const cancelGeneration = async (req, res) => {
+    const { bookId } = req.params;
+    const userId = req.userId;
+    let client;
 
+    try {
+        const pool = await getDb();
+        client = await pool.connect();
+        
+        const result = await client.query(
+            `UPDATE text_books SET generation_status = 'Cancelled' WHERE id = $1 AND user_id = $2 AND generation_status = 'InProgress'`,
+            [bookId, userId]
+        );
+
+        if (result.rowCount === 0) {
+            return res.status(404).json({ message: "No active generation process found for this book to cancel." });
+        }
+
+        console.log(`[Controller] Generation cancelled for book ${bookId} by user ${userId}.`);
+        res.status(200).json({ message: "Chapter generation has been cancelled. The current chapter will finish, and then the process will stop." });
+
+    } catch (error) {
+        console.error(`Failed to cancel generation for book ${bookId}:`, error);
+        res.status(500).json({ message: "Failed to cancel the generation process." });
+    } finally {
+        if (client) client.release();
+    }
+};
 export const getTextBooks = async (req, res) => {
     let client;
     const userId = req.userId;

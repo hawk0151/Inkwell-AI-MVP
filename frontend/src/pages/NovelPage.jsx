@@ -254,29 +254,52 @@ function NovelPage() {
         },
         onError: (err) => toast.error(err.response?.data?.message || 'Failed to create the book.'),
     });
-    
-    const generateNextChapterMutation = useMutation({
+        const cancelGenerationMutation = useMutation({
+        mutationFn: (bookId) => apiClient.post(`/text-books/${bookId}/cancel-generation`),
+        onSuccess: () => {
+            toast.success("Generation will stop after the current chapter is finished.");
+            queryClient.invalidateQueries({ queryKey: ['bookDetails', paramBookId] });
+        },
+        onError: (err) => {
+            toast.error(err.response?.data?.message || "Failed to cancel generation.");
+        },
+    });
+
+    const handleCancelGeneration = () => {
+        if (bookDetails) {
+            cancelGenerationMutation.mutate(bookDetails.id);
+        }
+    };
+const generateNextChapterMutation = useMutation({
         mutationFn: (bookId) => apiClient.post(`/text-books/${bookId}/generate-next-chapter`),
+        // FIX: This onMutate callback runs instantly on click, before the API call.
+        onMutate: () => {
+            setActiveAction('next'); 
+        },
         onSuccess: () => {
             toast.success('A new chapter is being written...');
             setIsPollingForUpdate(true);
-            setActiveAction('next'); 
         },
         onError: (err) => {
             toast.error(err.response?.data?.message || 'Failed to start next chapter.');
+            // If the API call fails immediately, reset the state.
             setActiveAction(null);
         },
     });
 
     const regenerateChapterMutation = useMutation({
         mutationFn: ({ bookId, chapterNumber, guidance }) => apiClient.post(`/text-books/${bookId}/chapters/${chapterNumber}/regenerate`, { guidance }),
+        // FIX: This onMutate callback makes the UI update instantly.
+        onMutate: () => {
+            setActiveAction('regenerate');
+        },
         onSuccess: () => {
             toast.success('Regenerating chapter...');
             setIsPollingForUpdate(true);
-            setActiveAction('regenerate');
         },
         onError: (err) => {
             toast.error(err.response?.data?.message || 'Failed to start regeneration.');
+            // If the API call fails immediately, reset the state.
             setActiveAction(null);
         },
     });
@@ -315,6 +338,15 @@ function NovelPage() {
                 <div className="mt-10 flex justify-center items-center flex-col text-center">
                     <LoadingSpinner text={`Finishing your book... (${statusData?.progress || 'Starting...'})`} />
                     <p className="text-slate-400 mt-2">The page will update automatically.</p>
+                  <motion.button 
+                        whileHover={{ scale: 1.05 }} 
+                        whileTap={{ scale: 0.95 }}
+                        onClick={handleCancelGeneration}
+                        disabled={cancelGenerationMutation.isPending}
+                        className="mt-6 bg-red-600 text-white font-bold py-2 px-6 rounded-lg hover:bg-red-500 disabled:bg-slate-500 transition-all"
+                    >
+                        {cancelGenerationMutation.isPending ? 'Cancelling...' : 'Cancel Generation'}
+                    </motion.button>
                 </div>
             );
         } else if (activeAction === 'next') {

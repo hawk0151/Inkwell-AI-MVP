@@ -48,5 +48,6 @@ router.get('/:bookId/preview', getPreviewPdf);
 // NEW ROUTES: Add these two lines to define the routes for the new functions.
 router.post('/:bookId/generate-all', generateAllChapters);
 router.get('/:bookId/generation-status', getGenerationStatus);
+router.post('/:bookId/cancel-generation', cancelGeneration);
 
 export default router;

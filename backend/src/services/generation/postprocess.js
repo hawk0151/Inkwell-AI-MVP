@@ -36,7 +36,7 @@ Your response:`.trim();
 
     let replacementPhrase;
     try {
-        replacementPhrase = await callGeminiAPI(replacementPrompt, 'gemini-1.5-flash');
+        replacementPhrase = await callGeminiAPI(replacementPrompt, 'gemini-2.5-flash');
         // Clean up any stray quotation marks or extra text from the response
         replacementPhrase = replacementPhrase.trim().replace(/^"|"$/g, '');
     } catch (error) {
