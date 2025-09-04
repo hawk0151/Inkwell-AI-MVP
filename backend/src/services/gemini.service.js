@@ -1,6 +1,6 @@
 /**
  * @fileoverview This file provides a centralized service for interacting with the Gemini API.
- * Fully reverted to gemini-1.5-pro-latest for compatibility with old books.
+ * Fully reverted to gemini-2.5-flash for compatibility with old books.
  */
 
 import fetch from 'node-fetch';
@@ -30,7 +30,7 @@ const sanitizeText = (text) => {
 /**
  * General-purpose Gemini API call
  */
-export const callGeminiAPI = async (prompt, model = 'gemini-1.5-pro-latest', safetySettings = [], generationConfig = {}) => {
+export const callGeminiAPI = async (prompt, model = 'gemini-2.5-flash', safetySettings = [], generationConfig = {}) => {
     if (!process.env.GEMINI_API_KEY) {
         throw new Error('GEMINI_API_KEY is not set in .env');
     }
@@ -94,7 +94,7 @@ export const callGeminiAPI = async (prompt, model = 'gemini-1.5-pro-latest', saf
 /**
  * Create a structured story bible from previous chapters
  */
-export const createStoryBible = async (previousChaptersText, model = 'gemini-1.5-pro-latest') => {
+export const createStoryBible = async (previousChaptersText, model = 'gemini-2.5-flash') => {
     if (!previousChaptersText || previousChaptersText.trim() === '') {
         return {
             plot_summary_so_far: "This is the first chapter.",
@@ -143,7 +143,7 @@ OUTPUT FORMAT (JSON):
 /**
  * Creates a 3-beat chapter plan
  */
-export const createChapterPlan = async (storyBible, model = 'gemini-1.5-pro-latest') => {
+export const createChapterPlan = async (storyBible, model = 'gemini-2.5-flash') => {
     if (!storyBible || !storyBible.unresolved_plot_threads) {
         console.error("[ChapterPlan] Story bible is missing or invalid. Cannot create chapter plan.");
         return { chapter_plan: [] };
@@ -353,7 +353,7 @@ export const generateStoryFromApi = async (promptDetails, guidance = '', safetyS
         chapterPlan,
     });
 
-    const rawResponse = await callGeminiAPI(prompt, 'gemini-1.5-pro-latest', safetySettings);
+    const rawResponse = await callGeminiAPI(prompt, 'gemini-2.5-flash', safetySettings);
     const chapterText = sanitizeText(rawResponse);
 
     const words = chapterText.split(/\s+/).filter(word => word.length > 0);
@@ -384,7 +384,7 @@ export const getVisualKeywordsFromDescription = async (description) => {
     `.trim();
 
     try {
-        const keywords = await callGeminiAPI(masterPrompt, 'gemini-1.5-pro-latest');
+        const keywords = await callGeminiAPI(masterPrompt, 'gemini-2.5-flash');
         const cleanedKeywords = keywords.replace(/Keywords:/gi, '').trim();
         console.log(`[Gemini] ✅ Distilled keywords: ${cleanedKeywords}`);
         return cleanedKeywords;
