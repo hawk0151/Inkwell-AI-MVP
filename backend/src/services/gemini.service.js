@@ -1,6 +1,6 @@
 /**
  * @fileoverview This file provides a centralized service for interacting with the Gemini API.
- * It contains functions for generating story content, creating a story bible, and planning chapters.
+ * Fully reverted to gemini-1.5-pro-latest for compatibility with old books.
  */
 
 import fetch from 'node-fetch';
@@ -28,19 +28,16 @@ const sanitizeText = (text) => {
 };
 
 /**
- * A general-purpose function for calling the Gemini API.
- * @param {string} prompt The text prompt to send to the Gemini API.
- * @param {string} [model='gemini-1.5-flash-latest'] The Gemini model to use.
- * @param {Array<object>} [safetySettings=[]] Optional safety settings to override defaults.
- * @param {object} [generationConfig={}] Optional generation config, e.g., for JSON mode.
- * @returns {Promise<string>} The raw text response from the API.
+ * General-purpose Gemini API call
  */
-export const callGeminiAPI = async (prompt, model = 'gemini-1.5-flash-latest', safetySettings = [], generationConfig = {}) => {
+export const callGeminiAPI = async (prompt, model = 'gemini-1.5-pro-latest', safetySettings = [], generationConfig = {}) => {
     if (!process.env.GEMINI_API_KEY) {
         throw new Error('GEMINI_API_KEY is not set in .env');
     }
 
     const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${process.env.GEMINI_API_KEY}`;
+    console.log(`[Gemini Service] Calling API with model: ${model}`);
+
     const payload = {
         contents: [{ parts: [{ text: prompt }] }],
         safetySettings: safetySettings.length > 0 ? safetySettings : [
@@ -53,7 +50,6 @@ export const callGeminiAPI = async (prompt, model = 'gemini-1.5-flash-latest', s
     };
 
     const controller = new AbortController();
-    // FIX: Increased timeout to 3 minutes (180 seconds) to prevent stalls on longer prompts.
     const id = setTimeout(() => controller.abort(), 180000); 
 
     try {
@@ -96,10 +92,7 @@ export const callGeminiAPI = async (prompt, model = 'gemini-1.5-flash-latest', s
 };
 
 /**
- * Creates a structured story bible from previous chapters of a story.
- * @param {string} previousChaptersText The text of the story's previous chapters.
- * @param {string} [model='gemini-1.5-pro-latest'] The model to use for bible creation.
- * @returns {Promise<object>} A JSON object containing key story details.
+ * Create a structured story bible from previous chapters
  */
 export const createStoryBible = async (previousChaptersText, model = 'gemini-1.5-pro-latest') => {
     if (!previousChaptersText || previousChaptersText.trim() === '') {
@@ -108,7 +101,9 @@ export const createStoryBible = async (previousChaptersText, model = 'gemini-1.5
             character_developments: [],
             key_objects_or_macguffins: [],
             unresolved_plot_threads: [],
-            world_building_rules: []
+            world_building_rules: [],
+            recently_described_details: [],
+            character_focus: "Introduce the main character and their initial situation."
         };
     }
 
@@ -128,7 +123,11 @@ OUTPUT FORMAT (JSON):
   ],
   "key_objects_or_macguffins": ["List of important items, like 'the silver locket' or 'the encrypted data chip'"],
   "unresolved_plot_threads": ["List of mysteries or cliffhangers, e.g., 'Who sent the mysterious letter?', 'What is behind the locked door?'"],
-  "world_building_rules": ["List any established rules of the world, e.g., 'Magic can only be used at night.', 'The protagonist is allergic to pineapple.'"]
+  "world_building_rules": ["List any established rules of the world, e.g., 'Magic can only be used at night.', 'Gravity is weaker on Tuesdays.'"],
+  "recently_described_details": [
+    "List 2-3 specific descriptive phrases for characters or settings that were used frequently in the MOST RECENT chapter. Example: 'her constellation of freckles', 'the gnarled roots of the Great Oak'."
+  ],
+  "character_focus": "Based on the character's current situation, suggest a NEW way to describe them. Focus on showing their internal state through action or appearance. Example: 'Instead of mentioning Elara's green eyes, describe how she nervously adjusts her satchel strap, showing her anxiety.'"
 }
     `.trim();
 
@@ -142,11 +141,13 @@ OUTPUT FORMAT (JSON):
 };
 
 /**
- * Creates a 3-beat chapter plan for the final chapter to ensure a satisfying conclusion.
- * @param {object} storyBible The story bible containing unresolved plot threads.
- * @returns {Promise<object>} A JSON object with a "chapter_plan" array.
+ * Creates a 3-beat chapter plan
  */
-export const createChapterPlan = async (storyBible) => {
+export const createChapterPlan = async (storyBible, model = 'gemini-1.5-pro-latest') => {
+    if (!storyBible || !storyBible.unresolved_plot_threads) {
+        console.error("[ChapterPlan] Story bible is missing or invalid. Cannot create chapter plan.");
+        return { chapter_plan: [] };
+    }
     const threads = storyBible.unresolved_plot_threads.join('; ') || 'all remaining mysteries';
     const planPrompt = `
 You are a master story planner. Based on the following unresolved plot threads, create a simple 3-beat chapter plan for a satisfying final chapter. The plan must ensure all mysteries are solved.
@@ -166,17 +167,15 @@ Example Format:
     `.trim();
 
     try {
-        const planText = await callGeminiAPI(planPrompt, 'gemini-1.5-flash-latest', [], { responseMimeType: "application/json" });
+        const planText = await callGeminiAPI(planPrompt, model, [], { responseMimeType: "application/json" });
         return JSON.parse(planText);
     } catch (error) {
         console.error('[ChapterPlan] Failed to create or parse chapter plan:', error.message);
-        throw new Error(`Chapter plan creation failed: ${error.message}`);
+        return { chapter_plan: [] };
     }
 };
 
-
-// --- PROMPT BUILDER HELPER FUNCTIONS ---
-
+// --- PROMPT BUILDER HELPER FUNCTIONS (unchanged) ---
 const buildInstructionsSection = () => `
 ***
 # INSTRUCTIONS
@@ -228,7 +227,7 @@ const buildBibleSection = (storyBible) => {
 
 const buildChapterPlanSection = (chapterPlan) => {
     if (!chapterPlan || !chapterPlan.chapter_plan || chapterPlan.chapter_plan.length === 0) {
-        return ''; // Return empty string if there's no plan
+        return '';
     }
     const beatsList = chapterPlan.chapter_plan.map((beat, index) => `${index + 1}. ${beat.summary}`).join('\n');
     return `
@@ -279,11 +278,8 @@ const buildOutputSection = () => `
 - **Do NOT include any chapter headings or meta commentary.**
 `.trim();
 
-
 /**
- * This function now builds a cleaner prompt by assembling modular sections.
- * @param {object} promptData - All the necessary data to build the prompt.
- * @returns {string} The fully formatted and structured prompt string.
+ * Builds the full prompt for chapter generation
  */
 export const formatChapterPrompt = (promptData) => {
     const sections = [
@@ -294,20 +290,22 @@ export const formatChapterPrompt = (promptData) => {
         buildChapterInstructionsSection(promptData),
         buildOutputSection()
     ];
-    return sections.filter(Boolean).join('\n').trim(); // filter(Boolean) removes empty sections
+    return sections.filter(Boolean).join('\n').trim();
 };
 
+/**
+ * Main function to orchestrate the generation of a single story chapter
+ */
 export const generateStoryFromApi = async (promptDetails, guidance = '', safetySettings = []) => {
     const {
         wordsPerPage, totalChapters, previousChaptersText = '', chapterNumber, maxPageCount, wordTarget
     } = promptDetails;
-
-    // FIX: The previousChaptersText is no longer needed here, but the function still needs to calculate word count from it for budget.
+    
     const sanitizedPreviousChaptersText = sanitizeText(previousChaptersText); 
     console.log('[Gemini Service] Creating Story Bible for context...');
     const storyBible = await createStoryBible(sanitizedPreviousChaptersText);
 
-    let chapterPlan = { chapter_plan: [] }; // Default empty plan
+    let chapterPlan = { chapter_plan: [] };
 
     if (chapterNumber === totalChapters) {
         console.log('[Gemini Service] Generating conclusive chapter plan for the final chapter...');
@@ -315,7 +313,6 @@ export const generateStoryFromApi = async (promptDetails, guidance = '', safetyS
             chapterPlan = await createChapterPlan(storyBible);
         } catch (e) {
             console.error('[Gemini Service] Failed to generate conclusive chapter plan, proceeding without one.', e.message);
-            // The process can continue, but the ending might be weak as a fallback.
         }
     }
 
@@ -346,10 +343,6 @@ export const generateStoryFromApi = async (promptDetails, guidance = '', safetyS
     console.log(` - Raw Target per Chapter: ${Math.round(rawTarget)}`);
     console.log(` - Final Target Chapter Word Count (clamped ${MIN_CHAPTER_WORDS}-${MAX_CHAPTER_WORDS}): ${Math.round(finalTargetChapterWordCount)} words.`);
 
-    if (!process.env.GEMINI_API_KEY) {
-        throw new Error('GEMINI_API_KEY is not set in .env');
-    }
-
     const prompt = formatChapterPrompt({
         promptDetails,
         storyBible,
@@ -360,15 +353,7 @@ export const generateStoryFromApi = async (promptDetails, guidance = '', safetyS
         chapterPlan,
     });
 
-    // --- DIAGNOSTIC LOG ADDED ---
-    // This will print the entire final prompt to the console.
-    console.log('--- FINAL PROMPT SENT TO GEMINI API ---');
-    console.log(prompt);
-    console.log('--------------------------------------');
-    // --- END OF DIAGNOSTIC LOG ---
-
-    const rawResponse = await callGeminiAPI(prompt, 'gemini-1.5-flash-latest', safetySettings);
-
+    const rawResponse = await callGeminiAPI(prompt, 'gemini-1.5-pro-latest', safetySettings);
     const chapterText = sanitizeText(rawResponse);
 
     const words = chapterText.split(/\s+/).filter(word => word.length > 0);
@@ -376,11 +361,9 @@ export const generateStoryFromApi = async (promptDetails, guidance = '', safetyS
 
     return chapterText.trim();
 };
+
 /**
- * Takes a user's picture book character description and distills it into
- * clean, visual-only keywords for an image generation model.
- * @param {string} description The raw character description from the user.
- * @returns {Promise<string>} A comma-separated string of visual keywords.
+ * Distills visual keywords from a description
  */
 export const getVisualKeywordsFromDescription = async (description) => {
     console.log(`[Gemini] Distilling visual keywords for picture book character...`);
@@ -401,14 +384,12 @@ export const getVisualKeywordsFromDescription = async (description) => {
     `.trim();
 
     try {
-        // We use the general-purpose callGeminiAPI function you already have.
-        const keywords = await callGeminiAPI(masterPrompt);
+        const keywords = await callGeminiAPI(masterPrompt, 'gemini-1.5-pro-latest');
         const cleanedKeywords = keywords.replace(/Keywords:/gi, '').trim();
         console.log(`[Gemini] ✅ Distilled keywords: ${cleanedKeywords}`);
         return cleanedKeywords;
     } catch (error) {
         console.error("[Gemini] Error distilling keywords:", error);
-        // Fallback to the original description if Gemini fails, so the app doesn't crash.
         return description;
     }
 };

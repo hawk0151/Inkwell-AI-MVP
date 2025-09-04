@@ -25,7 +25,51 @@ const calculateOrderAmount = async (items) => {
     }
     return total;
 };
+export const createPurchaseOrder = async (req, res) => {
+    const { bookId, bookType } = req.body;
+    const buyerUserId = req.userId;
+    let client;
+    try {
+        const pool = await getDb();
+        client = await pool.connect();
+        let originalBook;
+        if (bookType === 'text_book') {
+            const result = await client.query('SELECT * FROM text_books WHERE id = $1 AND is_public = TRUE', [bookId]);
+            originalBook = result.rows[0];
+        } else if (bookType === 'picture_book') {
+            const result = await client.query('SELECT * FROM picture_books WHERE id = $1 AND is_public = TRUE', [bookId]);
+            originalBook = result.rows[0];
+            // Normalize the cover image field for consistency
+            originalBook.cover_image_url = originalBook.user_cover_image_url;
+        }
 
+        if (!originalBook) {
+            return res.status(404).json({ message: 'The requested book is not available for purchase.' });
+        }
+        if (originalBook.user_id === buyerUserId) {
+            return res.status(400).json({ message: 'You cannot purchase your own book.' });
+        }
+
+        const newOrderId = uuidv4();
+        const createOrderQuery = `
+            INSERT INTO orders (id, user_id, book_id, book_type, book_title, status, interior_pdf_url, cover_pdf_url, lulu_product_id)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            RETURNING *;
+        `;
+        const orderValues = [
+            newOrderId, buyerUserId, originalBook.id, bookType,
+            originalBook.title, 'pending', originalBook.interior_pdf_url,
+            originalBook.cover_pdf_url, originalBook.lulu_product_id
+        ];
+        const newOrderResult = await client.query(createOrderQuery, orderValues);
+        res.status(201).json(newOrderResult.rows[0]);
+    } catch (error) {
+        console.error('[PURCHASE ERROR] Failed to create purchase order:', error);
+        res.status(500).json({ message: 'Could not create purchase order.' });
+    } finally {
+        if (client) client.release();
+    }
+};
 export const createCheckoutSession = async (req, res) => {
     let client;
     const { items, orderId, redirectUrls } = req.body;

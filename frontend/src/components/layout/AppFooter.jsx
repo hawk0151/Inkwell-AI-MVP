@@ -7,12 +7,19 @@ export const AppFooter = () => (
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center text-slate-400 text-sm">
             <div className="flex flex-wrap justify-center gap-x-6 gap-y-2">
                 <Link to="/policies#terms-of-service-section" className="hover:text-white transition-colors">Terms of Service</Link>
+                {/* FIX: Added a direct link to the new Copyright Policy in the main links */}
+                <Link to="/policies#copyright-policy-section" className="hover:text-white transition-colors">Copyright Policy</Link>
                 <Link to="/policies#privacy-policy-section" className="hover:text-white transition-colors">Privacy Policy</Link>
                 <Link to="/policies#shipping-policy-section" className="hover:text-white transition-colors">Shipping Policy</Link>
                 <Link to="/policies#refund-policy-section" className="hover:text-white transition-colors">Refund Policy</Link>
-                <Link to="/contact" className="hover:text-white transition-colors">Contact Us</Link> {/* NEW: Added Contact Us link */}
+                <Link to="/contact" className="hover:text-white transition-colors">Contact Us</Link>
             </div>
-            <p className="mt-6">&copy; {new Date().getFullYear()} Inkwell AI. All Rights Reserved.</p>
+            {/* FIX: The copyright text is now a link to the new policy section */}
+            <p className="mt-6">
+                <Link to="/policies#copyright-policy-section" className="hover:text-white transition-colors">
+                    &copy; {new Date().getFullYear()} Inkwell AI. All Rights Reserved.
+                </Link>
+            </p>
         </div>
     </footer>
 );

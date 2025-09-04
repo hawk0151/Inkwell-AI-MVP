@@ -15,8 +15,21 @@ const StarRating = ({ rating = 5 }) => (
 );
 
 const ReviewCard = ({ quote, author, location, rating }) => {
-    // Dynamically generate a unique avatar URL based on the author's name
-    const avatarUrl = `https://api.dicebear.com/8.x/adventurer/svg?seed=${encodeURIComponent(author)}`;
+    // --- FIX: Replaced DiceBear with a professional photo avatar service ---
+
+    // 1. Create a simple, consistent "hash" from the author's name.
+    // This ensures that the same author always gets the same image number.
+    const nameHash = author.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+
+    // 2. Use the hash to pick a gender and a specific photo number.
+    // There are 78 male and 78 female photos available (0-77).
+    const gender = nameHash % 2 === 0 ? 'male' : 'female';
+    const avatarNumber = nameHash % 78;
+
+    // 3. Construct the new URL.
+    const avatarUrl = `https://xsgames.co/randomusers/assets/avatars/${gender}/${avatarNumber}.jpg`;
+    
+    // --- END FIX ---
 
     return (
         <div className="bg-slate-800/50 backdrop-blur-md p-8 rounded-2xl shadow-xl border border-slate-700 h-full flex flex-col w-[350px] sm:w-[420px]">
@@ -37,7 +50,7 @@ const ReviewCard = ({ quote, author, location, rating }) => {
 
 const Testimonials = () => {
     const reviews = [
-        { quote: "I typed in a silly inside joke from our childhood, and the AI wove it into the story so perfectly. My sister cried when she read it. The most incredible gift I've ever given.", author: "Emily R.", location: "London, UK", rating: 5 },
+        { quote: "I typed in a silly inside joke from our childhood, and the AI wove it into the story so perfectly. My sister cried when she read it. The most incredible gift I've ever given.", author: "Tyler H.", location: "London, UK", rating: 5 },
         { quote: "My son has a hard time reading, but he hasn't put this book down. Seeing himself as the hero of his own adventure is pure magic. The quality of the printed hardcover is fantastic too.", author: "David L.", location: "Sydney, AU", rating: 5 },
         { quote: "As a writer, I was skeptical, but I'm blown away. The story coherence is amazing chapter after chapter. It feels like a genuine collaboration. I've already started my second book!", author: "Maria G.", location: "Toronto, CA", rating: 5 },
         { quote: "The perfect bedtime story. We created a character that looks just like our daughter and has her love for space. She asks to read 'her book' every single night.", author: "Chloe T.", location: "Auckland, NZ", rating: 5 },

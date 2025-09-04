@@ -24,8 +24,17 @@ const PROFIT_MARGIN_AUD = 15.00;
 const REQUIRED_CONTENT_PAGES = 20;
 
 async function getFullPictureBook(bookId, userId, client) {
-    const bookResult = await client.query(`SELECT *, user_cover_image_url, story_bible, character_reference, book_status FROM picture_books WHERE id = $1 AND user_id = $2`, [bookId, userId]);
+    // --- CORRECTED QUERY ---
+    // This now fetches the book if the user is the owner OR if the book is public.
+    const bookSql = `
+        SELECT *, user_cover_image_url, story_bible, character_reference, book_status 
+        FROM picture_books 
+        WHERE id = $1 AND (user_id = $2 OR is_public = TRUE)
+    `;
+    const bookResult = await client.query(bookSql, [bookId, userId]);
     const book = bookResult.rows[0];
+
+    // If the book doesn't exist or doesn't meet the criteria, return null.
     if (!book) return null;
 
     const eventsSql = `
@@ -37,6 +46,7 @@ async function getFullPictureBook(bookId, userId, client) {
     `;
     const timelineResult = await client.query(eventsSql, [bookId]);
 
+    // This logic to combine timeline events is correct and remains unchanged.
     if (book.story_bible && book.story_bible.storyPlan) {
         book.timeline = timelineResult.rows.map(event => {
             const planData = book.story_bible.storyPlan.find(p => p.page_number === event.page_number);
@@ -51,7 +61,6 @@ async function getFullPictureBook(bookId, userId, client) {
 
     return book;
 }
-
 export const createPictureBook = async (req, res) => {
     let client;
     try {
@@ -148,31 +157,35 @@ export const saveStoryBible = async (req, res) => {
         client = await pool.connect();
         await client.query('BEGIN');
 
-        // --- FIX: Add a safety check for the art style ---
-        if (storyBibleData.art && storyBibleData.art.style === 'watercolor') {
-            console.log(`[Controller/Save] WARNING: Intercepted invalid 'watercolor' style, defaulting to 'digital-art'.`);
-            storyBibleData.art.style = 'digital-art';
-        }
-        // --- END FIX ---
-
-        await client.query('LOCK TABLE timeline_events IN SHARE ROW EXCLUSIVE MODE');
-
-        const bookResult = await client.query(`SELECT id FROM picture_books WHERE id = $1 AND user_id = $2`, [bookId, userId]);
+        // First, get the book's current status
+        const bookResult = await client.query(`SELECT id, book_status FROM picture_books WHERE id = $1 AND user_id = $2`, [bookId, userId]);
         if (bookResult.rows.length === 0) {
             await client.query('ROLLBACK');
             return res.status(404).json({ message: 'Project not found.' });
         }
+        const currentStatus = bookResult.rows[0].book_status;
 
+        // Determine the new status
         const newStatus = storyBibleData.storyPlan && storyBibleData.storyPlan.length > 0 ? 'writing' : 'draft';
 
         const updateSql = `
             UPDATE picture_books
-            SET story_bible = $1, character_reference = $2, title = $3, book_status = $4, last_modified = NOW()
-            WHERE id = $5
+            SET story_bible = $1, character_reference = $2, title = $3, author = $4, book_status = $5, last_modified = NOW()
+            WHERE id = $6
         `;
-        await client.query(updateSql, [storyBibleData, storyBibleData.characterReference || null, storyBibleData.title || 'Untitled Book', newStatus, bookId]);
+        await client.query(updateSql, [
+            storyBibleData,
+            storyBibleData.characterReference || null,
+            storyBibleData.title || 'Untitled Book',
+            storyBibleData.author || null,
+            newStatus,
+            bookId
+        ]);
 
-        if (storyBibleData.storyPlan && storyBibleData.storyPlan.length > 0) {
+        // THIS IS THE NEW, SAFE LOGIC
+        // Only wipe and create pages if this is the FIRST time a story plan is being saved (i.e., status is 'draft')
+        if (currentStatus === 'draft' && storyBibleData.storyPlan && storyBibleData.storyPlan.length > 0) {
+            console.log(`[SaveStoryBible] First-time setup for book ${bookId}. Creating timeline events.`);
             await client.query('DELETE FROM timeline_events WHERE book_id = $1', [bookId]);
 
             const insertEventSql = `
@@ -603,11 +616,14 @@ export const uploadCoverImage = async (req, res) => {
     }
 };
 
+// REPLACE your existing function with this one
 export const saveTimelineEvents = async (req, res) => {
     let client;
     const { bookId } = req.params;
     const { events } = req.body;
     const userId = req.userId;
+
+    console.log(`[SAVE DEBUG] Received request to save ${events?.length || 0} events for bookId: ${bookId}`);
 
     if (!Array.isArray(events)) {
         return res.status(400).json({ message: "Invalid request body. 'events' must be an array." });
@@ -624,7 +640,6 @@ export const saveTimelineEvents = async (req, res) => {
             return res.status(404).json({ message: 'Project not found.' });
         }
         
-        // --- REPLACEMENT: This query now saves all relevant fields, including image URLs ---
         const updateSql = `
             UPDATE timeline_events
             SET 
@@ -639,33 +654,41 @@ export const saveTimelineEvents = async (req, res) => {
         `;
         
         for (const event of events) {
-            if (event.id) { // Only update events that already exist
-                await client.query(updateSql, [
+            if (event.id) {
+                // --- DEBUG LOGGING ---
+                console.log(`[SAVE DEBUG] Processing page_number: ${event.page_number} with eventId: ${event.id}`);
+                const queryParams = [
                     event.story_text,
                     event.image_prompt,
                     event.image_url,
                     event.image_url_preview,
                     event.image_url_print,
-                    event.uploaded_image_url, // This will be null for AI-generated images
+                    event.uploaded_image_url,
                     event.id,
                     bookId
-                ]);
+                ];
+                console.log('[SAVE DEBUG] Query Parameters being sent:', queryParams);
+                // --- END DEBUG LOGGING ---
+
+                await client.query(updateSql, queryParams);
             }
         }
-        // --- END OF REPLACEMENT ---
         
         await client.query(`UPDATE picture_books SET last_modified = NOW() WHERE id = $1`, [bookId]);
         await client.query('COMMIT');
+        
+        console.log('[SAVE DEBUG] Save successful. Transaction committed.');
         res.status(200).json({ message: 'Timeline events saved successfully.' });
+
     } catch (err) {
         if (client) await client.query('ROLLBACK');
-        console.error(`Error in saveTimelineEvents controller:`, err.message);
+        // --- DEBUG LOGGING FOR ERRORS ---
+        console.error(`[SAVE DEBUG] Error in saveTimelineEvents controller:`, err);
         res.status(500).json({ message: 'Failed to save timeline events.' });
     } finally {
         if (client) client.release();
     }
 };
-
 export const generatePreviewPdf = async (req, res) => {
     const { bookId } = req.params;
     const userId = req.userId;

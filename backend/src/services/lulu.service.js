@@ -100,6 +100,7 @@ export const findProductConfiguration = (productId) => {
     if (!productId) return undefined;
     return LULU_PRODUCT_CONFIGURATIONS.find(p => 
         p.id === productId || 
+        p.luluSku === productId || // <-- This is the line that fixes the bug
         (p.aliases && p.aliases.includes(productId))
     );
 };

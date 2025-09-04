@@ -6,11 +6,10 @@ import { LoadingSpinner, Alert } from '../components/common.jsx';
 import CheckoutModal from '../components/CheckoutModal.jsx';
 import { StoryBibleModal } from '../components/StoryBibleModal.jsx';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowLeftIcon, EyeIcon, PhotoIcon, SparklesIcon, BookOpenIcon } from '@heroicons/react/24/solid';
-import toast from 'react-hot-toast';
+// Replace them with this one line
+import { ArrowLeftIcon, EyeIcon, PhotoIcon, SparklesIcon, BookOpenIcon, ArrowDownTrayIcon } from '@heroicons/react/24/solid';import toast from 'react-hot-toast';
 import Cropper from 'react-easy-crop';
 import getCroppedImg from '../utils/cropImage.js';
-
 // Cover components remain unchanged
 const CoverPreview = ({ coverImageUrl, title, author }) => (
     <div className="w-full aspect-[2/1] rounded-lg shadow-2xl flex bg-slate-800 border border-slate-700 overflow-hidden mb-8">
@@ -278,6 +277,20 @@ function PictureBookPage() {
         }
     };
 
+const handleManualSave = async () => {
+    // Show a loading toast and get its ID
+    const toastId = toast.loading('Saving your progress...');
+    try {
+        // Use the existing save function to save the current timeline
+        await saveAllTimelineEvents(timeline);
+        // If successful, update the toast to show success
+        toast.success('Project saved successfully!', { id: toastId });
+    } catch (error) {
+        // If it fails, update the toast to show an error
+        toast.error('Could not save your project. Please try again.', { id: toastId });
+    }
+};
+
     const handleFinalizeAndPurchase = async () => {
         if (timeline.length !== REQUIRED_CONTENT_PAGES) {
             setError(`Your book must have exactly ${REQUIRED_CONTENT_PAGES} pages.`);
@@ -326,31 +339,39 @@ function PictureBookPage() {
         fetchBook(); 
     };
 
-    const handleGenerateSinglePage = async (pageNumber, currentPrompt) => {
-        setIsGenerating(true);
-        const toastId = toast.loading(`Generating image for page ${pageNumber}...`);
-        try {
-            const response = await apiClient.post(`/picture-books/${bookId}/pages/${pageNumber}/generate`, {
-                prompt: currentPrompt
-            });
-            
-            setTimeline(prevTimeline => {
-                return prevTimeline.map(event => {
-                    if (event.page_number === pageNumber) {
-                        return { ...event, image_url: response.data.imageUrl };
-                    }
-                    return event;
-                });
-            });
+const handleGenerateSinglePage = async (pageNumber, currentPrompt) => {
+    setIsGenerating(true);
+    const toastId = toast.loading(`Generating image for page ${pageNumber}...`);
+    try {
+        const response = await apiClient.post(`/picture-books/${bookId}/pages/${pageNumber}/generate`, {
+            prompt: currentPrompt
+        });
+        
+        // Use the fix from our last conversation to get the correct URL
+        const newImageUrl = response.data.imageUrl || response.data.url || response.data;
 
-            toast.success(`Image for page ${pageNumber} generated successfully!`, { id: toastId });
-        } catch (err) {
-            const errorMessage = err.response?.data?.message || 'Failed to generate image.';
-            toast.error(errorMessage, { id: toastId });
-        } finally {
-            setIsGenerating(false);
-        }
-    };
+        // Create the new timeline with the updated image URL
+        const newTimeline = timeline.map(event => {
+            if (event.page_number === pageNumber) {
+                return { ...event, image_url: newImageUrl };
+            }
+            return event;
+        });
+
+        // 1. Update the local React state so the image appears instantly
+        setTimeline(newTimeline);
+        
+        // 2. Immediately save this new, updated timeline to the database
+        await saveAllTimelineEvents(newTimeline);
+
+        toast.success(`Image for page ${pageNumber} generated successfully!`, { id: toastId });
+    } catch (err) {
+        const errorMessage = err.response?.data?.message || 'Failed to generate image.';
+        toast.error(errorMessage, { id: toastId });
+    } finally {
+        setIsGenerating(false);
+    }
+};
     
     const pagesWithoutImages = timeline.filter(p => p.image_prompt && !p.image_url && !p.uploaded_image_url).length;
     const meetsPageRequirement = timeline.length === REQUIRED_CONTENT_PAGES;
@@ -373,17 +394,30 @@ function PictureBookPage() {
             <div className="min-h-screen bg-slate-900 text-white">
                 <div className="max-w-7xl mx-auto py-8 px-4">
                     <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }} className="flex justify-between items-center mb-8">
-                        <Link to="/my-projects" className="flex items-center gap-2 text-slate-300 hover:text-white">
-                            <ArrowLeftIcon className="h-5 w-5" /> Back to My Projects
-                        </Link>
-                        <div className="text-center">
-                            <h1 className="text-2xl font-serif font-bold">{title || 'Picture Book Editor'}</h1>
-                            {(isSaving) && <div className="text-xs text-blue-400 animate-pulse">Saving...</div>}
-                        </div>
-                        <button onClick={() => navigate(`/picture-book/${bookId}/preview`)} className="flex items-center gap-2 bg-slate-700 hover:bg-slate-600 font-semibold py-2 px-4 rounded-lg">
-                            <EyeIcon className="h-5 w-5" /> Preview
-                        </button>
-                    </motion.div>
+    <Link to="/my-projects" className="flex items-center gap-2 text-slate-300 hover:text-white">
+        <ArrowLeftIcon className="h-5 w-5" /> Back to My Projects
+    </Link>
+    <div className="text-center">
+        <h1 className="text-2xl font-serif font-bold">{title || 'Picture Book Editor'}</h1>
+        {/* We can make the auto-save text a bit clearer */}
+        {(isSaving) && <div className="text-xs text-blue-400 animate-pulse">Auto-saving...</div>}
+    </div>
+    
+    {/* A new container for our action buttons */}
+    <div className="flex items-center gap-4">
+        <button 
+            onClick={handleManualSave} 
+            disabled={isSaving}
+            className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-2 px-4 rounded-lg transition-colors disabled:bg-slate-500 disabled:cursor-not-allowed"
+        >
+            <ArrowDownTrayIcon className="h-5 w-5" />
+            Save Progress
+        </button>
+        <button onClick={() => navigate(`/picture-book/${bookId}/preview`)} className="flex items-center gap-2 bg-slate-700 hover:bg-slate-600 font-semibold py-2 px-4 rounded-lg">
+            <EyeIcon className="h-5 w-5" /> Preview
+        </button>
+    </div>
+</motion.div>
 
                     <div className="flex-grow flex flex-col lg:flex-row gap-8">
                         <div className="lg:w-2/3 w-full lg:order-1 order-2">

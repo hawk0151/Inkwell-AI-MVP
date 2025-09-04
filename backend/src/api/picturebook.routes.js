@@ -23,7 +23,7 @@ import {
     generateAllImages,
     getGenerationStatus // ✅ NEW: Import the new controller function
 } from '../controllers/pictureBook.controller.js';
-
+console.log('--- PICTURE BOOK ROUTES FILE LOADED ---'); 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
 

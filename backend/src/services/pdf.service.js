@@ -1,6 +1,7 @@
 import PDFDocument from 'pdfkit';
 // in src/services/pdf.service.js
-import { PDFDocument as PDFLibDocument, rgb, StandardFonts, degrees } from 'pdf-lib';import axios from 'axios';
+import { PDFDocument as PDFLibDocument, rgb, StandardFonts, degrees } from 'pdf-lib';
+import axios from 'axios';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
@@ -61,6 +62,35 @@ const getProductDimensions = (luluConfigId) => {
             right: safeMarginPts
         }
     };
+};
+const addWatermarkToPdf = async (filePath) => {
+    try {
+        const pdfBytes = await fs.promises.readFile(filePath);
+        // Use the renamed PDFLibDocument to load the file
+        const pdfDoc = await PDFLibDocument.load(pdfBytes); 
+        const helveticaFont = await pdfDoc.embedFont('Helvetica-Bold');
+
+        const pages = pdfDoc.getPages();
+        for (const page of pages) {
+            const { width, height } = page.getSize();
+            page.drawText('PREVIEW - INKWELL.NET.AU', {
+                x: width / 2,
+                y: height / 2,
+                font: helveticaFont,
+                size: 80,
+                color: rgb(0.2, 0.8, 0.9),
+                opacity: 0.65,
+                rotate: degrees(-45),
+            });
+        }
+
+        const modifiedPdfBytes = await pdfDoc.save();
+        await fs.promises.writeFile(filePath, modifiedPdfBytes);
+        console.log(`[PDF Service] Watermark added to ${filePath}`);
+    } catch (error) {
+        console.error(`[PDF Service] Failed to add watermark:`, error);
+        throw new Error('Could not apply watermark to the PDF.');
+    }
 };
 
 // UNCHANGED: This function remains the same.
@@ -312,11 +342,11 @@ export const generateAndSaveTextBookPdf = async (book, productConfig, isPreview 
                     x: width / 2 - 150,
                     y: height / 2 - 50,
                     font,
-                    size: 100,
-                    color: rgb(0.75, 0.75, 0.75),
-                    opacity: 0.3,
+                size: 80,
+                color: rgb(0.2, 0.8, 0.9),
+                opacity: 0.25,
+                rotate: degrees(-45),
                     // --- FIX: Use the degrees() function for rotation ---
-                    rotate: degrees(45),
                 });
             }
         }
@@ -387,7 +417,6 @@ export const finalizePdfPageCount = async (filePath, productConfig, currentConte
 export const generateAndSavePictureBookPdf = async (book, productConfig, isPreview = false) => {
     try {
         const dims = getProductDimensions(productConfig.id);
-        // --- FIX: Use the correct author name from the story_bible ---
         const authorName = book.story_bible?.author || 'An Inkwell Author';
 
         const doc = new PDFDocument({
@@ -419,15 +448,25 @@ export const generateAndSavePictureBookPdf = async (book, productConfig, isPrevi
             doc.font(ROBOTO_REGULAR_PATH).fontSize(10).fillColor('grey')
                .text('Made with inkwell.net.au', { align: 'center', width: dims.pageWidth, y: dims.pageHeight - 50 });
             
-            // Pages 3-22: Story Content
+ // Pages 3-22: Story Content
             if (book.timeline && book.timeline.length > 0) {
                 for (const event of book.timeline) {
                     doc.addPage();
-                    const imageUrl = event.image_url_print || event.uploaded_image_url;
+                    const imageUrl = event.image_url_print || event.uploaded_image_url || event.image_url;
+
+                    // --- ADD THIS LOG ---
+                    console.log(`[DEBUG] Processing page ${event.page_number}. Image URL: ${imageUrl}`);
 
                     if (imageUrl) {
                         try {
+                            // --- ADD THIS LOG ---
+                            console.log('[DEBUG] Image URL found. Attempting to fetch buffer...');
+
                             const imageBuffer = await getImageBuffer(imageUrl);
+
+                            // --- ADD THIS LOG ---
+                            console.log('[DEBUG] Successfully fetched image buffer. Size:', imageBuffer.length, 'bytes');
+                            
                             const image = doc.openImage(imageBuffer);
                             const pageAspect = dims.pageWidth / dims.pageHeight;
                             const imageAspect = image.width / image.height;
@@ -446,7 +485,9 @@ export const generateAndSavePictureBookPdf = async (book, productConfig, isPrevi
                             }
                             doc.image(imageBuffer, x, y, { width: newWidth, height: newHeight });
                         } catch (error) {
+                            // --- MODIFY THIS LOG ---
                             console.error("[PDF Service] Failed to embed image:", error.message);
+                            console.error("[DEBUG] Full error object:", error); // Get more details
                         }
                     }
 

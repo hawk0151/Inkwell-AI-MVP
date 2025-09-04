@@ -5,7 +5,8 @@ import {
     getMyOrders, 
     getOrderDetails,
     getOrderBySessionId,
-    getLuluOrderStatus
+    getLuluOrderStatus,
+    createPurchaseOrder
 } from '../controllers/order.controller.js';
 
 const router = express.Router();

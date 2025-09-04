@@ -18,8 +18,9 @@ router.post('/unlike', authMiddleware, unlikeBook);
 
 // Comments
 router.post('/comment', authMiddleware, addComment);
-router.get('/:bookId/:bookType/comments', getCommentsForBook); // GET for fetching comments
-router.delete('/:commentId/:bookId/:bookType/comment', authMiddleware, deleteComment);
+// CORRECTED ROUTE: Swapped the order of :bookType and :bookId
+router.get('/comments/:bookType/:bookId', getCommentsForBook);
+router.delete('/comment/:bookType/:bookId/:commentId', authMiddleware, deleteComment); // Also corrected this one for consistency
 
 // Book Privacy Toggle (Consider if this should be here or in a more general book management route)
 router.post('/toggle-privacy', authMiddleware, toggleBookPrivacy);

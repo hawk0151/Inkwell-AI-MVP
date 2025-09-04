@@ -2,182 +2,249 @@ import React, { useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import PageHeader from '../components/PageHeader';
+import ReactMarkdown from 'react-markdown';
+// FIX: Added icons for styling the policy headings
+import { DocumentTextIcon, ShieldCheckIcon, LockClosedIcon, TruckIcon, ReceiptRefundIcon, ArrowPathIcon } from '@heroicons/react/24/solid';
 
 const policyContent = {
     terms: {
         title: 'Terms of Service — Inkwell AI',
         id: 'terms-of-service-section',
-        content: (
-            <>
-                <p><strong>Effective Date: 2025-08-05</strong></p>
-                <p><strong>Last Updated: 2025-08-05</strong></p>
-                <h2>1. Introduction & Acceptance</h2>
-                <p>Welcome to Inkwell AI (“we,” “our,” “us”). These Terms of Service (“Terms”) govern your access to and use of our services, including our website, applications, digital product generation, and any associated physical fulfillment (collectively, the “Services”).</p>
-                <p>By using our Services, you agree to be bound by these Terms, as well as our <Link to="/policies#privacy-policy-section">Privacy Policy</Link>, <Link to="/policies#refund-policy-section">Refund Policy</Link>, <Link to="/policies#return-policy-section">Return Policy</Link>, and <Link to="/policies#shipping-policy-section">Shipping Policy</Link>, which form part of these Terms. If you do not agree, you must cease use immediately.</p>
-                <p>These Terms comply with and are subject to the Australian Consumer Law (ACL) and the New Zealand Consumer Guarantees Act 1993 (CGA).</p>
-                <h2>2. Definitions</h2>
-                <ul>
-                    <li><strong>Digital Product</strong> — Any AI-generated or downloadable file created through our platform.</li>
-                    <li><strong>Physical Product</strong> — Any printed, bound, or otherwise manufactured product fulfilled via third-party printing/shipping providers.</li>
-                    <li><strong>User</strong> — Any individual or entity accessing or using our Services.</li>
-                    <li><strong>Order</strong> — A confirmed purchase made via our platform.</li>
-                </ul>
-                <h2>3. User Eligibility</h2>
-                <p>To use the Services, you must:</p>
-                <ul>
-                    <li>Be 18 years or older or have the consent of a legal guardian.</li>
-                    <li>Have the legal capacity to enter into a binding agreement.</li>
-                    <li>Use the Services in compliance with all applicable laws.</li>
-                </ul>
-                <h2>4. Services Provided</h2>
-                <p>Inkwell AI offers:</p>
-                <ul>
-                    <li>AI-powered content and book generation.</li>
-                    <li>Optional printing and delivery of generated works.</li>
-                    <li>Access to online previews and file downloads.</li>
-                </ul>
-                <p>We may alter or discontinue Services at any time, provided consumer rights under ACL/CGA are preserved.</p>
-                <h2>5. Account Responsibilities</h2>
-                <ul>
-                    <li>You are responsible for keeping your account credentials secure.</li>
-                    <li>You must ensure that the information provided is accurate and up to date.</li>
-                    <li>You must not misuse or interfere with the Services.</li>
-                </ul>
-                <h2>6. Payment & Pricing</h2>
-                <p>All prices are listed in AUD or NZD unless stated otherwise.</p>
-                <p>Payments are processed securely via Stripe or other approved providers.</p>
-                <p>We reserve the right to adjust pricing at any time, but not for orders already confirmed.</p>
-                <h2>7. Review Before Purchase (Crucial Clause)</h2>
-                <p>Before placing an order for any Digital or Physical Product, you acknowledge and agree that:</p>
-                <ul>
-                    <li>You have had the <strong>full and complete opportunity to review all aspects</strong> of your generated book and order — including but not limited to, the entire text content, available visual previews, product specifications, page layouts, formatting, spelling, grammar, and final pricing — before making payment.</li>
-                    <li>You are <strong>solely responsible</strong> for thoroughly reviewing and ensuring all details (including content accuracy and aesthetic preferences) are correct and satisfactory before finalizing your purchase.</li>
-                    <li>Once an order is confirmed, production or delivery will proceed as per our <Link to="/policies#refund-policy-section">Refund Policy</Link> and <Link to="/policies#return-policy-section">Return Policy</Link>.</li>
-                    <li>Inkwell AI is not responsible for errors, omissions, or undesired subjective outputs (e.g., specific phrasing, plot elements, or visual interpretations by the AI that deviate from your personal ideal) resulting from your failure to adequately review and confirm your order prior to payment. <strong>By completing your purchase, you explicitly acknowledge and accept the product as previewed.</strong></li>
-                </ul>
-                <h2>8. Intellectual Property</h2>
-                <p>All source code, branding, and proprietary software remain the property of Inkwell AI.</p>
-                <p>You retain ownership of original content you upload.</p>
-                <p>AI-generated works may be used by you for personal or commercial purposes unless otherwise restricted.</p>
-                <h2>9. User Content & Conduct</h2>
-                <p>You warrant that any content you upload or input into our Services:</p>
-                <ul>
-                    <li>Does not infringe copyright, trademark, or other intellectual property rights of any third party.</li>
-                    <li>Is not unlawful, defamatory, obscene, harmful, or otherwise prohibited under applicable law.</li>
-                    <li>Complies with all content guidelines and policies published by Inkwell AI.</li>
-                </ul>
-                <h2>10. Disclaimers & Liability</h2>
-                <p>Services are provided “as is,” with guarantees only to the extent required by law, including the Australian Consumer Law (ACL) and the New Zealand Consumer Guarantees Act 1993 (CGA).</p>
-                <p>To the maximum extent permitted by law, our liability is limited to:</p>
-                <ul>
-                    <li>In the case of goods — replacement, repair, or refund of the purchase price.</li>
-                    <li>In the case of services — resupply of the service or refund for the service fee.</li>
-                </ul>
-                <p>We are not liable for indirect or consequential losses.</p>
-                <h2>11. Governing Law & Dispute Resolution</h2>
-                <p>These Terms are governed by the laws of Queensland, Australia, and the laws of New Zealand where applicable. Disputes will first be resolved by good-faith negotiation, then mediation, before any court proceedings.</p>
-                <h2>12. Changes to Terms</h2>
-                <p>We may update these Terms at any time. Continued use of our Services constitutes acceptance of updated Terms. We will notify you of significant changes.</p>
-            </>
-        ),
+        content: `
+> ***In short: By using Inkwell AI, you agree to our rules. You must be over 18 (or have permission) and are responsible for reviewing your book before you buy. We own our platform, but you own the rights to the stories you create.***
+
+**Effective Date: 2025-08-30**
+**Last Updated: 2025-08-30**
+
+### 1. Introduction & Acceptance
+Welcome to Inkwell AI (“we,” “our,” “us”). These Terms of Service (“Terms”) govern your use of our website, applications, AI content generation tools, and any related printing and shipping services (collectively, the “Services”). By using our Services, you agree to these Terms and our integrated [Copyright Policy](/policies#copyright-policy-section), [Privacy Policy](/policies#privacy-policy-section), [Refund Policy](/policies#refund-policy-section), [Return Policy](/policies#return-policy-section), and [Shipping Policy](/policies#shipping-policy-section). If you do not agree, you must stop using the Services. These Terms operate subject to the Australian Consumer Law (ACL) and the New Zealand Consumer Guarantees Act 1993 (CGA).
+
+### 2. Definitions
+-   **Digital Product** — Any AI-generated or downloadable file created through our platform.
+-   **Physical Product** — Any printed, bound, or manufactured product delivered by our third-party printing and shipping partners.
+-   **User** — Any individual or organisation accessing or using the Services.
+-   **Order** — A confirmed purchase made through our platform.
+
+### 3. Eligibility
+To use our Services, you must:
+-   Be 18 years or older, or have parental/guardian consent.
+-   Have the legal capacity to enter into a binding contract.
+-   Comply with all applicable laws and regulations.
+
+### 4. Services Provided
+We provide:
+-   AI-powered story and image generation.
+-   Optional printing, binding, and shipping of works.
+-   Previews and downloadable files.
+We may change, suspend, or discontinue Services at any time, without affecting your rights under the ACL or CGA.
+
+### 5. Account Responsibilities
+-   You are responsible for keeping your login details secure.
+-   You must provide accurate and up-to-date account information.
+-   You must not misuse, hack, or disrupt the Services.
+
+### 6. Payments & Pricing
+-   Prices are displayed in AUD or NZD unless otherwise noted.
+-   Payments are processed via secure third-party providers (e.g., Stripe).
+-   Prices may change, but confirmed orders will not be affected.
+
+### 7. Review Before Purchase (Crucial Clause)
+Before placing an order for any Digital or Physical Product, you acknowledge and agree that:
+-   You have had the **full and complete opportunity to review all aspects** of your generated book and order — including but not limited to, the entire text content, available visual previews, product specifications, page layouts, formatting, spelling, grammar, and final pricing — before confirming payment.
+-   You are **solely responsible** for thoroughly reviewing and ensuring all details (including content accuracy and aesthetic preferences) are correct and satisfactory.
+-   Once confirmed, your order is final and subject only to the Refund Policy and Return Policy.
+-   Inkwell AI is not liable for errors, omissions, or subjective dissatisfaction (such as phrasing, story direction, or design choices) if you did not correct or review them before payment. **By completing a purchase, you explicitly accept the product as previewed.**
+
+### 8. Intellectual Property
+For full details on intellectual property and copyright, please see our comprehensive [Copyright Policy](/policies#copyright-policy-section).
+
+### 9. Disclaimers & Liability
+Services are provided “as is,” with guarantees only to the extent required by law. To the maximum extent permitted by law, our liability is limited to:
+-   For goods — replacement, repair, or refund of the purchase price.
+-   For services — resupply of the service or a refund of the service fee.
+We are not liable for any indirect, incidental, or consequential losses.
+### 10. Governing Law & Dispute Resolution
+For customers residing in Australia, these Terms are governed by the laws of the State of South Australia. The Australian Consumer Law (ACL) and New Zealand Consumer Guarantees Act (CGA) also apply as relevant. For customers residing in New Zealand, these Terms are governed by the laws of New Zealand. 
+
+For customers residing in other countries, including the United States, European Union, or elsewhere, you agree that these Terms are governed by the laws of South Australia, and you will comply with all applicable local laws in your jurisdiction.
+
+Any disputes arising from these Terms will be resolved by the following escalation process: first through **good-faith negotiation**, then through **formal mediation**, and only as a final resort, through litigation in the appropriate courts.
+
+### 11. Account Termination
+We reserve the right to suspend or terminate your account and access to the Services, without prior notice or liability, if you breach these Terms, including but not limited to submitting unlawful content or misusing the platform. Upon termination, your right to use the Services will immediately cease.
+
+### 12. Changes to These Terms
+We may update these Terms periodically. We will notify you of significant changes. Continued use of our Services after changes are posted constitutes your acceptance of the updated Terms.
+
+For any questions about these Terms of Service, please contact us at **support@inkwell.net.au**.
+`
+    },
+    copyright: {
+        title: 'Copyright Policy — Inkwell AI',
+        id: 'copyright-policy-section',
+        content: `
+> ***In short: We own our website and brand. You own the prompts you write. We give you full ownership rights to the AI-generated stories and images you create, along with the freedom to use them for personal or commercial projects, after payment is made.***
+
+**Effective Date: 2025-08-30**
+**Last Updated: 2025-08-30**
+
+This section governs the ownership and use of all content and materials associated with the Inkwell AI platform.
+
+### Our Intellectual Property
+The Inkwell AI platform — including software, design, branding, logos, and all original site content (“Our IP”) — is the exclusive property of Inkwell AI. Our IP is protected by intellectual property laws, including the *Copyright Act 1968* (Cth) in Australia and the *Copyright Act 1994* (NZ) in New Zealand. You may not copy, distribute, or modify Our IP without our express written consent.
+
+### Content You Provide
+You retain full ownership and copyright in the original content you provide to the Service, such as your text prompts and uploaded images (“Your Content”). To provide the Service, you grant Inkwell AI a worldwide, non-exclusive, royalty-free license to use, reproduce, and modify Your Content for the sole purpose of generating your book, fulfilling your orders, and improving our Service. You warrant that you have all necessary rights to grant us this license and that Your Content does not infringe upon any third-party rights.
+
+### Ownership of AI-Generated Content
+The stories, text, and images created by the AI based on your prompts are defined as **"AI-Generated Content."** The ownership of copyright in AI-Generated Content is a complex area of law. Our goal is to provide you with the broadest possible rights to the content you create.
+
+Therefore, subject to your full compliance with these Terms, **we hereby assign to you all right, title, and interest that Inkwell AI may have in the AI-Generated Content you create.**
+-   For clarity, in **New Zealand**, under the *Copyright Act 1994*, authorship of a computer-generated work is typically assigned to the person who makes the arrangements for its creation. This assignment clause solidifies your ownership.
+-   In **Australia**, where copyright law requires a human author, this assignment transfers to you any copyright that may be deemed to be owned by Inkwell AI.
+
+We provide no warranty as to the validity or enforceability of copyright in AI-Generated Content. You are responsible for its lawful use. If future legislation alters ownership rights, these Terms will be interpreted to grant you the maximum rights permitted by such law.
+
+### Moral Rights
+To enable us to process, print, and deliver your works, you provide an **unconditional and irrevocable consent** allowing Inkwell AI and our partners to reproduce, adapt, or modify your content, even where such actions might otherwise infringe on your "moral rights" under Australian or New Zealand law, solely for the purposes of providing the Services.
+
+For any questions about this Copyright Policy, please contact us at **support@inkwell.net.au**.
+`
     },
     privacy: {
         title: 'Privacy Policy — Inkwell AI',
         id: 'privacy-policy-section',
-        content: (
-            <>
-                <p><strong>Effective Date: 2025-08-05</strong></p>
-                <p><strong>Last Updated: 2025-08-05</strong></p>
-                <h2>1. Information We Collect</h2>
-                <p>We collect personal information you provide when you create an account, make a purchase, or interact with our Services. This may include your name, email address, and payment information.</p>
-                <p>We also collect non-personal data, such as your IP address, browser type, and usage data to improve our Services.</p>
-                <h2>2. How We Use Your Information</h2>
-                <p>We use your information to:</p>
-                <ul>
-                    <li>Provide and maintain our Services.</li>
-                    <li>Process transactions and fulfill orders.</li>
-                    <li>Communicate with you about your account and orders.</li>
-                    <li>Improve our website and user experience.</li>
-                    <li>Comply with legal obligations.</li>
-                </ul>
-                <h2>3. Sharing Your Information</h2>
-                <p>We may share your information with third-party service providers (e.g., Stripe for payments, Lulu.com for printing and shipping) as necessary to provide our Services. We do not sell your personal information to third parties.</p>
-                <h2>4. Data Security</h2>
-                <p>We use industry-standard security measures to protect your information, but no method of transmission over the internet or electronic storage is 100% secure.</p>
-                <h2>5. Your Rights</h2>
-                <p>You have the right to access, correct, or delete your personal information. You can do this by managing your account settings or contacting us directly.</p>
-                <h2>6. Changes to This Policy</h2>
-                <p>We may update this Privacy Policy from time to time. We will notify you of any changes by posting the new policy on this page.</p>
-            </>
-        ),
+        content: `
+> ***In short: We collect the personal data needed to create your account, process your orders, and improve our service. We only share it with essential partners (like our printer and payment processor) and we never sell your data.***
+
+**Effective Date: 2025-08-30**
+**Last Updated: 2025-08-30**
+
+### 1. Information We Collect
+-   **Personal Data:** Name, email, shipping address, and payment details when you create an account or place an order.
+-   **Technical Data:** IP address, browser type, usage logs, and cookies to improve our Service.
+
+### 2. How We Use It
+-   To deliver and improve our Services.
+-   To process payments and ship orders.
+-   To communicate with you about your account or purchases.
+-   To comply with legal obligations.
+
+### 3. Sharing Data
+We share data with trusted partners (e.g., Stripe for payments, Lulu.com for printing) only as needed to provide the Services. We never sell your personal data.
+
+### 4. Data Security
+We use industry-standard encryption and safeguards to protect your information. However, no system is 100% secure.
+
+### 5. Your Rights
+You have the right to access, correct, or request deletion of your personal data by contacting us.
+
+### 6. Data Retention
+We retain your personal data only for as long as is necessary to provide you with our Services, comply with our legal obligations, resolve disputes, and enforce our agreements. Afterwards, it is securely deleted.
+
+### 7. Use of Cookies
+We use cookies to operate our Service, such as keeping you logged in and remembering preferences, and for analytics to understand how our Service is used.
+
+### 8. International Data Transfers
+Our service providers may be located overseas. As such, your personal information may be transferred to and processed in other countries. We take steps to ensure your data is protected.
+
+### 9. Data Breach
+If a data breach occurs that is likely to result in serious harm, we will notify you and the relevant authorities in line with our legal obligations.
+
+### 10. Changes to This Policy
+We may update this Privacy Policy. Continued use of the Service means you accept the changes.
+
+For any questions about this Privacy Policy, please contact us at **support@inkwell.net.au**.
+`
     },
     shipping: {
         title: 'Shipping Policy — Inkwell AI',
         id: 'shipping-policy-section',
-        content: (
-            <>
-                <p><strong>Effective Date: 2025-08-05</strong></p>
-                <p><strong>Last Updated: 2025-08-05</strong></p>
-                <h2>1. Order Processing</h2>
-                <p>Orders are typically processed within 3-5 business days after payment is confirmed. This does not include the time it takes for printing and delivery.</p>
-                <h2>2. Shipping & Fulfillment</h2>
-                <p>We use third-party print-on-demand services (Lulu.com) for printing and shipping. As such, shipping times and costs are determined by the fulfillment partner and may vary based on your location and the selected shipping method.</p>
-                <h2>3. Delivery Times</h2>
-                <p>Delivery times are estimates and may be subject to delays beyond our control (e.g., customs, weather, postal service issues). Once your order is shipped, you will receive a tracking number from the fulfillment partner.</p>
-                <h2>4. Shipping Costs</h2>
-                <p>Shipping costs are calculated at checkout based on your delivery address and the selected shipping option. We may include a small margin to cover administrative costs.</p>
-                <h2>5. International Shipping</h2>
-                <p>We offer international shipping through our fulfillment partner. Please be aware that you may be responsible for any customs fees, taxes, or duties imposed by your country.</p>
-                <h2>6. Lost or Damaged Packages</h2>
-                <p>If your package is lost or arrives damaged, please contact us at **[support@inkwell.net.au]** with your order number and a description of the issue. We will work with our fulfillment partner to find a solution.</p>
-            </>
-        ),
+        content: `
+> ***In short: We print and ship via a third-party partner. Shipping times are estimates. Once your order is with the carrier, the risk of loss passes to you, as per consumer law.***
+
+**Effective Date: 2025-08-30**
+**Last Updated: 2025-08-30**
+
+### 1. Order Processing
+Orders are processed within 3-5 business days after payment confirmation. This does not include printing and delivery time.
+
+### 2. Shipping & Fulfillment
+Printing and delivery are handled by our third-party partner (Lulu.com). Shipping times and costs depend on your location and chosen method.
+
+### 3. Delivery Times
+Times are estimates and may be affected by customs, weather, or carrier delays. Tracking numbers are provided when available.
+
+### 4. International Orders
+Customers are responsible for any local customs duties, taxes, or import fees that may apply to their order.
+
+### 5. Lost or Damaged Packages
+If your order is lost or damaged in transit, email **support@inkwell.net.au** with your order number and photos of the damage. We will liaise with our partner to resolve the issue.
+
+### 6. Risk of Loss
+All physical products are made pursuant to a shipment contract. Once the package is with the shipping provider, the risk of loss and title for such items pass to you, the customer, except where required otherwise by the Australian Consumer Law (ACL) or Consumer Guarantees Act (CGA).
+
+For any questions about this Shipping Policy, please contact us at **support@inkwell.net.au**.
+`
     },
     refund: {
         title: 'Refund Policy — Inkwell AI',
         id: 'refund-policy-section',
-        content: (
-            <>
-                <p><strong>Effective Date: 2025-08-05</strong></p>
-                <p><strong>Last Updated: 2025-08-05</strong></p>
-                <h2>1. Digital Products</h2>
-                <p>Due to the nature of digital products, all sales of AI-generated digital content are **final and non-refundable** once the file has been generated and/or downloaded. Please review all content thoroughly before finalizing your purchase, as outlined in our <Link to="/policies#terms-of-service-section">Terms of Service</Link>.</p>
-                <h2>2. Physical Products</h2>
-                <p>For physical products, we comply with the Australian Consumer Law (ACL) and the New Zealand Consumer Guarantees Act 1993 (CGA). We offer refunds or replacements for products that are:</p>
-                <ul>
-                    <li>**Significantly different** from the description.</li>
-                    <li>**Faulty or damaged** upon arrival (e.g., printing errors, manufacturing defects).</li>
-                </ul>
-                <p>We **do not offer refunds** for physical products for:</p>
-                <ul>
-                    <li>Changes of mind.</li>
-                    <li>Subjective dissatisfaction with the AI-generated content (e.g., you don't like the story or images after a thorough preview).</li>
-                    <li>Typographical or grammatical errors you failed to correct during the review process.</li>
-                </ul>
-                <h2>3. How to Request a Refund</h2>
-                <p>To request a refund for a faulty or damaged physical product, you must:</p>
-                <ul>
-                    <li>Contact us at **[support@inkwell.net.au]** within 30 days of receiving your order.</li>
-                    <li>Provide your order number and clear photos of the defect.</li>
-                </ul>
-                <p>We will then assess your claim and work with our fulfillment partner to provide a replacement or a refund if the claim is valid.</p>
-            </>
-        ),
+        content: `
+> ***In short: We do not refund digital products. Physical products can only be refunded or replaced if they are faulty, damaged, or significantly not as described. Claims must be made within 30 days of receiving your order.***
+
+**Effective Date: 2025-08-30**
+**Last Updated: 2025-08-30**
+
+### 1. Digital Products
+All sales of digital products are **final and non-refundable** once files have been generated or downloaded. Please use the review process thoroughly before purchase.
+
+### 2. Physical Products
+We comply with the ACL and CGA. Refunds or replacements apply only if items are:
+-   **Faulty or damaged** upon arrival (e.g., printing errors, binding defects).
+-   **Significantly different** from the description or the final preview you approved.
+
+Refunds are **not available** for:
+-   Change of mind.
+-   Subjective dissatisfaction with AI-generated content that was present in the preview.
+-   Typographical or grammatical errors you did not correct during the review process.
+
+### 3. How to Request a Refund
+-   Contact **support@inkwell.net.au** **within 30 days of receiving your order.**
+-   Provide your order number and clear photos of the defect.
+-   Approved refunds are returned to the original payment method within 5–10 business days.
+
+For any questions about this Refund Policy, please contact us at **support@inkwell.net.au**.
+`
     },
     return: {
         title: 'Return Policy — Inkwell AI',
         id: 'return-policy-section',
-        content: (
-            <>
-                <p><strong>Effective Date: 2025-08-05</strong></p>
-                <p><strong>Last Updated: 2025-08-05</strong></p>
-                <h2>1. General Policy</h2>
-                <p>Since our physical products are custom-made (print-on-demand), we do not accept returns or exchanges for reasons other than a product being faulty or damaged. This policy is in line with our responsibilities under the Australian Consumer Law (ACL) and the New Zealand Consumer Guarantees Act 1993 (CGA).</p>
-                <h2>2. Faulty or Damaged Items</h2>
-                <p>If you receive a faulty or damaged product, please refer to our <Link to="/policies#refund-policy-section">Refund Policy</Link> for instructions on how to proceed.</p>
-            </>
-        ),
+        content: `
+> ***In short: As products are custom-made, we do not accept returns for change of mind. You can only request a replacement or refund for faulty or damaged items, as per our Refund Policy.***
+
+**Effective Date: 2025-08-30**
+**Last Updated: 2025-08-30**
+
+### 1. General Policy
+As our products are custom-made and printed on demand, we do not accept returns or exchanges for change of mind or other reasons not covered by consumer guarantees.
+
+### 2. Faulty or Damaged Items
+If your item arrives faulty or damaged, please see our Refund Policy for the steps to request a replacement or refund. All claims must be initiated within 30 days of receiving your product.
+
+For any questions about this Return Policy, please contact us at **support@inkwell.net.au**.
+`
     },
+};
+
+// This helper object maps a policy key to its corresponding icon
+const policyIcons = {
+    terms: DocumentTextIcon,
+    copyright: ShieldCheckIcon,
+    privacy: LockClosedIcon,
+    shipping: TruckIcon,
+    refund: ReceiptRefundIcon,
+    return: ArrowPathIcon,
 };
 
 function PolicyPage() {
@@ -188,7 +255,6 @@ function PolicyPage() {
             const id = location.hash.substring(1);
             const element = document.getElementById(id);
             if (element) {
-                // Use a timeout to ensure the page has rendered before scrolling
                 setTimeout(() => {
                     element.scrollIntoView({ behavior: 'smooth', block: 'start' });
                 }, 100);
@@ -225,16 +291,23 @@ function PolicyPage() {
                         ))}
                     </nav>
 
-                    {Object.keys(policyContent).map((key) => (
-                        <div key={key} id={policyContent[key].id} className="mb-16 last:mb-0">
-                            <h1 className="text-4xl font-bold font-serif text-white mb-6 border-b border-slate-700 pb-4">
-                                {policyContent[key].title}
-                            </h1>
-                            <div className="prose prose-lg max-w-none text-slate-300 prose-p:text-slate-300 prose-li:text-slate-300 prose-strong:text-white prose-headings:text-amber-400 prose-a:text-indigo-400 prose-a:hover:text-indigo-300 prose-p:leading-relaxed">
-                                {policyContent[key].content}
+                    {Object.keys(policyContent).map((key) => {
+                        // FIX: Get the correct icon for the current policy section
+                        const Icon = policyIcons[key];
+                        return (
+                            <div key={key} id={policyContent[key].id} className="mb-16 last:mb-0">
+                                <h1 className="flex items-center text-4xl font-bold font-serif text-white mb-6 border-b border-slate-700 pb-4">
+                                    {/* FIX: Render the icon next to the title */}
+                                    {Icon && <Icon className="w-8 h-8 mr-4 text-amber-400 flex-shrink-0" />}
+                                    {policyContent[key].title}
+                                </h1>
+                                {/* FIX: Tailwind's 'prose' plugin will style the blockquotes from our Markdown */}
+                                <div className="prose prose-lg max-w-none text-slate-300 prose-p:text-slate-300 prose-li:text-slate-300 prose-strong:text-white prose-headings:text-amber-400 prose-a:text-indigo-400 prose-a:hover:text-indigo-300 prose-p:leading-relaxed prose-blockquote:text-sky-300 prose-blockquote:border-sky-400">
+                                    <ReactMarkdown>{policyContent[key].content}</ReactMarkdown>
+                                </div>
                             </div>
-                        </div>
-                    ))}
+                        );
+                    })}
 
                     <div className="mt-12 border-t border-slate-700 pt-8 text-center">
                         <Link to="/" className="text-indigo-400 hover:text-indigo-300 transition-colors font-semibold">

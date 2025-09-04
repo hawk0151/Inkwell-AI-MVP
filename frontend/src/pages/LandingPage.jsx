@@ -282,7 +282,7 @@ const VisualStep4 = () => {
             transition: { delay: 1 + i * 0.2, type: 'spring', stiffness: 200 }
         })
     };
-    const baseText = "A tale of bravery and wonder...";
+    const baseText = "A tale of bravery and wonder started with a boy named John. John loved exploring the world around him...";
     const count = useMotionValue(0);
     const rounded = useTransform(count, (latest) => Math.round(latest));
     const displayText = useTransform(rounded, (latest) => baseText.slice(0, latest));
@@ -376,19 +376,23 @@ function LandingPage() {
     const [localError, setLocalError] = useState(null);
     const [activeStep, setActiveStep] = useState(1);
 
-    const createPictureBookMutation = useMutation({
-        mutationFn: async (title) => {
-            const response = await apiClient.post('/picture-books', { title });
-            return response.data;
-        },
-        onSuccess: (data) => {
-            queryClient.invalidateQueries({ queryKey: ['allProjects'] });
-            navigate(`/picture-book/${data.bookId}`);
-        },
-        onError: (error) => {
-            setLocalError(`Failed to create picture book: ${error.response?.data?.message || error.message}`);
-        },
-    });
+const createPictureBookMutation = useMutation({
+    mutationFn: async (title) => {
+        const response = await apiClient.post('/picture-books', { title });
+        return response.data;
+    },
+    onSuccess: (data) => {
+        queryClient.invalidateQueries({ queryKey: ['allProjects'] });
+        
+        // ADD THIS LINE
+        queryClient.invalidateQueries({ queryKey: ['forYouFeed'] });
+
+        navigate(`/picture-book/${data.bookId}`);
+    },
+    onError: (error) => {
+        setLocalError(`Failed to create picture book: ${error.response?.data?.message || error.message}`);
+    },
+});
 
     const handlePictureBookCreation = () => {
         const title = window.prompt("What is the title of your new picture book?");

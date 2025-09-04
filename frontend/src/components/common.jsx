@@ -1,13 +1,12 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { CheckCircleIcon, XCircleIcon, InformationCircleIcon, ExclamationTriangleIcon } from '@heroicons/react/24/solid';
+import { CheckCircleIcon, XCircleIcon, InformationCircleIcon } from '@heroicons/react/24/solid';
 import logoImage from '../assets/inkwell-logo.svg';
 import CookieConsent from 'react-cookie-consent'; 
 import { Link } from 'react-router-dom'; 
-
+import { enableAnalytics } from '../firebase';
 export const LoadingSpinner = ({ text = "Loading..." }) => (
     <div className="flex flex-col justify-center items-center p-8 gap-4">
-        {/* Themed with our primary indigo color */}
         <div className="w-12 h-12 border-4 border-indigo-300 border-t-indigo-600 rounded-full animate-spin"></div>
         <p className="text-slate-400 font-medium">{text}</p>
     </div>
@@ -58,32 +57,67 @@ export const Alert = ({ type = 'error', title, message, children, onClose }) => 
     );
 };
 
+// --- FIX: Replaced the old "notice" banner with a fully functional consent banner ---
+
+// A placeholder function for initializing non-essential scripts.
+// This is where you would put your Google Analytics, Hotjar, etc. code.
+const initializeAnalytics = () => {
+    console.log("Analytics has been initialized because user gave consent!");
+    // EXAMPLE:
+    // window.dataLayer = window.dataLayer || [];
+    // function gtag(){dataLayer.push(arguments);}
+    // gtag('js', new Date());
+    // gtag('config', 'GA_MEASUREMENT_ID');
+};
+
 export const CookieConsentBanner = () => {
+    
+    const handleAccept = () => {
+        // 2. When the user accepts, call the function to enable analytics
+        enableAnalytics();
+    };
+
+    const handleDecline = () => {
+        console.log("User declined non-essential cookies. Analytics will remain disabled.");
+    };
+
     return (
         <CookieConsent
             location="bottom"
-            buttonText="I Understand"
-            cookieName="inkwellCookieConsent"
-            style={{
-                background: "#0F172A",
-                padding: "1rem",
+            buttonText="Accept All"
+            declineButtonText="Decline"
+            enableDeclineButton
+            cookieName="inkwellAiCookieConsent"
+            style={{ 
+                background: "linear-gradient(to right, #1e293b, #0f172a)", 
+                borderTop: "1px solid #334155",
+                boxShadow: "0 -4px 15px rgba(0, 0, 0, 0.2)",
+                fontSize: "15px",
                 alignItems: "center",
             }}
-            buttonStyle={{
-                color: "#1E293B",
-                fontSize: "13px",
+            buttonStyle={{ 
+                backgroundColor: "#14b8a6", // Teal color
+                color: "white", 
+                fontSize: "14px",
                 fontWeight: "bold",
-                backgroundColor: "#6366F1",
+                borderRadius: "8px",
+                padding: "10px 20px"
+            }}
+            declineButtonStyle={{
+                backgroundColor: "#475569", // Slate color
+                color: "#e2e8f0",
+                fontSize: "14px",
                 borderRadius: "8px",
                 padding: "10px 20px"
             }}
             expires={150}
+            onAccept={handleAccept}
+            onDecline={handleDecline}
         >
-            This website uses cookies to enhance the user experience. For more information, please read our{" "}
-            <Link to="/policies#privacy-policy-section" className="text-indigo-400 hover:text-indigo-300 font-semibold underline transition-colors duration-200">
-                Privacy Policy
+            This website uses cookies to enhance the user experience. With your consent, we may also use non-essential cookies for analytics.{" "}
+            <Link to="/policies#privacy-policy-section" className="font-semibold underline text-slate-300 hover:text-white transition-colors">
+                Learn more in our Privacy Policy.
             </Link>
-            .
         </CookieConsent>
     );
 };

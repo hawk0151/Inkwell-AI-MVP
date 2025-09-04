@@ -206,7 +206,16 @@ Your response:`.trim();
             console.log(`[Textbook Controller] Skipping dynamic bug name generation for genre: ${promptData.genre}`);
         }
         
-        const newPromptData = { ...promptData, dynamicBugName };
+        // --- THIS IS THE CRITICAL FIX ---
+        // It merges the product's technical rules with the user's creative input.
+        const newPromptData = { 
+            ...promptData, 
+            dynamicBugName,
+            wordsPerPage: selectedProductConfig.wordsPerPage,
+            maxPageCount: selectedProductConfig.maxPageCount,
+            wordTarget: selectedProductConfig.wordTarget,
+        };
+        // --- END FIX ---
         
         const bookSql = `INSERT INTO text_books (id, user_id, title, prompt_details, lulu_product_id, date_created, last_modified, total_chapters) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`;
         await client.query(bookSql, [bookId, userId, newPromptData.bookTitle, JSON.stringify(newPromptData), luluProductId, currentDate, currentDate, totalChaptersForBook]);
@@ -282,6 +291,7 @@ export const generateNextChapter = async (req, res) => {
 };
 
 export const regenerateChapter = async (req, res) => {
+      let client;
     const { bookId, chapterNumber: chapterNumberStr } = req.params;
     const { guidance } = req.body;
     const userId = req.userId;
@@ -296,7 +306,7 @@ export const regenerateChapter = async (req, res) => {
 
     try {
         const pool = await getDb();
-        const client = await pool.connect();
+        client = await pool.connect();
         const book = await getFullTextBook(bookId, userId, client);
         // FIX: The original code released the client here.
         // client.release();
@@ -616,6 +626,116 @@ export const toggleTextBookPrivacy = async (req, res) => {
     } catch (err) {
         console.error("Error toggling book privacy:", err.message);
         res.status(500).json({ message: 'Failed to update project status.' });
+    } finally {
+        if (client) client.release();
+    }
+};
+
+export const getChapterJobStatus = async (req, res) => {
+    const { jobId } = req.params;
+
+    try {
+        const job = await storyGenerationQueue.getJob(jobId);
+
+        if (!job) {
+            return res.status(404).json({ status: 'not_found' });
+        }
+
+        const status = await job.getState();
+        const returnValue = job.returnvalue;
+        const failedReason = job.failedReason;
+
+        res.status(200).json({ 
+            status, 
+            data: returnValue,
+            error: failedReason 
+        });
+
+    } catch (error) {
+        console.error(`Error fetching status for job ${jobId}:`, error);
+        res.status(500).json({ message: 'Failed to get job status.' });
+    }
+};
+export const generateAllChapters = async (req, res) => {
+    const { bookId } = req.params;
+    const userId = req.userId;
+    let client;
+
+    try {
+        const pool = await getDb();
+        client = await pool.connect();
+        
+        const bookResult = await client.query(`SELECT * FROM text_books WHERE id = $1 AND user_id = $2`, [bookId, userId]);
+        if (bookResult.rows.length === 0) {
+            return res.status(404).json({ message: "Book not found." });
+        }
+        const book = bookResult.rows[0];
+
+        if (book.generation_status === 'InProgress') {
+            return res.status(409).json({ message: 'A generation process is already in progress for this book.' });
+        }
+        
+        const chaptersResult = await client.query(`SELECT count(*) as count FROM chapters WHERE book_id = $1`, [bookId]);
+        const startChapter = parseInt(chaptersResult.rows[0].count, 10) + 1;
+        const totalChapters = book.total_chapters;
+        
+        if (startChapter > totalChapters) {
+            return res.status(400).json({ message: 'This book is already complete.' });
+        }
+
+        // Set the book's status to 'InProgress'
+        await client.query(
+            `UPDATE text_books SET generation_status = 'InProgress', generation_progress = $1, generation_error = NULL WHERE id = $2`,
+            [`${startChapter - 1}/${totalChapters}`, bookId]
+        );
+
+        // Add ONLY THE FIRST job to the queue. The worker will handle the rest.
+        await storyGenerationQueue.add('generateSequentialChapter', {
+            bookId,
+            userId,
+            chapterNumber: startChapter,
+            guidance: ''
+        });
+
+        res.status(202).json({ message: 'Bulk chapter generation has been started.' });
+
+    } catch (error) {
+        console.error(`Failed to start 'generate all' for book ${bookId}:`, error);
+        res.status(500).json({ message: 'Failed to start chapter generation process.', error: error.message });
+    } finally {
+        if (client) client.release();
+    }
+};
+
+export const getGenerationStatus = async (req, res) => {
+    const { bookId } = req.params;
+    const userId = req.userId;
+    let client;
+
+    try {
+        const pool = await getDb();
+        client = await pool.connect();
+        
+        const result = await client.query(
+            `SELECT generation_status, generation_progress, generation_error FROM text_books WHERE id = $1 AND user_id = $2`,
+            [bookId, userId]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ message: "Book not found." });
+        }
+        
+        const { generation_status, generation_progress, generation_error } = result.rows[0];
+        
+        res.status(200).json({
+            status: generation_status,
+            progress: generation_progress,
+            error: generation_error
+        });
+
+    } catch (error) {
+        console.error(`Failed to get generation status for book ${bookId}:`, error);
+        res.status(500).json({ message: 'Failed to retrieve generation status.' });
     } finally {
         if (client) client.release();
     }
