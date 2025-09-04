@@ -2,26 +2,26 @@
 
 import 'dotenv/config';
 import { Worker } from 'bullmq';
-// --- CHANGE: Added import for initializeDb ---
-// REASON: The worker is a standalone process and must initialize its own database connection.
-import { initializeDb } from '../db/database.js';
+// --- FIX: Added 'getDb' to the import ---
+// REASON: The sequential processor needs this to get a DB client to schedule the next job.
+import { getDb, initializeDb } from '../db/database.js'; 
 import { redisConnection } from '../config/redisClient.js';
 import { storyGenerationQueue } from './queue.service.js';
-// --- CHANGE: Corrected import path after moving the file ---
 import { generateChapterWithPlan } from './generation/chapter.js';
 
 /**
  * @fileoverview This worker processes jobs for the 'storyGenerationQueue'.
  */
 
-// PROCESSOR LOGIC (No changes needed in this section)
 const processSequentialChapterJob = async (job) => {
     const { bookId, userId, chapterNumber, guidance } = job.data;
     console.log(`[ChapterWorker] Starting sequential job for Book ${bookId}, Chapter ${chapterNumber}.`);
-    // ... (rest of the function is correct)
+    
     let client;
     try {
         await generateChapterWithPlan(bookId, userId, chapterNumber, guidance);
+        
+        // This logic now works because 'getDb' is correctly imported.
         const pool = await getDb();
         client = await pool.connect();
         const bookResult = await client.query(`SELECT total_chapters FROM text_books WHERE id = $1`, [bookId]);
@@ -38,7 +38,7 @@ const processSequentialChapterJob = async (job) => {
         }
     } catch (error) {
         console.error(`[ChapterWorker] ❌ FAILED sequential job for Book ${bookId}, Chapter ${chapterNumber}:`, error.message);
-        const pool = await getDb();
+        const pool = await getDb(); // This also now works correctly.
         client = await pool.connect();
         await client.query(`UPDATE text_books SET generation_status = 'Failed', generation_error = $1 WHERE id = $2`, [error.message, bookId]);
         throw error;
@@ -65,8 +65,6 @@ const processSingleChapterJob = async (job) => {
 const startWorker = async () => {
     console.log('[ChapterWorker] Initializing textbook chapter generation worker...');
     
-    // --- CHANGE: Added the database initialization call ---
-    // REASON: This is the fix for the "Database not initialized" error.
     await initializeDb();
     console.log('[ChapterWorker] ✅ Database initialized successfully.');
 

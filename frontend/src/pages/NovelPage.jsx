@@ -25,7 +25,8 @@ const CoverCropper = ({ image, onCropComplete, onCancel, crop, zoom, setCrop, se
                     zoom={zoom}
                     aspect={aspect}
                     onCropChange={setCrop}
-                    onZoomChange={setZoom}
+                    // FIX: Ensure this is 'setZoom' with a capital Z
+                    onZoomChange={setZoom} 
                     onCropComplete={onCropComplete}
                     cropShape="rect"
                     showGrid={true}
@@ -33,6 +34,7 @@ const CoverCropper = ({ image, onCropComplete, onCancel, crop, zoom, setCrop, se
                 />
             </div>
             <div className="flex items-center justify-between mt-4">
+                {/* FIX: Ensure this is 'setZoom' with a capital Z */}
                 <input type="range" value={zoom} min={1} max={3} step={0.1} aria-labelledby="Zoom" onChange={(e) => setZoom(parseFloat(e.target.value))} className="w-2/3 h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer" />
                 <button onClick={onCancel} className="px-4 py-2 text-slate-300 hover:text-white transition" disabled={isConfirmingCrop}>Cancel</button>
                 <button onClick={onConfirm} className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-500 transition disabled:bg-slate-500 disabled:cursor-not-allowed" disabled={isConfirmingCrop}>
@@ -124,21 +126,24 @@ const CoverUploader = ({ bookId, currentCoverUrl, productTrimSize }) => {
     );
 };
 
-const Chapter = ({ chapter, isOpen, onToggle, onRegenerate, isLoading, guidance, onGuidanceChange, isLatest, isBookGenerating }) => {
+const Chapter = ({ chapter, isOpen, onToggle, onRegenerate, activeAction, guidance, onGuidanceChange, isLatest, isBookGenerating }) => {
     const handleRegenerateClick = (e) => {
         e.stopPropagation();
         onRegenerate(chapter.chapter_number, guidance);
     };
     
-    // MODIFIED: Controls are disabled if this specific chapter is loading OR the whole book is generating.
-    const isDisabled = isLoading || isBookGenerating;
+    // FIX: The spinner/loading state for this specific chapter is now only active if the action is 'regenerate'.
+    const isRegeneratingThisChapter = activeAction === 'regenerate';
+    // FIX: Buttons are disabled if this chapter is regenerating, a new chapter is being generated, or the whole book is generating.
+    const isDisabled = isRegeneratingThisChapter || isBookGenerating || activeAction === 'next';
 
     return (
         <div className="border-b border-slate-700 last:border-b-0">
             <button onClick={onToggle} className="w-full flex justify-between items-center text-left py-5 px-4 hover:bg-slate-700/50 rounded-lg transition-colors duration-200">
                 <h2 className="text-3xl md:text-4xl font-serif text-amber-400 m-0 p-0 font-bold">Chapter {chapter.chapter_number}</h2>
                 <div className="flex items-center gap-4">
-                    {isLoading && <LoadingSpinner />}
+                    {/* FIX: The spinner in the chapter header only shows when regenerating THIS chapter. */}
+                    {isRegeneratingThisChapter && <LoadingSpinner />}
                     <ChevronDownIcon className={`w-7 h-7 text-slate-300 transform transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`} />
                 </div>
             </button>
@@ -155,7 +160,7 @@ const Chapter = ({ chapter, isOpen, onToggle, onRegenerate, isLoading, guidance,
                                     <textarea id={`guidance-${chapter.chapter_number}`} rows="3" value={guidance} onChange={(e) => onGuidanceChange(chapter.chapter_number, e.target.value)} placeholder="e.g., 'Make the main character find a mysterious key.' (Optional)" className="w-full p-2 bg-slate-700/50 text-slate-100 rounded-md border border-slate-600 focus:ring-amber-500" disabled={isDisabled} />
                                 </div>
                                 <button onClick={handleRegenerateClick} disabled={isDisabled} className="mt-4 bg-amber-500 text-slate-900 font-bold py-2 px-6 rounded-lg hover:bg-amber-400 disabled:bg-slate-500 transition-all">
-                                    {isLoading ? 'Regenerating...' : 'Regenerate Chapter'}
+                                    {isRegeneratingThisChapter ? 'Regenerating...' : 'Regenerate Chapter'}
                                 </button>
                             </div>
                         )}
@@ -180,11 +185,10 @@ function NovelPage() {
     const [openChapter, setOpenChapter] = useState(null);
     const [guidanceInputs, setGuidanceInputs] = useState({});
     
-    // NEW: Unified state to track ANY active generation (single, regen, or bulk)
-    const [isGenerating, setIsGenerating] = useState(false);
-    const [generationType, setGenerationType] = useState(null); // 'next', 'regenerate', 'all'
+    const [isPollingForUpdate, setIsPollingForUpdate] = useState(false);
+    const [activeAction, setActiveAction] = useState(null); // 'next', 'regenerate', or null
 
-    const { data: bookQueryData, isLoading: isLoadingBookDetails, error: bookQueryError, refetch } = useQuery({
+    const { data: bookQueryData, isLoading: isLoadingBookDetails, error: bookQueryError } = useQuery({
         queryKey: ['bookDetails', paramBookId],
         queryFn: async () => {
             if (!paramBookId || paramBookId === 'new') return null;
@@ -197,7 +201,6 @@ function NovelPage() {
     const bookDetails = bookQueryData?.book;
     const chapters = bookQueryData?.chapters || [];
 
-    // NEW: This query is now ONLY for the bulk generation status.
     const { data: statusData } = useQuery({
         queryKey: ['generationStatus', paramBookId],
         queryFn: async () => {
@@ -215,39 +218,32 @@ function NovelPage() {
         },
     });
 
-    // REINSTATED: This useEffect handles polling for single-chapter generation and regeneration. This is the VITAL code.
     useEffect(() => {
-        if (!isGenerating || bookDetails?.generation_status === 'InProgress') return;
-
+        if (!isPollingForUpdate || bookDetails?.generation_status === 'InProgress') return;
         let initialChapterCount = chapters.length;
         let initialLastChapterContent = chapters.length > 0 ? chapters[chapters.length - 1].content : null;
-
         const interval = setInterval(async () => {
-            console.log("Polling for single chapter update...");
             const newData = await queryClient.fetchQuery({ queryKey: ['bookDetails', paramBookId] });
             const newChapters = newData?.chapters || [];
-            
-            if (generationType === 'regenerate') {
+            if (activeAction === 'regenerate') {
                 const newLastChapterContent = newChapters.length > 0 ? newChapters[newChapters.length - 1].content : null;
                 if (newChapters.length === initialChapterCount && newLastChapterContent !== initialLastChapterContent) {
                     toast.success('Chapter regenerated!');
-                    setIsGenerating(false); // Stop polling
+                    setIsPollingForUpdate(false);
+                    setActiveAction(null);
                 }
-            } else { // 'next' or new book
+            } else {
                 if (newChapters.length > initialChapterCount) {
                     toast.success('New chapter has arrived!');
-                    setIsGenerating(false); // Stop polling
+                    setIsPollingForUpdate(false);
+                    setActiveAction(null);
                 }
             }
         }, 5000);
-
         return () => clearInterval(interval);
-    }, [isGenerating, chapters, queryClient, paramBookId, generationType, bookDetails]);
+    }, [isPollingForUpdate, chapters, queryClient, paramBookId, activeAction, bookDetails]);
 
-
-    const { data: allBookOptions, isLoading: isLoadingBookOptions } = useQuery({
-        queryKey: ['allBookOptions'], queryFn: fetchBookOptions, staleTime: Infinity
-    });
+    const { data: allBookOptions, isLoading: isLoadingBookOptions } = useQuery({ queryKey: ['allBookOptions'], queryFn: fetchBookOptions, staleTime: Infinity });
     const [selectedProductForNew, setSelectedProductForNew] = useState(null);
 
     const createBookMutation = useMutation({
@@ -258,87 +254,49 @@ function NovelPage() {
         },
         onError: (err) => toast.error(err.response?.data?.message || 'Failed to create the book.'),
     });
-
-    // MODIFIED: All mutations now use the unified 'isGenerating' state.
+    
     const generateNextChapterMutation = useMutation({
         mutationFn: (bookId) => apiClient.post(`/text-books/${bookId}/generate-next-chapter`),
         onSuccess: () => {
             toast.success('A new chapter is being written...');
-            setIsGenerating(true);
-            setGenerationType('next');
+            setIsPollingForUpdate(true);
+            setActiveAction('next'); 
         },
-        onError: (err) => toast.error(err.response?.data?.message || 'Failed to start next chapter.'),
+        onError: (err) => {
+            toast.error(err.response?.data?.message || 'Failed to start next chapter.');
+            setActiveAction(null);
+        },
     });
 
     const regenerateChapterMutation = useMutation({
         mutationFn: ({ bookId, chapterNumber, guidance }) => apiClient.post(`/text-books/${bookId}/chapters/${chapterNumber}/regenerate`, { guidance }),
         onSuccess: () => {
             toast.success('Regenerating chapter...');
-            setIsGenerating(true);
-            setGenerationType('regenerate');
-        },
-        onError: (err) => toast.error(err.response?.data?.message || 'Failed to start regeneration.'),
-    });
-
-    const generateAllChaptersMutation = useMutation({
-        mutationFn: (bookId) => {
-            const remaining = bookDetails.total_chapters - chapters.length;
-            if (!window.confirm(`This will generate all remaining ${remaining} chapters and may incur costs. Are you sure?`)) throw new Error("Cancelled by user.");
-            return apiClient.post(`/text-books/${bookId}/generate-all`);
-        },
-        onSuccess: () => {
-            toast.success('Finishing your book!');
-            queryClient.invalidateQueries({ queryKey: ['bookDetails', paramBookId] });
+            setIsPollingForUpdate(true);
+            setActiveAction('regenerate');
         },
         onError: (err) => {
-            if (err.message !== "Cancelled by user.") toast.error(err.response?.data?.message || 'Failed to start bulk generation.');
+            toast.error(err.response?.data?.message || 'Failed to start regeneration.');
+            setActiveAction(null);
         },
     });
-
-    useEffect(() => {
-        if (location.state?.isNewBook) {
-            setIsGenerating(true);
-            setGenerationType('next');
-            navigate(location.pathname, { replace: true, state: {} });
-        }
-    }, [location.state, navigate, location.pathname]);
     
-    useEffect(() => {
-        const isNewBookFlow = !paramBookId || paramBookId === 'new';
-        if (isNewBookFlow && !isLoadingBookOptions && location.state?.selectedProductId) {
-            const product = allBookOptions.find((p) => p.id === location.state.selectedProductId);
-            if (product) setSelectedProductForNew(product);
-        }
-    }, [paramBookId, allBookOptions, isLoadingBookOptions, location.state]);
-
+    const generateAllChaptersMutation = useMutation({ mutationFn: (bookId) => { const remaining = bookDetails.total_chapters - chapters.length; if (!window.confirm(`This will generate all remaining ${remaining} chapters and may incur costs. Are you sure?`)) throw new Error("Cancelled by user."); return apiClient.post(`/text-books/${bookId}/generate-all`); }, onSuccess: () => { toast.success('Finishing your book!'); queryClient.invalidateQueries({ queryKey: ['bookDetails', paramBookId] }); }, onError: (err) => { if (err.message !== "Cancelled by user.") toast.error(err.response?.data?.message || 'Failed to start bulk generation.'); }, });
+    useEffect(() => { if (location.state?.isNewBook) { setIsPollingForUpdate(true); setActiveAction('next'); navigate(location.pathname, { replace: true, state: {} }); } }, [location.state, navigate, location.pathname]);
+    useEffect(() => { const isNewBookFlow = !paramBookId || paramBookId === 'new'; if (isNewBookFlow && !isLoadingBookOptions && location.state?.selectedProductId) { const product = allBookOptions.find((p) => p.id === location.state.selectedProductId); if (product) setSelectedProductForNew(product); } }, [paramBookId, allBookOptions, isLoadingBookOptions, location.state]);
     const handleGuidanceChange = (chapterNumber, text) => setGuidanceInputs(prev => ({ ...prev, [chapterNumber]: text }));
-    const handleCreateBook = (formData) => {
-        if (!selectedProductForNew?.id) return toast.error('Book format not selected.');
-        createBookMutation.mutate({ promptData: formData, luluProductId: selectedProductForNew.id });
-    };
+    const handleCreateBook = (formData) => { if (!selectedProductForNew?.id) return toast.error('Book format not selected.'); createBookMutation.mutate({ promptData: formData, luluProductId: selectedProductForNew.id }); };
     const handleGenerateNextChapter = () => bookDetails && generateNextChapterMutation.mutate(bookDetails.id);
     const handleRegenerateChapter = (chapterNumber, guidance) => bookDetails && regenerateChapterMutation.mutate({ bookId: bookDetails.id, chapterNumber, guidance });
     const handleGenerateAllChapters = () => bookDetails && generateAllChaptersMutation.mutate(bookDetails.id);
     const handleToggleChapter = (chapterNumber) => setOpenChapter(openChapter === chapterNumber ? null : chapterNumber);
-    const previewPdfMutation = useMutation({
-        mutationFn: (bookId) => apiClient.get(`/text-books/${bookId}/preview`),
-        onSuccess: (response) => window.open(response.data.previewUrl, '_blank'),
-        onError: (err) => toast.error(err.response?.data?.message || 'Failed to generate PDF preview.'),
-    });
+    const previewPdfMutation = useMutation({ mutationFn: (bookId) => apiClient.get(`/text-books/${bookId}/preview`), onSuccess: (response) => window.open(response.data.previewUrl, '_blank'), onError: (err) => toast.error(err.response?.data?.message || 'Failed to generate PDF preview.'), });
     const handlePreviewPdf = () => bookDetails && previewPdfMutation.mutate(bookDetails.id);
     const [isCheckoutModalOpen, setCheckoutModalOpen] = useState(false);
-    const submitFinalCheckout = async (shippingAddress, selectedShippingLevel, quoteToken) => {
-        try {
-            const response = await apiClient.post(`/text-books/${paramBookId}/checkout`, { shippingAddress, selectedShippingLevel, quoteToken });
-            window.location.href = response.data.url;
-        } catch (err) {
-            throw err;
-        }
-    };
+    const submitFinalCheckout = async (shippingAddress, selectedShippingLevel, quoteToken) => { try { const response = await apiClient.post(`/text-books/${paramBookId}/checkout`, { shippingAddress, selectedShippingLevel, quoteToken }); window.location.href = response.data.url; } catch (err) { throw err; } };
     
-    // --- CONSOLIDATED STATUS VARIABLES ---
-    const isBookGenerating = bookDetails?.generation_status === 'InProgress'; // For bulk jobs
-    const isAnyTaskActive = isGenerating || isBookGenerating; // For disabling buttons
+    const isBookGenerating = bookDetails?.generation_status === 'InProgress';
+    const isAnyTaskActive = !!activeAction || isBookGenerating;
     const isLoadingPage = isLoadingBookDetails || isLoadingBookOptions;
     const chaptersCount = chapters.length;
     const totalChapters = bookDetails?.total_chapters || 1;
@@ -350,51 +308,53 @@ function NovelPage() {
     
     if (bookDetails) {
         const productConfig = allBookOptions?.find(p => p.id === bookDetails.lulu_product_id);
-
-        let loadingText = 'Generating...';
+        
+        let mainLoadingIndicator = null;
         if (isBookGenerating) {
-            loadingText = `Finishing your book... (${statusData?.progress || 'Starting...'})`;
-        } else if (isGenerating) {
-            if (generationType === 'regenerate') {
-                loadingText = `Regenerating Chapter ${chaptersCount}...`;
-            } else {
-                loadingText = `Writing Chapter ${chaptersCount + 1}...`;
-            }
+            mainLoadingIndicator = (
+                <div className="mt-10 flex justify-center items-center flex-col text-center">
+                    <LoadingSpinner text={`Finishing your book... (${statusData?.progress || 'Starting...'})`} />
+                    <p className="text-slate-400 mt-2">The page will update automatically.</p>
+                </div>
+            );
+        } else if (activeAction === 'next') {
+            mainLoadingIndicator = (
+                <div className="mt-10 flex justify-center items-center flex-col text-center">
+                    <LoadingSpinner text={`Writing Chapter ${chaptersCount + 1}...`} />
+                    <p className="text-slate-400 mt-2">This may take a minute. The page will update automatically.</p>
+                </div>
+            );
         }
 
         return (
             <div className="min-h-screen bg-slate-900 bg-[radial-gradient(ellipse_80%_80%_at_50%_-20%,rgba(120,119,198,0.3),rgba(255,255,255,0))]">
                 <CheckoutModal isOpen={isCheckoutModalOpen} onClose={() => setCheckoutModalOpen(false)} onSubmit={submitFinalCheckout} bookId={paramBookId} bookType="textBook" book={bookDetails} />
-                
                 <div className="max-w-7xl mx-auto py-12 px-4 sm:px-6 lg:px-8">
                     <PageHeader title={bookDetails.title} subtitle="Your personalized story" />
                     <div className="flex flex-col lg:flex-row gap-8 mt-8">
                         <div className="lg:w-2/3 w-full">
                             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.2 }} className="bg-slate-800/50 backdrop-blur-md p-6 md:p-8 rounded-2xl shadow-2xl border border-slate-700">
                                 <div className="space-y-3">
-                                    {chapters.map((chapter, index) => (
-                                        <Chapter 
-                                            key={chapter.chapter_number}
-                                            chapter={chapter}
-                                            isLatest={index === chapters.length - 1} 
-                                            isOpen={openChapter === chapter.chapter_number} 
-                                            onToggle={() => handleToggleChapter(chapter.chapter_number)} 
-                                            onRegenerate={handleRegenerateChapter}
-                                            isLoading={isGenerating && generationType === 'regenerate' && index === chapters.length - 1}
-                                            isBookGenerating={isBookGenerating}
-                                            guidance={guidanceInputs[chapter.chapter_number] || ''}
-                                            onGuidanceChange={handleGuidanceChange}
-                                        />
-                                    ))}
+                                    {chapters.map((chapter, index) => {
+                                        // FIX: 'isLatest' is defined HERE, inside the map loop.
+                                        const isLatest = index === chapters.length - 1;
+                                        return (
+                                            <Chapter 
+                                                key={chapter.chapter_number}
+                                                chapter={chapter}
+                                                isLatest={isLatest} 
+                                                isOpen={openChapter === chapter.chapter_number} 
+                                                onToggle={() => handleToggleChapter(chapter.chapter_number)} 
+                                                onRegenerate={handleRegenerateChapter}
+                                                activeAction={isLatest ? activeAction : null}
+                                                isBookGenerating={isBookGenerating}
+                                                guidance={guidanceInputs[chapter.chapter_number] || ''}
+                                                onGuidanceChange={handleGuidanceChange}
+                                            />
+                                        );
+                                    })}
                                 </div>
-                                
-                                {isAnyTaskActive && (
-                                    <div className="mt-10 flex justify-center items-center flex-col text-center">
-                                        <LoadingSpinner text={loadingText} />
-                                        <p className="text-slate-400 mt-2">This may take a minute. The page will update automatically.</p>
-                                    </div>
-                                )}
-                                
+                                {mainLoadingIndicator}
                                 <div className="mt-14 border-t border-dashed border-slate-600 pt-10 text-center flex flex-col sm:flex-row justify-center items-center gap-4">
                                     {!isComplete && !isAnyTaskActive && (
                                         <>
@@ -410,9 +370,8 @@ function NovelPage() {
                                 </div>
                             </motion.div>
                         </div>
-
                         <div className="lg:w-1/3 w-full lg:sticky lg:top-8 h-fit">
-                            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.3 }} className="bg-slate-800/50 backdrop-blur-md p-6 md:p-8 rounded-2xl shadow-2xl border border-slate-700">
+                           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.3 }} className="bg-slate-800/50 backdrop-blur-md p-6 md:p-8 rounded-2xl shadow-2xl border border-slate-700">
                                 <h3 className="text-2xl font-bold text-white mb-6 text-center">Book Settings</h3>
                                 {isComplete && <p className="text-xl font-semibold text-green-400 mb-8 text-center">Your story is complete! Ready to bring it to life?</p>}
                                 <div className="flex flex-col gap-10">
